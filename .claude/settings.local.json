@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx skills:*)",
+      "Bash(where.exe uv:*)",
+      "Bash(pip install:*)",
+      "Bash(pip config:*)",
+      "Bash(python:*)",
+      "Bash(rm -f hello.py)",
+      "Bash(NO_PROXY=\"*\" uv sync)",
+      "Bash(uv run:*)",
+      "Bash(curl -s http://127.0.0.1:8000/api/health)",
+      "Bash(kill %1)"
+    ]
+  }
+}
