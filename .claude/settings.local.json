@@ -10,7 +10,11 @@
       "Bash(NO_PROXY=\"*\" uv sync)",
       "Bash(uv run:*)",
       "Bash(curl -s http://127.0.0.1:8000/api/health)",
-      "Bash(kill %1)"
+      "Bash(kill %1)",
+      "Read(//c/Users/benerlord/.claude/**)",
+      "Read(//c/Users/benerlord/.claude/skills/**)",
+      "Read(//c/Users/benerlord/.agents//**)",
+      "Read(//c/Users/benerlord/.agents/skills/fastapi-python//**)"
     ]
   }
 }
