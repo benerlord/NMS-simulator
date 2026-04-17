@@ -1,0 +1,23 @@
+import { fileURLToPath, URL } from 'node:url'
+
+import { defineConfig } from 'vite'
+import vue from '@vitejs/plugin-vue'
+
+const backend = process.env.VITE_BACKEND ?? 'http://localhost:8080'
+
+export default defineConfig({
+  plugins: [vue()],
+  resolve: {
+    alias: {
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+    },
+  },
+  server: {
+    port: 5173,
+    proxy: {
+      '/admin/api': { target: backend, changeOrigin: true },
+      '/admin/ws': { target: backend, changeOrigin: true, ws: true },
+      '/mock': { target: backend, changeOrigin: true },
+    },
+  },
+})
