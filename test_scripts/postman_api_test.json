@@ -1,0 +1,446 @@
+{
+  "info": {
+    "name": "M2-14 接口测试执行 /apis/{id}/test",
+    "description": "POST /admin/api/apis/{id}/test：SQL 模式复用 M2-13 executor + 响应模板渲染；static 模式直接返回 staticBody；不写 request_logs；异常码 40302/40303/40301",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080/admin/api" },
+    { "key": "topologyId", "value": "" },
+    { "key": "switchTypeId", "value": "nt_switch" },
+    { "key": "apiSqlId", "value": "" },
+    { "key": "apiStaticId", "value": "" },
+    { "key": "apiBadId", "value": "" },
+    { "key": "apiSyntaxId", "value": "" }
+  ],
+  "auth": { "type": "noauth" },
+  "item": [
+    {
+      "name": "[SETUP] 创建测试拓扑",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.collectionVariables.set('topologyId', body.data.id);",
+              "pm.test('创建拓扑成功', function() { pm.expect(body.code).to.eql(0); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"ApiTest_{{$timestamp}}\",\n  \"description\": \"api test\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/topologies", "host": ["{{baseUrl}}"], "path": ["topologies"] }
+      }
+    },
+    {
+      "name": "[SETUP] 创建 switch sw-01 (online)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('节点创建成功', function() { pm.expect(body.code).to.eql(0); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"nodeTypeId\": \"{{switchTypeId}}\",\n  \"name\": \"sw-01\",\n  \"status\": \"online\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/topologies/{{topologyId}}/nodes", "host": ["{{baseUrl}}"], "path": ["topologies", "{{topologyId}}", "nodes"] }
+      }
+    },
+    {
+      "name": "[SETUP] 创建 switch sw-02 (offline)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('节点创建成功', function() { pm.expect(body.code).to.eql(0); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"nodeTypeId\": \"{{switchTypeId}}\",\n  \"name\": \"sw-02\",\n  \"status\": \"offline\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/topologies/{{topologyId}}/nodes", "host": ["{{baseUrl}}"], "path": ["topologies", "{{topologyId}}", "nodes"] }
+      }
+    },
+    {
+      "name": "[SETUP] 创建 SQL 模式接口配置",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.collectionVariables.set('apiSqlId', body.data.id);",
+              "pm.test('接口创建成功', function() { pm.expect(body.code).to.eql(0); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"交换机查询\",\n  \"method\": \"GET\",\n  \"path\": \"/m214/sw/{{$timestamp}}\",\n  \"dataSource\": \"sql\",\n  \"topologyId\": \"{{topologyId}}\",\n  \"sqlText\": \"SELECT id, name, status FROM switch WHERE (:status IS NULL OR status = :status)\",\n  \"config\": {\n    \"params\": [\n      { \"name\": \"status\", \"in\": \"query\", \"type\": \"string\", \"required\": false, \"bindTo\": \"status\" }\n    ],\n    \"pagination\": {\n      \"enabled\": true,\n      \"pageNoParam\": \"pageNo\",\n      \"pageSizeParam\": \"pageSize\",\n      \"defaultPageSize\": 10\n    },\n    \"response\": {\n      \"contentType\": \"application/json\",\n      \"statusCode\": 200,\n      \"template\": {\n        \"code\": 0,\n        \"data\": \"{{items}}\",\n        \"total\": \"{{total}}\",\n        \"pageNo\": \"{{pageNo}}\",\n        \"pageSize\": \"{{pageSize}}\",\n        \"requestId\": \"{{uuid}}\",\n        \"ts\": \"{{now}}\"\n      }\n    }\n  }\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/apis", "host": ["{{baseUrl}}"], "path": ["apis"] }
+      }
+    },
+    {
+      "name": "[SETUP] 创建 static 模式接口配置",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.collectionVariables.set('apiStaticId', body.data.id);",
+              "pm.test('接口创建成功', function() { pm.expect(body.code).to.eql(0); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"静态响应\",\n  \"method\": \"GET\",\n  \"path\": \"/m214/static/{{$timestamp}}\",\n  \"dataSource\": \"static\",\n  \"config\": {\n    \"staticBody\": { \"code\": 0, \"data\": { \"msg\": \"hello\" } },\n    \"response\": { \"contentType\": \"application/json\", \"statusCode\": 200 }\n  }\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/apis", "host": ["{{baseUrl}}"], "path": ["apis"] }
+      }
+    },
+    {
+      "name": "[SETUP] 创建 INSERT 接口（用于 40303）",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.collectionVariables.set('apiBadId', body.data.id);",
+              "pm.test('接口创建成功', function() { pm.expect(body.code).to.eql(0); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"坏语句\",\n  \"method\": \"POST\",\n  \"path\": \"/m214/bad/{{$timestamp}}\",\n  \"dataSource\": \"sql\",\n  \"topologyId\": \"{{topologyId}}\",\n  \"sqlText\": \"INSERT INTO nodes(id) VALUES('x')\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/apis", "host": ["{{baseUrl}}"], "path": ["apis"] }
+      }
+    },
+    {
+      "name": "[SETUP] 创建 SELECT 语法错接口（用于 40302）",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.collectionVariables.set('apiSyntaxId', body.data.id);",
+              "pm.test('接口创建成功', function() { pm.expect(body.code).to.eql(0); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"语法错\",\n  \"method\": \"GET\",\n  \"path\": \"/m214/syntax/{{$timestamp}}\",\n  \"dataSource\": \"sql\",\n  \"topologyId\": \"{{topologyId}}\",\n  \"sqlText\": \"SELECT * FRM switch\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/apis", "host": ["{{baseUrl}}"], "path": ["apis"] }
+      }
+    },
+    {
+      "name": "test SQL: 无过滤 → 2 条 + 模板渲染",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('响应码 0', function() { pm.expect(body.code).to.eql(0); });",
+              "pm.test('状态码 200', function() { pm.expect(body.data.statusCode).to.eql(200); });",
+              "pm.test('Content-Type = application/json', function() { pm.expect(body.data.headers['Content-Type']).to.eql('application/json'); });",
+              "pm.test('body.data 是数组且长度 2', function() {",
+              "    pm.expect(Array.isArray(body.data.body.data)).to.be.true;",
+              "    pm.expect(body.data.body.data.length).to.eql(2);",
+              "});",
+              "pm.test('body.total = 2', function() { pm.expect(body.data.body.total).to.eql(2); });",
+              "pm.test('body.pageNo = 1 / pageSize = 10', function() {",
+              "    pm.expect(body.data.body.pageNo).to.eql(1);",
+              "    pm.expect(body.data.body.pageSize).to.eql(10);",
+              "});",
+              "pm.test('{{uuid}} 已替换为 32 位十六进制字符串', function() {",
+              "    pm.expect(body.data.body.requestId).to.match(/^[0-9a-f]{32}$/);",
+              "});",
+              "pm.test('{{now}} 已替换为 ISO 时间', function() {",
+              "    pm.expect(body.data.body.ts).to.match(/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$/);",
+              "});",
+              "pm.test('generatedSql 非空', function() { pm.expect(body.data.generatedSql).to.include('SELECT'); });",
+              "pm.test('boundParams 含 __tid__', function() {",
+              "    pm.expect(body.data.boundParams.__tid__).to.eql(pm.collectionVariables.get('topologyId'));",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"headers\": { \"X-Auth-Token\": \"x-fake\" },\n  \"query\": {},\n  \"body\": null\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/apis/{{apiSqlId}}/test", "host": ["{{baseUrl}}"], "path": ["apis", "{{apiSqlId}}", "test"] }
+      }
+    },
+    {
+      "name": "test SQL: status=online → 1 条",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('响应码 0', function() { pm.expect(body.code).to.eql(0); });",
+              "pm.test('只返回 online 节点', function() {",
+              "    pm.expect(body.data.body.total).to.eql(1);",
+              "    pm.expect(body.data.body.data[0].status).to.eql('online');",
+              "});",
+              "pm.test('boundParams.status = online', function() {",
+              "    pm.expect(body.data.boundParams.status).to.eql('online');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"query\": { \"status\": \"online\" }\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/apis/{{apiSqlId}}/test", "host": ["{{baseUrl}}"], "path": ["apis", "{{apiSqlId}}", "test"] }
+      }
+    },
+    {
+      "name": "test SQL: 分页 pageNo=2 pageSize=1 → 第二页",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('响应码 0', function() { pm.expect(body.code).to.eql(0); });",
+              "pm.test('total=2 仍然准确', function() { pm.expect(body.data.body.total).to.eql(2); });",
+              "pm.test('pageNo=2 pageSize=1 正确', function() {",
+              "    pm.expect(body.data.body.pageNo).to.eql(2);",
+              "    pm.expect(body.data.body.pageSize).to.eql(1);",
+              "});",
+              "pm.test('数据数组长度 1', function() { pm.expect(body.data.body.data.length).to.eql(1); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"query\": { \"pageNo\": 2, \"pageSize\": 1 }\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/apis/{{apiSqlId}}/test", "host": ["{{baseUrl}}"], "path": ["apis", "{{apiSqlId}}", "test"] }
+      }
+    },
+    {
+      "name": "test static: 直接返回 staticBody",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('响应码 0', function() { pm.expect(body.code).to.eql(0); });",
+              "pm.test('body.data.msg = hello', function() {",
+              "    pm.expect(body.data.body.code).to.eql(0);",
+              "    pm.expect(body.data.body.data.msg).to.eql('hello');",
+              "});",
+              "pm.test('generatedSql 为 null', function() { pm.expect(body.data.generatedSql).to.eql(null); });",
+              "pm.test('boundParams 为空对象', function() { pm.expect(Object.keys(body.data.boundParams).length).to.eql(0); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"query\": {}\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/apis/{{apiStaticId}}/test", "host": ["{{baseUrl}}"], "path": ["apis", "{{apiStaticId}}", "test"] }
+      }
+    },
+    {
+      "name": "test: INSERT 语句 → 400 / 40303",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('状态 400', function() { pm.expect(pm.response.code).to.eql(400); });",
+              "var body = pm.response.json();",
+              "pm.test('code 40303', function() { pm.expect(body.detail.code).to.eql(40303); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{}" },
+        "url": { "raw": "{{baseUrl}}/apis/{{apiBadId}}/test", "host": ["{{baseUrl}}"], "path": ["apis", "{{apiBadId}}", "test"] }
+      }
+    },
+    {
+      "name": "test: SELECT 语法错 → 400 / 40302",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('状态 400', function() { pm.expect(pm.response.code).to.eql(400); });",
+              "var body = pm.response.json();",
+              "pm.test('code 40302', function() { pm.expect(body.detail.code).to.eql(40302); });",
+              "pm.test('message 含 SQL 执行失败', function() { pm.expect(body.detail.message).to.include('SQL 执行失败'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{}" },
+        "url": { "raw": "{{baseUrl}}/apis/{{apiSyntaxId}}/test", "host": ["{{baseUrl}}"], "path": ["apis", "{{apiSyntaxId}}", "test"] }
+      }
+    },
+    {
+      "name": "test: 接口不存在 → 404 / 40301",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('状态 404', function() { pm.expect(pm.response.code).to.eql(404); });",
+              "var body = pm.response.json();",
+              "pm.test('code 40301', function() { pm.expect(body.detail.code).to.eql(40301); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{}" },
+        "url": { "raw": "{{baseUrl}}/apis/api_missing_xxx/test", "host": ["{{baseUrl}}"], "path": ["apis", "api_missing_xxx", "test"] }
+      }
+    },
+    {
+      "name": "[CLEANUP] 删除 SQL API",
+      "event": [
+        {
+          "listen": "test",
+          "script": { "exec": ["pm.test('删除成功', function() { pm.expect(pm.response.code).to.eql(200); });"] }
+        }
+      ],
+      "request": {
+        "method": "DELETE",
+        "url": { "raw": "{{baseUrl}}/apis/{{apiSqlId}}", "host": ["{{baseUrl}}"], "path": ["apis", "{{apiSqlId}}"] }
+      }
+    },
+    {
+      "name": "[CLEANUP] 删除 static API",
+      "event": [
+        {
+          "listen": "test",
+          "script": { "exec": ["pm.test('删除成功', function() { pm.expect(pm.response.code).to.eql(200); });"] }
+        }
+      ],
+      "request": {
+        "method": "DELETE",
+        "url": { "raw": "{{baseUrl}}/apis/{{apiStaticId}}", "host": ["{{baseUrl}}"], "path": ["apis", "{{apiStaticId}}"] }
+      }
+    },
+    {
+      "name": "[CLEANUP] 删除 bad API",
+      "event": [
+        {
+          "listen": "test",
+          "script": { "exec": ["pm.test('删除成功', function() { pm.expect(pm.response.code).to.eql(200); });"] }
+        }
+      ],
+      "request": {
+        "method": "DELETE",
+        "url": { "raw": "{{baseUrl}}/apis/{{apiBadId}}", "host": ["{{baseUrl}}"], "path": ["apis", "{{apiBadId}}"] }
+      }
+    },
+    {
+      "name": "[CLEANUP] 删除 syntax API",
+      "event": [
+        {
+          "listen": "test",
+          "script": { "exec": ["pm.test('删除成功', function() { pm.expect(pm.response.code).to.eql(200); });"] }
+        }
+      ],
+      "request": {
+        "method": "DELETE",
+        "url": { "raw": "{{baseUrl}}/apis/{{apiSyntaxId}}", "host": ["{{baseUrl}}"], "path": ["apis", "{{apiSyntaxId}}"] }
+      }
+    },
+    {
+      "name": "[CLEANUP] 删除测试拓扑",
+      "event": [
+        {
+          "listen": "test",
+          "script": { "exec": ["pm.test('删除成功', function() { pm.expect(pm.response.code).to.eql(200); });"] }
+        }
+      ],
+      "request": {
+        "method": "DELETE",
+        "url": { "raw": "{{baseUrl}}/topologies/{{topologyId}}", "host": ["{{baseUrl}}"], "path": ["topologies", "{{topologyId}}"] }
+      }
+    }
+  ]
+}

@@ -1,9 +1,17 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.admin.routes import router as admin_router
+from app.admin.topology import router as topology_router
+from app.admin.node_type import router as node_type_router
+from app.admin.node import router as node_router
+from app.admin.edge import router as edge_router
+from app.admin.api_config import router as api_config_router
+from app.admin.sql_helper import router as sql_helper_router
 from app.core.config import settings
+from app.core.ws_hub import router as ws_router
 from app.db.connection import init_db
 
 
@@ -14,7 +22,23 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="NMS Mock", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(admin_router)
+app.include_router(topology_router)
+app.include_router(node_type_router)
+app.include_router(node_router)
+app.include_router(edge_router)
+app.include_router(api_config_router)
+app.include_router(sql_helper_router)
+app.include_router(ws_router)
 
 
 def main() -> None:

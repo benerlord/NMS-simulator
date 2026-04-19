@@ -1,0 +1,559 @@
+{
+  "info": {
+    "name": "M2-13 SQL 执行器 + 白名单",
+    "description": "POST /admin/api/sql/preview 与 /admin/api/sql/execute：仅允许 SELECT/WITH，拼接 M2-12 CTE，参数绑定，分页 total 正确；非只读语句 / 多语句 / 语法错 / 拓扑不存在均有明确错误码",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080/admin/api" },
+    { "key": "topologyId", "value": "" },
+    { "key": "switchTypeId", "value": "nt_switch" },
+    { "key": "routerTypeId", "value": "nt_router" },
+    { "key": "physicalLinkTypeId", "value": "et_physical_link" },
+    { "key": "nodeAId", "value": "" },
+    { "key": "nodeBId", "value": "" }
+  ],
+  "auth": { "type": "noauth" },
+  "item": [
+    {
+      "name": "[SETUP] 创建测试拓扑",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.collectionVariables.set('topologyId', body.data.id);",
+              "pm.test('创建拓扑成功', function() { pm.expect(body.code).to.eql(0); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"name\": \"SqlExec_{{$timestamp}}\",\n    \"description\": \"sql executor test\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/topologies", "host": ["{{baseUrl}}"], "path": ["topologies"] }
+      }
+    },
+    {
+      "name": "[SETUP] 创建 switch 节点",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.collectionVariables.set('nodeAId', body.data.id);",
+              "pm.test('节点 A 创建成功', function() { pm.expect(body.code).to.eql(0); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"nodeTypeId\": \"{{switchTypeId}}\",\n    \"name\": \"sw-exec\",\n    \"status\": \"online\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/topologies/{{topologyId}}/nodes", "host": ["{{baseUrl}}"], "path": ["topologies", "{{topologyId}}", "nodes"] }
+      }
+    },
+    {
+      "name": "[SETUP] 创建 router 节点",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.collectionVariables.set('nodeBId', body.data.id);",
+              "pm.test('节点 B 创建成功', function() { pm.expect(body.code).to.eql(0); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"nodeTypeId\": \"{{routerTypeId}}\",\n    \"name\": \"rt-exec\",\n    \"status\": \"offline\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/topologies/{{topologyId}}/nodes", "host": ["{{baseUrl}}"], "path": ["topologies", "{{topologyId}}", "nodes"] }
+      }
+    },
+    {
+      "name": "[SETUP] 创建 physical_link 边",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('边创建成功', function() { pm.expect(body.code).to.eql(0); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"edgeTypeId\": \"{{physicalLinkTypeId}}\",\n    \"sourceId\": \"{{nodeAId}}\",\n    \"targetId\": \"{{nodeBId}}\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/topologies/{{topologyId}}/edges", "host": ["{{baseUrl}}"], "path": ["topologies", "{{topologyId}}", "edges"] }
+      }
+    },
+    {
+      "name": "execute: SELECT FROM generic nodes CTE",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('响应码 0', function() { pm.expect(body.code).to.eql(0); });",
+              "pm.test('items 拿到 2 条节点', function() {",
+              "    pm.expect(body.data.items.length).to.eql(2);",
+              "    pm.expect(body.data.total).to.eql(2);",
+              "});",
+              "pm.test('generatedSql 含 CTE 与 LIMIT/OFFSET', function() {",
+              "    pm.expect(body.data.generatedSql).to.include('WITH');",
+              "    pm.expect(body.data.generatedSql).to.include(':__limit__');",
+              "    pm.expect(body.data.generatedSql).to.include(':__offset__');",
+              "});",
+              "pm.test('boundParams 含 __tid__', function() {",
+              "    pm.expect(body.data.boundParams.__tid__).to.eql(pm.collectionVariables.get('topologyId'));",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"topologyId\": \"{{topologyId}}\",\n    \"sql\": \"SELECT id, name, status FROM nodes\",\n    \"page\": 1,\n    \"pageSize\": 10\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/sql/execute", "host": ["{{baseUrl}}"], "path": ["sql", "execute"] }
+      }
+    },
+    {
+      "name": "execute: SELECT FROM node-type CTE switch",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('响应码 0', function() { pm.expect(body.code).to.eql(0); });",
+              "pm.test('只返回 1 条 switch', function() {",
+              "    pm.expect(body.data.items.length).to.eql(1);",
+              "    pm.expect(body.data.items[0].name).to.eql('sw-exec');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"topologyId\": \"{{topologyId}}\",\n    \"sql\": \"SELECT id, name FROM switch\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/sql/execute", "host": ["{{baseUrl}}"], "path": ["sql", "execute"] }
+      }
+    },
+    {
+      "name": "execute: 参数绑定 :status",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('只返回 online 节点', function() {",
+              "    pm.expect(body.data.total).to.eql(1);",
+              "    pm.expect(body.data.items[0].status).to.eql('online');",
+              "});",
+              "pm.test('boundParams.status = online', function() {",
+              "    pm.expect(body.data.boundParams.status).to.eql('online');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"topologyId\": \"{{topologyId}}\",\n    \"sql\": \"SELECT id, name, status FROM nodes WHERE status = :status\",\n    \"params\": { \"status\": \"online\" }\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/sql/execute", "host": ["{{baseUrl}}"], "path": ["sql", "execute"] }
+      }
+    },
+    {
+      "name": "execute: 分页 pageSize=1 第 1 页",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('total=2, items=1', function() {",
+              "    pm.expect(body.data.total).to.eql(2);",
+              "    pm.expect(body.data.items.length).to.eql(1);",
+              "    pm.expect(body.data.page).to.eql(1);",
+              "    pm.expect(body.data.pageSize).to.eql(1);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"topologyId\": \"{{topologyId}}\",\n    \"sql\": \"SELECT id, name FROM nodes\",\n    \"page\": 1,\n    \"pageSize\": 1\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/sql/execute", "host": ["{{baseUrl}}"], "path": ["sql", "execute"] }
+      }
+    },
+    {
+      "name": "execute: 分页 pageSize=1 第 2 页",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('第二页也拿到 1 条', function() {",
+              "    pm.expect(body.data.total).to.eql(2);",
+              "    pm.expect(body.data.items.length).to.eql(1);",
+              "    pm.expect(body.data.page).to.eql(2);",
+              "});",
+              "pm.test('__offset__=1', function() {",
+              "    pm.expect(body.data.boundParams.__offset__).to.eql(1);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"topologyId\": \"{{topologyId}}\",\n    \"sql\": \"SELECT id, name FROM nodes\",\n    \"page\": 2,\n    \"pageSize\": 1\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/sql/execute", "host": ["{{baseUrl}}"], "path": ["sql", "execute"] }
+      }
+    },
+    {
+      "name": "execute: 用户自带 WITH",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('WITH 开头的 SELECT 通过', function() {",
+              "    pm.expect(body.code).to.eql(0);",
+              "    pm.expect(body.data.items[0].c).to.eql(2);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"topologyId\": \"{{topologyId}}\",\n    \"sql\": \"WITH t AS (SELECT id FROM nodes) SELECT count(*) AS c FROM t\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/sql/execute", "host": ["{{baseUrl}}"], "path": ["sql", "execute"] }
+      }
+    },
+    {
+      "name": "execute: INSERT → 40303",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('状态 400', function() { pm.expect(pm.response.code).to.eql(400); });",
+              "pm.test('错误码 40303', function() {",
+              "    pm.expect(pm.response.json().detail.code).to.eql(40303);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"topologyId\": \"{{topologyId}}\",\n    \"sql\": \"INSERT INTO nodes (id) VALUES ('x')\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/sql/execute", "host": ["{{baseUrl}}"], "path": ["sql", "execute"] }
+      }
+    },
+    {
+      "name": "execute: UPDATE → 40303",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('状态 400 + 40303', function() {",
+              "    pm.expect(pm.response.code).to.eql(400);",
+              "    pm.expect(pm.response.json().detail.code).to.eql(40303);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"topologyId\": \"{{topologyId}}\",\n    \"sql\": \"UPDATE nodes SET name='x' WHERE 1=0\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/sql/execute", "host": ["{{baseUrl}}"], "path": ["sql", "execute"] }
+      }
+    },
+    {
+      "name": "execute: DELETE → 40303",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('状态 400 + 40303', function() {",
+              "    pm.expect(pm.response.code).to.eql(400);",
+              "    pm.expect(pm.response.json().detail.code).to.eql(40303);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"topologyId\": \"{{topologyId}}\",\n    \"sql\": \"DELETE FROM nodes WHERE 1=0\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/sql/execute", "host": ["{{baseUrl}}"], "path": ["sql", "execute"] }
+      }
+    },
+    {
+      "name": "execute: DROP → 40303",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('状态 400 + 40303', function() {",
+              "    pm.expect(pm.response.code).to.eql(400);",
+              "    pm.expect(pm.response.json().detail.code).to.eql(40303);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"topologyId\": \"{{topologyId}}\",\n    \"sql\": \"DROP TABLE nodes\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/sql/execute", "host": ["{{baseUrl}}"], "path": ["sql", "execute"] }
+      }
+    },
+    {
+      "name": "execute: PRAGMA → 40303",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('状态 400 + 40303', function() {",
+              "    pm.expect(pm.response.code).to.eql(400);",
+              "    pm.expect(pm.response.json().detail.code).to.eql(40303);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"topologyId\": \"{{topologyId}}\",\n    \"sql\": \"PRAGMA table_info('nodes')\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/sql/execute", "host": ["{{baseUrl}}"], "path": ["sql", "execute"] }
+      }
+    },
+    {
+      "name": "execute: 多语句 ; → 40303",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('多语句拒绝', function() {",
+              "    pm.expect(pm.response.code).to.eql(400);",
+              "    pm.expect(pm.response.json().detail.code).to.eql(40303);",
+              "    pm.expect(pm.response.json().detail.message).to.include('多语句');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"topologyId\": \"{{topologyId}}\",\n    \"sql\": \"SELECT 1; SELECT 2\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/sql/execute", "host": ["{{baseUrl}}"], "path": ["sql", "execute"] }
+      }
+    },
+    {
+      "name": "execute: 语法错误 → 40302",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('SQL 语法错 → 40302', function() {",
+              "    pm.expect(pm.response.code).to.eql(400);",
+              "    pm.expect(pm.response.json().detail.code).to.eql(40302);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"topologyId\": \"{{topologyId}}\",\n    \"sql\": \"SELECT * FRO nodes\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/sql/execute", "host": ["{{baseUrl}}"], "path": ["sql", "execute"] }
+      }
+    },
+    {
+      "name": "execute: 拓扑不存在 → 40101",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('状态 404 + 40101', function() {",
+              "    pm.expect(pm.response.code).to.eql(404);",
+              "    pm.expect(pm.response.json().detail.code).to.eql(40101);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"topologyId\": \"topo_notexist\",\n    \"sql\": \"SELECT 1\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/sql/execute", "host": ["{{baseUrl}}"], "path": ["sql", "execute"] }
+      }
+    },
+    {
+      "name": "preview: 不执行只返回拼接 SQL",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('含 generatedSql / countSql / boundParams', function() {",
+              "    pm.expect(body.code).to.eql(0);",
+              "    pm.expect(body.data.generatedSql).to.include('WITH');",
+              "    pm.expect(body.data.countSql).to.include('COUNT(*)');",
+              "    pm.expect(body.data.boundParams.__tid__).to.eql(pm.collectionVariables.get('topologyId'));",
+              "});",
+              "pm.test('page/pageSize 反映在 boundParams', function() {",
+              "    pm.expect(body.data.boundParams.__limit__).to.eql(5);",
+              "    pm.expect(body.data.boundParams.__offset__).to.eql(5);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"topologyId\": \"{{topologyId}}\",\n    \"sql\": \"SELECT * FROM switch\",\n    \"page\": 2,\n    \"pageSize\": 5\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/sql/preview", "host": ["{{baseUrl}}"], "path": ["sql", "preview"] }
+      }
+    },
+    {
+      "name": "preview: 非只读 → 40303",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('preview 也拒绝非只读', function() {",
+              "    pm.expect(pm.response.code).to.eql(400);",
+              "    pm.expect(pm.response.json().detail.code).to.eql(40303);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"topologyId\": \"{{topologyId}}\",\n    \"sql\": \"INSERT INTO x VALUES (1)\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/sql/preview", "host": ["{{baseUrl}}"], "path": ["sql", "preview"] }
+      }
+    },
+    {
+      "name": "[CLEANUP] 删除测试拓扑",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/topologies/{{topologyId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["topologies", "{{topologyId}}"]
+        }
+      }
+    }
+  ]
+}

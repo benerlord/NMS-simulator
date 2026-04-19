@@ -1,0 +1,936 @@
+{
+	"info": {
+		"name": "Node Types & Edge Types API",
+		"_postman_id": "node-types-crud",
+		"description": "M2-01 node_types / edge_types CRUD API 测试集",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8080/admin/api"
+		}
+	],
+	"item": [
+		{
+			"name": "NODE_TYPES - 列表查询",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 200', function() {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"pm.test('code=0', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.code).to.eql(0);",
+							"});",
+							"pm.test('message=ok', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.message).to.eql('ok');",
+							"});",
+							"pm.test('items 是数组', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.data.items).to.be.an('array');",
+							"});",
+							"pm.test('total 大于 0', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.data.total).to.be.above(0);",
+							"});",
+							"pm.test('预置类型存在 (switch)', function() {",
+							"    var jsonData = pm.response.json();",
+							"    var hasSwitch = jsonData.data.items.some(function(item) {",
+							"        return item.code === 'switch';",
+							"    });",
+							"    pm.expect(hasSwitch).to.be.true;",
+							"});",
+							"pm.test('预置类型存在 (router)', function() {",
+							"    var jsonData = pm.response.json();",
+							"    var hasRouter = jsonData.data.items.some(function(item) {",
+							"        return item.code === 'router';",
+							"    });",
+							"    pm.expect(hasRouter).to.be.true;",
+							"});",
+							"pm.test('预置类型存在 (pod)', function() {",
+							"    var jsonData = pm.response.json();",
+							"    var hasPod = jsonData.data.items.some(function(item) {",
+							"        return item.code === 'pod';",
+							"    });",
+							"    pm.expect(hasPod).to.be.true;",
+							"});",
+							"pm.test('每项包含 fields 数组', function() {",
+							"    var jsonData = pm.response.json();",
+							"    jsonData.data.items.forEach(function(item) {",
+							"        pm.expect(item.fields).to.be.an('array');",
+							"    });",
+							"});"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/node-types",
+					"host": ["{{baseUrl}}"],
+					"path": ["node-types"]
+				},
+				"description": "获取 node_types 列表"
+			}
+		},
+		{
+			"name": "NODE_TYPES - 获取单个详情",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 200', function() {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"pm.test('code=0', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.code).to.eql(0);",
+							"});",
+							"pm.test('id=nt_switch', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.data.id).to.eql('nt_switch');",
+							"});",
+							"pm.test('code=switch', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.data.code).to.eql('switch');",
+							"});",
+							"pm.test('category=physical', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.data.category).to.eql('physical');",
+							"});",
+							"pm.test('name=交换机', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.data.name).to.eql('交换机');",
+							"});",
+							"pm.test('fields 是数组', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.data.fields).to.be.an('array');",
+							"});",
+							"pm.test('fields 包含预置字段 vendor', function() {",
+							"    var jsonData = pm.response.json();",
+							"    var hasVendor = jsonData.data.fields.some(function(f) {",
+							"        return f.field_key === 'vendor';",
+							"    });",
+							"    pm.expect(hasVendor).to.be.true;",
+							"});"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/node-types/nt_switch",
+					"host": ["{{baseUrl}}"],
+					"path": ["node-types", "nt_switch"]
+				},
+				"description": "获取 node_type 详情"
+			}
+		},
+		{
+			"name": "NODE_TYPES - 获取不存在的类型",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 404', function() {",
+							"    pm.response.to.have.status(404);",
+							"});",
+							"pm.test('code=40201', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.detail.code).to.eql(40201);",
+							"});",
+							"pm.test('message 包含 类型不存在', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.detail.message).to.include('不存在');",
+							"});"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/node-types/nt_nonexistent",
+					"host": ["{{baseUrl}}"],
+					"path": ["node-types", "nt_nonexistent"]
+				},
+				"description": "获取不存在的 node_type，应返回 404"
+			}
+		},
+		{
+			"name": "NODE_TYPES - 新建类型",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 200', function() {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"pm.test('code=0', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.code).to.eql(0);",
+							"});",
+							"pm.test('返回 id', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.data.id).to.be.a('string');",
+							"    pm.collectionVariables.set('created_node_type_id', jsonData.data.id);",
+							"});"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"code\": \"test_device\",\n    \"name\": \"测试设备\",\n    \"category\": \"test\",\n    \"icon\": \"api\",\n    \"color\": \"#ff0000\",\n    \"shape\": \"rect\",\n    \"render_mode\": \"flat\",\n    \"dn_template\": \"{{name}}\",\n    \"description\": \"测试类型描述\"\n}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/node-types",
+					"host": ["{{baseUrl}}"],
+					"path": ["node-types"]
+				},
+				"description": "新建 node_type"
+			}
+		},
+		{
+			"name": "NODE_TYPES - 新建类型 (重复code)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 409', function() {",
+							"    pm.response.to.have.status(409);",
+							"});",
+							"pm.test('code=40202', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.detail.code).to.eql(40202);",
+							"});",
+							"pm.test('message 包含 已存在', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.detail.message).to.include('已存在');",
+							"});"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"code\": \"test_device\",\n    \"name\": \"重复测试\",\n    \"category\": \"test\"\n}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/node-types",
+					"host": ["{{baseUrl}}"],
+					"path": ["node-types"]
+				},
+				"description": "使用已存在的 code 新建类型，应返回 409"
+			}
+		},
+		{
+			"name": "NODE_TYPES - 更新类型",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 200', function() {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"pm.test('code=0', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.code).to.eql(0);",
+							"});"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "PUT",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"name\": \"测试设备-已更新\",\n    \"color\": \"#00ff00\",\n    \"description\": \"更新后的描述\"\n}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/node-types/{{created_node_type_id}}",
+					"host": ["{{baseUrl}}"],
+					"path": ["node-types", "{{created_node_type_id}}"]
+				},
+				"description": "更新已创建的 node_type"
+			}
+		},
+		{
+			"name": "NODE_TYPES - 更新类型 (无更新字段)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 400', function() {",
+							"    pm.response.to.have.status(400);",
+							"});",
+							"pm.test('code=40203', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.detail.code).to.eql(40203);",
+							"});",
+							"pm.test('message 包含 无更新字段', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.detail.message).to.include('无更新');",
+							"});"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "PUT",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/node-types/nt_switch",
+					"host": ["{{baseUrl}}"],
+					"path": ["node-types", "nt_switch"]
+				},
+				"description": "不传任何字段更新，应返回 400"
+			}
+		},
+		{
+			"name": "NODE_TYPES - 更新不存在的类型",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 404', function() {",
+							"    pm.response.to.have.status(404);",
+							"});",
+							"pm.test('code=40201', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.detail.code).to.eql(40201);",
+							"});"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "PUT",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"name\": \"不存在\"\n}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/node-types/nt_notfound",
+					"host": ["{{baseUrl}}"],
+					"path": ["node-types", "nt_notfound"]
+				},
+				"description": "更新不存在的类型，应返回 404"
+			}
+		},
+		{
+			"name": "NODE_TYPES - 删除类型",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 200', function() {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"pm.test('code=0', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.code).to.eql(0);",
+							"});"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "DELETE",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/node-types/{{created_node_type_id}}",
+					"host": ["{{baseUrl}}"],
+					"path": ["node-types", "{{created_node_type_id}}"]
+				},
+				"description": "删除已创建的 node_type"
+			}
+		},
+		{
+			"name": "NODE_TYPES - 删除不存在的类型",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 404', function() {",
+							"    pm.response.to.have.status(404);",
+							"});",
+							"pm.test('code=40201', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.detail.code).to.eql(40201);",
+							"});"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "DELETE",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/node-types/{{created_node_type_id}}",
+					"host": ["{{baseUrl}}"],
+					"path": ["node-types", "{{created_node_type_id}}"]
+				},
+				"description": "删除已删除的类型，应返回 404"
+			}
+		},
+		{
+			"name": "NODE_TYPE_FIELDS - 新增字段",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 200', function() {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"pm.test('code=0', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.code).to.eql(0);",
+							"});",
+							"pm.test('返回 id', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.data.id).to.be.a('number');",
+							"    pm.collectionVariables.set('created_field_id', jsonData.data.id);",
+							"});"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"field_key\": \"test_field\",\n    \"field_label\": \"测试字段\",\n    \"field_type\": \"text\",\n    \"default_value\": \"default\",\n    \"required\": true,\n    \"sort_order\": 99\n}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/node-types/nt_switch/fields",
+					"host": ["{{baseUrl}}"],
+					"path": ["node-types", "nt_switch", "fields"]
+				},
+				"description": "为 switch 类型新增字段"
+			}
+		},
+		{
+			"name": "NODE_TYPE_FIELDS - 新增重复字段",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 409', function() {",
+							"    pm.response.to.have.status(409);",
+							"});",
+							"pm.test('code=40204', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.detail.code).to.eql(40204);",
+							"});",
+							"pm.test('message 包含 字段Key已存在', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.detail.message).to.include('字段Key已存在');",
+							"});"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"field_key\": \"test_field\",\n    \"field_label\": \"重复字段\",\n    \"field_type\": \"text\"\n}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/node-types/nt_switch/fields",
+					"host": ["{{baseUrl}}"],
+					"path": ["node-types", "nt_switch", "fields"]
+				},
+				"description": "为 switch 类型新增重复字段，应返回 409"
+			}
+		},
+		{
+			"name": "NODE_TYPE_FIELDS - 更新字段",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 200', function() {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"pm.test('code=0', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.code).to.eql(0);",
+							"});"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "PUT",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"field_label\": \"测试字段-已更新\",\n    \"required\": false\n}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/node-types/nt_switch/fields/{{created_field_id}}",
+					"host": ["{{baseUrl}}"],
+					"path": ["node-types", "nt_switch", "fields", "{{created_field_id}}"]
+				},
+				"description": "更新已创建的字段"
+			}
+		},
+		{
+			"name": "NODE_TYPE_FIELDS - 删除字段",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 200', function() {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"pm.test('code=0', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.code).to.eql(0);",
+							"});"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "DELETE",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/node-types/nt_switch/fields/{{created_field_id}}",
+					"host": ["{{baseUrl}}"],
+					"path": ["node-types", "nt_switch", "fields", "{{created_field_id}}"]
+				},
+				"description": "删除已创建的字段"
+			}
+		},
+		{
+			"name": "EDGE_TYPES - 列表查询",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 200', function() {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"pm.test('code=0', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.code).to.eql(0);",
+							"});",
+							"pm.test('items 是数组', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.data.items).to.be.an('array');",
+							"});",
+							"pm.test('total >= 5', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.data.total).to.be.at.least(5);",
+							"});",
+							"pm.test('预置边类型存在 (contains)', function() {",
+							"    var jsonData = pm.response.json();",
+							"    var hasContains = jsonData.data.items.some(function(item) {",
+							"        return item.code === 'contains';",
+							"    });",
+							"    pm.expect(hasContains).to.be.true;",
+							"});",
+							"pm.test('预置边类型存在 (connects)', function() {",
+							"    var jsonData = pm.response.json();",
+							"    var hasConnects = jsonData.data.items.some(function(item) {",
+							"        return item.code === 'connects';",
+							"    });",
+							"    pm.expect(hasConnects).to.be.true;",
+							"});"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/edge-types",
+					"host": ["{{baseUrl}}"],
+					"path": ["edge-types"]
+				},
+				"description": "获取 edge_types 列表"
+			}
+		},
+		{
+			"name": "EDGE_TYPES - 获取单个详情",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 200', function() {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"pm.test('code=0', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.code).to.eql(0);",
+							"});",
+							"pm.test('id=et_contains', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.data.id).to.eql('et_contains');",
+							"});",
+							"pm.test('semantic=contain', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.data.semantic).to.eql('contain');",
+							"});",
+							"pm.test('exclusive_target=true', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.data.exclusive_target).to.be.true;",
+							"});"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/edge-types/et_contains",
+					"host": ["{{baseUrl}}"],
+					"path": ["edge-types", "et_contains"]
+				},
+				"description": "获取 edge_type 详情"
+			}
+		},
+		{
+			"name": "EDGE_TYPES - 新建边类型",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 200', function() {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"pm.test('code=0', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.code).to.eql(0);",
+							"});",
+							"pm.test('返回 id', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.data.id).to.be.a('string');",
+							"    pm.collectionVariables.set('created_edge_type_id', jsonData.data.id);",
+							"});"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"code\": \"test_edge\",\n    \"name\": \"测试边\",\n    \"semantic\": \"connect\",\n    \"directed\": true,\n    \"exclusive_target\": false,\n    \"line_style\": \"dotted\",\n    \"color\": \"#0000ff\",\n    \"description\": \"测试边类型描述\"\n}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/edge-types",
+					"host": ["{{baseUrl}}"],
+					"path": ["edge-types"]
+				},
+				"description": "新建 edge_type"
+			}
+		},
+		{
+			"name": "EDGE_TYPES - 新建重复code",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 409', function() {",
+							"    pm.response.to.have.status(409);",
+							"});",
+							"pm.test('code=40302', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.detail.code).to.eql(40302);",
+							"});"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"code\": \"test_edge\",\n    \"name\": \"重复测试\",\n    \"semantic\": \"connect\"\n}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/edge-types",
+					"host": ["{{baseUrl}}"],
+					"path": ["edge-types"]
+				},
+				"description": "使用已存在的 code 新建，应返回 409"
+			}
+		},
+		{
+			"name": "EDGE_TYPES - 更新边类型",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 200', function() {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"pm.test('code=0', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.code).to.eql(0);",
+							"});"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "PUT",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"name\": \"测试边-已更新\",\n    \"color\": \"#ff00ff\"\n}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/edge-types/{{created_edge_type_id}}",
+					"host": ["{{baseUrl}}"],
+					"path": ["edge-types", "{{created_edge_type_id}}"]
+				},
+				"description": "更新已创建的 edge_type"
+			}
+		},
+		{
+			"name": "EDGE_TYPES - 删除边类型",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 200', function() {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"pm.test('code=0', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.code).to.eql(0);",
+							"});"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "DELETE",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/edge-types/{{created_edge_type_id}}",
+					"host": ["{{baseUrl}}"],
+					"path": ["edge-types", "{{created_edge_type_id}}"]
+				},
+				"description": "删除已创建的 edge_type"
+			}
+		},
+		{
+			"name": "EDGE_TYPE_FIELDS - 新增字段",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 200', function() {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"pm.test('code=0', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.code).to.eql(0);",
+							"});",
+							"pm.test('返回 id', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.data.id).to.be.a('number');",
+							"    pm.collectionVariables.set('created_edge_field_id', jsonData.data.id);",
+							"});"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"field_key\": \"test_attr\",\n    \"field_label\": \"测试属性\",\n    \"field_type\": \"text\",\n    \"required\": false,\n    \"sort_order\": 0\n}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/edge-types/et_connects/fields",
+					"host": ["{{baseUrl}}"],
+					"path": ["edge-types", "et_connects", "fields"]
+				},
+				"description": "为 connects 边类型新增字段"
+			}
+		},
+		{
+			"name": "EDGE_TYPE_FIELDS - 更新字段",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 200', function() {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"pm.test('code=0', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.code).to.eql(0);",
+							"});"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "PUT",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"field_label\": \"测试属性-已更新\"\n}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/edge-types/et_connects/fields/{{created_edge_field_id}}",
+					"host": ["{{baseUrl}}"],
+					"path": ["edge-types", "et_connects", "fields", "{{created_edge_field_id}}"]
+				},
+				"description": "更新已创建的边字段"
+			}
+		},
+		{
+			"name": "EDGE_TYPE_FIELDS - 删除字段",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 200', function() {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"pm.test('code=0', function() {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.code).to.eql(0);",
+							"});"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "DELETE",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/edge-types/et_connects/fields/{{created_edge_field_id}}",
+					"host": ["{{baseUrl}}"],
+					"path": ["edge-types", "et_connects", "fields", "{{created_edge_field_id}}"]
+				},
+				"description": "删除已创建的边字段"
+			}
+		}
+	]
+}

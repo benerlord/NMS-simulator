@@ -1,0 +1,745 @@
+{
+  "info": {
+    "name": "M2-09 接口配置 CRUD API",
+    "description": "接口配置（api_configs）CRUD API 验收测试：method+path 唯一约束、enabled/topology PATCH 独立端点、异常错误码覆盖",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080/admin/api" },
+    { "key": "topologyId", "value": "" },
+    { "key": "topologyId2", "value": "" },
+    { "key": "apiId1", "value": "" },
+    { "key": "apiId2", "value": "" }
+  ],
+  "auth": { "type": "noauth" },
+  "item": [
+    {
+      "name": "[SETUP] 创建测试拓扑 1",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "if (body.code === 0 && body.data && body.data.id) {",
+              "    pm.collectionVariables.set('topologyId', body.data.id);",
+              "}",
+              "pm.test('创建拓扑 1 成功', function() {",
+              "    pm.expect(body.code).to.eql(0);",
+              "    pm.expect(body.data).to.have.property('id');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"name\": \"ApiCfgTopo1_{{$timestamp}}\",\n    \"description\": \"API config test\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/topologies", "host": ["{{baseUrl}}"], "path": ["topologies"] }
+      }
+    },
+    {
+      "name": "[SETUP] 创建测试拓扑 2",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "if (body.code === 0 && body.data && body.data.id) {",
+              "    pm.collectionVariables.set('topologyId2', body.data.id);",
+              "}",
+              "pm.test('创建拓扑 2 成功', function() {",
+              "    pm.expect(body.code).to.eql(0);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"name\": \"ApiCfgTopo2_{{$timestamp}}\",\n    \"description\": \"for topology switch\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/topologies", "host": ["{{baseUrl}}"], "path": ["topologies"] }
+      }
+    },
+
+    {
+      "name": "POST 创建接口配置（SQL 模式）",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "if (body.code === 0 && body.data && body.data.id) {",
+              "    pm.collectionVariables.set('apiId1', body.data.id);",
+              "}",
+              "pm.test('状态 200', function() { pm.response.to.have.status(200); });",
+              "pm.test('返回 ID + 详情', function() {",
+              "    pm.expect(body.code).to.eql(0);",
+              "    pm.expect(body.data.id).to.match(/^api_[a-f0-9]{12}$/);",
+              "    pm.expect(body.data.method).to.eql('GET');",
+              "    pm.expect(body.data.enabled).to.be.true;",
+              "    pm.expect(body.data.data_source).to.eql('sql');",
+              "    pm.expect(body.data.sql_text).to.include('SELECT');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"name\": \"设备查询接口\",\n    \"method\": \"GET\",\n    \"path\": \"/rest/openapi/network/v1/devices\",\n    \"enabled\": true,\n    \"group_name\": \"ManageOne\",\n    \"data_source\": \"sql\",\n    \"topology_id\": \"{{topologyId}}\",\n    \"sql_text\": \"SELECT * FROM switches WHERE (:status IS NULL OR status=:status)\",\n    \"config\": {\n        \"auth\": {\"type\": \"xtoken\", \"headerName\": \"X-Auth-Token\"},\n        \"pagination\": {\"enabled\": true, \"pageNoParam\": \"pageNo\", \"pageSizeParam\": \"pageSize\", \"defaultPageSize\": 100}\n    }\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/apis", "host": ["{{baseUrl}}"], "path": ["apis"] }
+      }
+    },
+    {
+      "name": "POST 创建接口配置（static 模式，不同 method/path）",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "if (body.code === 0 && body.data && body.data.id) {",
+              "    pm.collectionVariables.set('apiId2', body.data.id);",
+              "}",
+              "pm.test('创建第二条成功', function() {",
+              "    pm.expect(body.code).to.eql(0);",
+              "    pm.expect(body.data.data_source).to.eql('static');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"name\": \"静态接口\",\n    \"method\": \"POST\",\n    \"path\": \"/rest/openapi/network/v1/devices\",\n    \"enabled\": false,\n    \"data_source\": \"static\",\n    \"config\": {\"response\": {\"statusCode\": 200, \"template\": {\"code\": 0}}}\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/apis", "host": ["{{baseUrl}}"], "path": ["apis"] }
+      }
+    },
+
+    {
+      "name": "POST method+path 冲突 → 409/40301",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('HTTP 409', function() { pm.response.to.have.status(409); });",
+              "pm.test('code=40301', function() {",
+              "    pm.expect(body.detail.code).to.eql(40301);",
+              "    pm.expect(body.detail.message).to.include('已存在');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"name\": \"重复接口\",\n    \"method\": \"GET\",\n    \"path\": \"/rest/openapi/network/v1/devices\",\n    \"data_source\": \"static\",\n    \"config\": {}\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/apis", "host": ["{{baseUrl}}"], "path": ["apis"] }
+      }
+    },
+    {
+      "name": "POST SQL 模式缺 sqlText → 400/40001",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('HTTP 400', function() { pm.response.to.have.status(400); });",
+              "pm.test('code=40001', function() {",
+              "    pm.expect(body.detail.code).to.eql(40001);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"name\": \"缺SQL\",\n    \"method\": \"GET\",\n    \"path\": \"/rest/openapi/missing-sql\",\n    \"data_source\": \"sql\",\n    \"config\": {}\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/apis", "host": ["{{baseUrl}}"], "path": ["apis"] }
+      }
+    },
+    {
+      "name": "POST 非法 topology_id → 404/40101",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('HTTP 404', function() { pm.response.to.have.status(404); });",
+              "pm.test('code=40101', function() {",
+              "    pm.expect(body.detail.code).to.eql(40101);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"name\": \"拓扑不存在\",\n    \"method\": \"GET\",\n    \"path\": \"/rest/openapi/bad-topo\",\n    \"data_source\": \"static\",\n    \"topology_id\": \"topo_nonexistent\",\n    \"config\": {}\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/apis", "host": ["{{baseUrl}}"], "path": ["apis"] }
+      }
+    },
+    {
+      "name": "POST 非法 method → 422",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('HTTP 422', function() { pm.response.to.have.status(422); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"name\": \"非法method\",\n    \"method\": \"FOO\",\n    \"path\": \"/x\",\n    \"data_source\": \"static\",\n    \"config\": {}\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/apis", "host": ["{{baseUrl}}"], "path": ["apis"] }
+      }
+    },
+
+    {
+      "name": "GET 列表 - 全部",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('返回分页', function() {",
+              "    pm.expect(body.code).to.eql(0);",
+              "    pm.expect(body.data).to.have.property('items');",
+              "    pm.expect(body.data).to.have.property('total');",
+              "    pm.expect(body.data.total).to.be.at.least(2);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": { "raw": "{{baseUrl}}/apis", "host": ["{{baseUrl}}"], "path": ["apis"] }
+      }
+    },
+    {
+      "name": "GET 列表 - enabled=true",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('仅返回启用项', function() {",
+              "    pm.expect(body.code).to.eql(0);",
+              "    body.data.items.forEach(function(it) {",
+              "        pm.expect(it.enabled).to.be.true;",
+              "    });",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/apis?enabled=true",
+          "host": ["{{baseUrl}}"],
+          "path": ["apis"],
+          "query": [{ "key": "enabled", "value": "true" }]
+        }
+      }
+    },
+    {
+      "name": "GET 列表 - method=GET",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('仅返回 GET', function() {",
+              "    body.data.items.forEach(function(it) {",
+              "        pm.expect(it.method).to.eql('GET');",
+              "    });",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/apis?method=GET",
+          "host": ["{{baseUrl}}"],
+          "path": ["apis"],
+          "query": [{ "key": "method", "value": "GET" }]
+        }
+      }
+    },
+    {
+      "name": "GET 列表 - path 模糊",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('path 包含过滤值', function() {",
+              "    pm.expect(body.data.total).to.be.at.least(1);",
+              "    body.data.items.forEach(function(it) {",
+              "        pm.expect(it.path).to.include('devices');",
+              "    });",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/apis?path=devices",
+          "host": ["{{baseUrl}}"],
+          "path": ["apis"],
+          "query": [{ "key": "path", "value": "devices" }]
+        }
+      }
+    },
+    {
+      "name": "GET 列表 - topologyId 过滤",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('仅返回绑定该拓扑的项', function() {",
+              "    var tid = pm.collectionVariables.get('topologyId');",
+              "    body.data.items.forEach(function(it) {",
+              "        pm.expect(it.topology_id).to.eql(tid);",
+              "    });",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/apis?topologyId={{topologyId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["apis"],
+          "query": [{ "key": "topologyId", "value": "{{topologyId}}" }]
+        }
+      }
+    },
+
+    {
+      "name": "GET 详情",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('返回完整详情', function() {",
+              "    pm.expect(body.code).to.eql(0);",
+              "    pm.expect(body.data.id).to.eql(pm.collectionVariables.get('apiId1'));",
+              "    pm.expect(body.data).to.have.property('sql_text');",
+              "    pm.expect(body.data).to.have.property('config');",
+              "    pm.expect(body.data.config).to.be.an('object');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": { "raw": "{{baseUrl}}/apis/{{apiId1}}", "host": ["{{baseUrl}}"], "path": ["apis", "{{apiId1}}"] }
+      }
+    },
+    {
+      "name": "GET 详情 - 不存在 → 404/40301",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('HTTP 404', function() { pm.response.to.have.status(404); });",
+              "pm.test('code=40301', function() {",
+              "    pm.expect(body.detail.code).to.eql(40301);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": { "raw": "{{baseUrl}}/apis/api_nonexistent", "host": ["{{baseUrl}}"], "path": ["apis", "api_nonexistent"] }
+      }
+    },
+
+    {
+      "name": "PUT 更新 name / group_name",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('字段已更新', function() {",
+              "    pm.expect(body.code).to.eql(0);",
+              "    pm.expect(body.data.name).to.eql('设备查询接口-v2');",
+              "    pm.expect(body.data.group_name).to.eql('NewGroup');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PUT",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"name\": \"设备查询接口-v2\",\n    \"group_name\": \"NewGroup\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/apis/{{apiId1}}", "host": ["{{baseUrl}}"], "path": ["apis", "{{apiId1}}"] }
+      }
+    },
+    {
+      "name": "PUT 无字段 → 400/40001",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('HTTP 400', function() { pm.response.to.have.status(400); });",
+              "pm.test('code=40001', function() {",
+              "    pm.expect(body.detail.code).to.eql(40001);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PUT",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{}" },
+        "url": { "raw": "{{baseUrl}}/apis/{{apiId1}}", "host": ["{{baseUrl}}"], "path": ["apis", "{{apiId1}}"] }
+      }
+    },
+    {
+      "name": "PUT 改 method 导致冲突 → 409/40301",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('HTTP 409', function() { pm.response.to.have.status(409); });",
+              "pm.test('code=40301', function() {",
+              "    pm.expect(body.detail.code).to.eql(40301);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PUT",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n    \"method\": \"POST\"\n}" },
+        "url": { "raw": "{{baseUrl}}/apis/{{apiId1}}", "host": ["{{baseUrl}}"], "path": ["apis", "{{apiId1}}"] }
+      }
+    },
+    {
+      "name": "PUT 不存在 → 404/40301",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('HTTP 404', function() { pm.response.to.have.status(404); });",
+              "pm.test('code=40301', function() {",
+              "    pm.expect(body.detail.code).to.eql(40301);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PUT",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n    \"name\": \"x\"\n}" },
+        "url": { "raw": "{{baseUrl}}/apis/api_nonexistent", "host": ["{{baseUrl}}"], "path": ["apis", "api_nonexistent"] }
+      }
+    },
+
+    {
+      "name": "PATCH enabled=false",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('enabled=false', function() {",
+              "    pm.expect(body.code).to.eql(0);",
+              "    pm.expect(body.data.enabled).to.be.false;",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n    \"enabled\": false\n}" },
+        "url": {
+          "raw": "{{baseUrl}}/apis/{{apiId1}}/enabled",
+          "host": ["{{baseUrl}}"],
+          "path": ["apis", "{{apiId1}}", "enabled"]
+        }
+      }
+    },
+    {
+      "name": "PATCH enabled=true（复位）",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('enabled=true', function() {",
+              "    pm.expect(body.data.enabled).to.be.true;",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n    \"enabled\": true\n}" },
+        "url": {
+          "raw": "{{baseUrl}}/apis/{{apiId1}}/enabled",
+          "host": ["{{baseUrl}}"],
+          "path": ["apis", "{{apiId1}}", "enabled"]
+        }
+      }
+    },
+    {
+      "name": "PATCH enabled - 不存在 → 404/40301",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('HTTP 404', function() { pm.response.to.have.status(404); });",
+              "pm.test('code=40301', function() {",
+              "    pm.expect(body.detail.code).to.eql(40301);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n    \"enabled\": true\n}" },
+        "url": {
+          "raw": "{{baseUrl}}/apis/api_nonexistent/enabled",
+          "host": ["{{baseUrl}}"],
+          "path": ["apis", "api_nonexistent", "enabled"]
+        }
+      }
+    },
+
+    {
+      "name": "PATCH topology 切换到拓扑 2",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('topology_id 已更新', function() {",
+              "    pm.expect(body.data.topology_id).to.eql(pm.collectionVariables.get('topologyId2'));",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n    \"topology_id\": \"{{topologyId2}}\"\n}" },
+        "url": {
+          "raw": "{{baseUrl}}/apis/{{apiId1}}/topology",
+          "host": ["{{baseUrl}}"],
+          "path": ["apis", "{{apiId1}}", "topology"]
+        }
+      }
+    },
+    {
+      "name": "PATCH topology - 非法 → 404/40101",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('HTTP 404', function() { pm.response.to.have.status(404); });",
+              "pm.test('code=40101', function() {",
+              "    pm.expect(body.detail.code).to.eql(40101);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n    \"topology_id\": \"topo_nonexistent\"\n}" },
+        "url": {
+          "raw": "{{baseUrl}}/apis/{{apiId1}}/topology",
+          "host": ["{{baseUrl}}"],
+          "path": ["apis", "{{apiId1}}", "topology"]
+        }
+      }
+    },
+    {
+      "name": "PATCH topology - 清空（null）",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('topology_id 已清空', function() {",
+              "    pm.expect(body.code).to.eql(0);",
+              "    pm.expect(body.data.topology_id).to.be.null;",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PATCH",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n    \"topology_id\": null\n}" },
+        "url": {
+          "raw": "{{baseUrl}}/apis/{{apiId1}}/topology",
+          "host": ["{{baseUrl}}"],
+          "path": ["apis", "{{apiId1}}", "topology"]
+        }
+      }
+    },
+
+    {
+      "name": "DELETE 接口 1",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('删除成功', function() {",
+              "    pm.expect(body.code).to.eql(0);",
+              "    pm.expect(body.data.id).to.eql(pm.collectionVariables.get('apiId1'));",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "DELETE",
+        "url": { "raw": "{{baseUrl}}/apis/{{apiId1}}", "host": ["{{baseUrl}}"], "path": ["apis", "{{apiId1}}"] }
+      }
+    },
+    {
+      "name": "DELETE 接口 1 - 再次 → 404/40301",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('HTTP 404', function() { pm.response.to.have.status(404); });",
+              "pm.test('code=40301', function() {",
+              "    pm.expect(body.detail.code).to.eql(40301);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "DELETE",
+        "url": { "raw": "{{baseUrl}}/apis/{{apiId1}}", "host": ["{{baseUrl}}"], "path": ["apis", "{{apiId1}}"] }
+      }
+    },
+
+    {
+      "name": "[CLEANUP] 删除接口 2",
+      "request": {
+        "method": "DELETE",
+        "url": { "raw": "{{baseUrl}}/apis/{{apiId2}}", "host": ["{{baseUrl}}"], "path": ["apis", "{{apiId2}}"] }
+      }
+    },
+    {
+      "name": "[CLEANUP] 删除拓扑 1",
+      "request": {
+        "method": "DELETE",
+        "url": { "raw": "{{baseUrl}}/topologies/{{topologyId}}", "host": ["{{baseUrl}}"], "path": ["topologies", "{{topologyId}}"] }
+      }
+    },
+    {
+      "name": "[CLEANUP] 删除拓扑 2",
+      "request": {
+        "method": "DELETE",
+        "url": { "raw": "{{baseUrl}}/topologies/{{topologyId2}}", "host": ["{{baseUrl}}"], "path": ["topologies", "{{topologyId2}}"] }
+      }
+    }
+  ]
+}

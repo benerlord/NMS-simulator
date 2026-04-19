@@ -1,0 +1,425 @@
+{
+  "info": {
+    "name": "拓扑 CRUD API",
+    "description": "M1-03 拓扑管理接口测试集",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080/admin/api"
+    },
+    {
+      "key": "topoId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "01 - 创建拓扑",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('返回 code=0', function() {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.code).to.eql(0);",
+              "});",
+              "pm.test('返回拓扑 ID', function() {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.data).to.have.property('id');",
+              "    pm.expect(jsonData.data.id).to.match(/^topo_/);",
+              "});",
+              "pm.test('返回 name 和 version', function() {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.data.name).to.eql('测试拓扑');",
+              "    pm.expect(jsonData.data.version).to.eql(1);",
+              "});",
+              "pm.test('stats 初始为 0', function() {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.data.stats.node_count).to.eql(0);",
+              "    pm.expect(jsonData.data.stats.edge_count).to.eql(0);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/topologies",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"name\": \"测试拓扑\",\n    \"description\": \"这是一个测试拓扑\"\n}"
+        }
+      }
+    },
+    {
+      "name": "02 - 创建拓扑（重复名称，应返回 409 + code:40003）",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('返回 409', function() {",
+              "    pm.expect(pm.response.code).to.eql(409);",
+              "});",
+              "pm.test('返回 code=40003', function() {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.detail.code).to.eql(40003);",
+              "});",
+              "pm.test('message 包含拓扑名称已存在', function() {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.detail.message).to.include('拓扑名称已存在');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/topologies",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"name\": \"测试拓扑\"\n}"
+        }
+      }
+    },
+    {
+      "name": "03 - 列表查询（分页+过滤）",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('返回 code=0', function() {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.code).to.eql(0);",
+              "});",
+              "pm.test('返回分页结构', function() {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.data).to.have.property('items');",
+              "    pm.expect(jsonData.data).to.have.property('total');",
+              "    pm.expect(jsonData.data).to.have.property('page');",
+              "    pm.expect(jsonData.data).to.have.property('pageSize');",
+              "});",
+              "pm.test('total >= 1', function() {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.data.total).to.at.least(1);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/topologies?name=测试&page=1&pageSize=20&sort=updated_at,desc",
+          "host": ["{{baseUrl}}"],
+          "path": ["topologies"],
+          "query": [
+            {
+              "key": "name",
+              "value": "测试"
+            },
+            {
+              "key": "page",
+              "value": "1"
+            },
+            {
+              "key": "pageSize",
+              "value": "20"
+            },
+            {
+              "key": "sort",
+              "value": "updated_at,desc"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "04 - 获取拓扑详情",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var jsonData = pm.response.json();",
+              "pm.collectionVariables.set('topoId', jsonData.data.id);",
+              "",
+              "pm.test('返回 code=0', function() {",
+              "    pm.expect(jsonData.code).to.eql(0);",
+              "});",
+              "pm.test('返回拓扑元数据', function() {",
+              "    pm.expect(jsonData.data).to.have.property('id');",
+              "    pm.expect(jsonData.data.name).to.eql('测试拓扑');",
+              "    pm.expect(jsonData.data.description).to.eql('这是一个测试拓扑');",
+              "});",
+              "pm.test('返回 stats', function() {",
+              "    pm.expect(jsonData.data.stats).to.have.property('node_count');",
+              "    pm.expect(jsonData.data.stats).to.have.property('edge_count');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/topologies/{{topoId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["topologies", "{{topoId}}"]
+        }
+      }
+    },
+    {
+      "name": "05 - 获取图数据（空拓扑）",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('返回 code=0', function() {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.code).to.eql(0);",
+              "});",
+              "pm.test('nodes/edges/canvas_nodes 均为空数组', function() {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.data.nodes).to.be.an('array').that.is.empty;",
+              "    pm.expect(jsonData.data.edges).to.be.an('array').that.is.empty;",
+              "    pm.expect(jsonData.data.canvas_nodes).to.be.an('array').that.is.empty;",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/topologies/{{topoId}}/graph",
+          "host": ["{{baseUrl}}"],
+          "path": ["topologies", "{{topoId}}", "graph"]
+        }
+      }
+    },
+    {
+      "name": "06 - 更新拓扑",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('返回 code=0', function() {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.code).to.eql(0);",
+              "});",
+              "pm.test('名称已更新', function() {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.data.name).to.eql('测试拓扑-已更新');",
+              "});",
+              "pm.test('description 已更新', function() {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.data.description).to.eql('更新后的描述');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PUT",
+        "url": {
+          "raw": "{{baseUrl}}/topologies/{{topoId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["topologies", "{{topoId}}"]
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"name\": \"测试拓扑-已更新\",\n    \"description\": \"更新后的描述\"\n}"
+        }
+      }
+    },
+    {
+      "name": "07 - 更新拓扑（无更新字段，应返回 400 + code:40001）",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('返回 400', function() {",
+              "    pm.expect(pm.response.code).to.eql(400);",
+              "});",
+              "pm.test('返回 code=40001', function() {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.detail.code).to.eql(40001);",
+              "});",
+              "pm.test('message 包含无更新字段', function() {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.detail.message).to.include('无更新字段');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PUT",
+        "url": {
+          "raw": "{{baseUrl}}/topologies/{{topoId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["topologies", "{{topoId}}"]
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{}"
+        }
+      }
+    },
+    {
+      "name": "08 - 获取不存在的拓扑（应返回 404 + code:40101）",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('返回 404', function() {",
+              "    pm.expect(pm.response.code).to.eql(404);",
+              "});",
+              "pm.test('返回 code=40101', function() {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.detail.code).to.eql(40101);",
+              "});",
+              "pm.test('message 包含拓扑不存在', function() {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.detail.message).to.include('拓扑不存在');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/topologies/topo_notexist123",
+          "host": ["{{baseUrl}}"],
+          "path": ["topologies", "topo_notexist123"]
+        }
+      }
+    },
+    {
+      "name": "09 - 删除拓扑",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('返回 code=0', function() {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.code).to.eql(0);",
+              "});",
+              "pm.test('message 正确', function() {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.message).to.eql('删除成功');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "DELETE",
+        "url": {
+          "raw": "{{baseUrl}}/topologies/{{topoId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["topologies", "{{topoId}}"]
+        }
+      }
+    },
+    {
+      "name": "10 - 删除不存在的拓扑（应返回 404 + code:40101）",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('返回 404', function() {",
+              "    pm.expect(pm.response.code).to.eql(404);",
+              "});",
+              "pm.test('返回 code=40101', function() {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.detail.code).to.eql(40101);",
+              "});",
+              "pm.test('message 包含拓扑不存在', function() {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.detail.message).to.include('拓扑不存在');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "DELETE",
+        "url": {
+          "raw": "{{baseUrl}}/topologies/topo_notexist123",
+          "host": ["{{baseUrl}}"],
+          "path": ["topologies", "topo_notexist123"]
+        }
+      }
+    },
+    {
+      "name": "11 - 批量删除全部拓扑",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('返回 code=0', function() {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.code).to.eql(0);",
+              "});",
+              "pm.test('返回 deletedCount', function() {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.data).to.have.property('deletedCount');",
+              "    pm.expect(jsonData.data.deletedCount).to.be.at.least(0);",
+              "});",
+              "pm.test('message 正确', function() {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.message).to.eql('删除成功');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "DELETE",
+        "url": {
+          "raw": "{{baseUrl}}/topologies",
+          "host": ["{{baseUrl}}"],
+          "path": ["topologies"]
+        }
+      }
+    }
+  ]
+}

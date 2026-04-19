@@ -1,0 +1,306 @@
+{
+  "info": {
+    "name": "M2-12 动态 CTE 视图生成",
+    "description": "GET /admin/api/sql/views 接受 topologyId，返回该拓扑下出现的 node_types / edge_types 的 CTE 视图定义 + 通用 nodes/edges/children；用 SETUP 用例创建一个拓扑并添加 1 个节点 + 1 条边以验证生成结果",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080/admin/api" },
+    { "key": "topologyId", "value": "" },
+    { "key": "emptyTopologyId", "value": "" },
+    { "key": "switchTypeId", "value": "nt_switch" },
+    { "key": "routerTypeId", "value": "nt_router" },
+    { "key": "physicalLinkTypeId", "value": "et_physical_link" },
+    { "key": "nodeAId", "value": "" },
+    { "key": "nodeBId", "value": "" }
+  ],
+  "auth": { "type": "noauth" },
+  "item": [
+    {
+      "name": "[SETUP] 创建空拓扑（用于 0 视图场景）",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.collectionVariables.set('emptyTopologyId', body.data.id);",
+              "pm.test('空拓扑创建成功', function() {",
+              "    pm.expect(body.code).to.eql(0);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"name\": \"SqlViewsEmpty_{{$timestamp}}\",\n    \"description\": \"sql views empty topology\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/topologies", "host": ["{{baseUrl}}"], "path": ["topologies"] }
+      }
+    },
+    {
+      "name": "[SETUP] 创建业务拓扑",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.collectionVariables.set('topologyId', body.data.id);",
+              "pm.test('业务拓扑创建成功', function() {",
+              "    pm.expect(body.code).to.eql(0);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"name\": \"SqlViews_{{$timestamp}}\",\n    \"description\": \"sql views test topology\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/topologies", "host": ["{{baseUrl}}"], "path": ["topologies"] }
+      }
+    },
+    {
+      "name": "[SETUP] 创建 switch 节点 A",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.collectionVariables.set('nodeAId', body.data.id);",
+              "pm.test('节点 A 创建成功', function() {",
+              "    pm.expect(body.code).to.eql(0);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"nodeTypeId\": \"{{switchTypeId}}\",\n    \"name\": \"sw-A\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/topologies/{{topologyId}}/nodes", "host": ["{{baseUrl}}"], "path": ["topologies", "{{topologyId}}", "nodes"] }
+      }
+    },
+    {
+      "name": "[SETUP] 创建 router 节点 B",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.collectionVariables.set('nodeBId', body.data.id);",
+              "pm.test('节点 B 创建成功', function() {",
+              "    pm.expect(body.code).to.eql(0);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"nodeTypeId\": \"{{routerTypeId}}\",\n    \"name\": \"rt-B\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/topologies/{{topologyId}}/nodes", "host": ["{{baseUrl}}"], "path": ["topologies", "{{topologyId}}", "nodes"] }
+      }
+    },
+    {
+      "name": "[SETUP] 创建 physical_link 边（A→B）",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('边创建成功', function() {",
+              "    pm.expect(body.code).to.eql(0);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"edgeTypeId\": \"{{physicalLinkTypeId}}\",\n    \"sourceId\": \"{{nodeAId}}\",\n    \"targetId\": \"{{nodeBId}}\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/topologies/{{topologyId}}/edges", "host": ["{{baseUrl}}"], "path": ["topologies", "{{topologyId}}", "edges"] }
+      }
+    },
+    {
+      "name": "GET 视图清单（业务拓扑）",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('响应码 0', function() { pm.expect(body.code).to.eql(0); });",
+              "pm.test('含 node_views 且包含 switch + router', function() {",
+              "    var names = body.data.nodeViews.map(function(v) { return v.name; });",
+              "    pm.expect(names).to.include('switch');",
+              "    pm.expect(names).to.include('router');",
+              "});",
+              "pm.test('含 edge_views 且包含 physical_link', function() {",
+              "    var names = body.data.edgeViews.map(function(v) { return v.name; });",
+              "    pm.expect(names).to.include('physical_link');",
+              "});",
+              "pm.test('generic 永远返回 nodes/edges/children', function() {",
+              "    var names = body.data.generic.map(function(v) { return v.name; });",
+              "    pm.expect(names).to.eql(['nodes','edges','children']);",
+              "});",
+              "pm.test('switch 视图列含 vendor/model/ip', function() {",
+              "    var sw = body.data.nodeViews.find(function(v) { return v.name === 'switch'; });",
+              "    pm.expect(sw.columns).to.include.members(['id','name','dn','status','vendor','model','ip']);",
+              "});",
+              "pm.test('physical_link 视图列含 source_name/target_name', function() {",
+              "    var pl = body.data.edgeViews.find(function(v) { return v.name === 'physical_link'; });",
+              "    pm.expect(pl.columns).to.include.members(['source_id','target_id','source_name','target_name']);",
+              "});",
+              "pm.test('所有 sql 片段引用 :__tid__', function() {",
+              "    var all = body.data.nodeViews.concat(body.data.edgeViews).concat(body.data.generic);",
+              "    all.forEach(function(v) {",
+              "        pm.expect(v.sql).to.include(':__tid__');",
+              "    });",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/sql/views?topologyId={{topologyId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["sql", "views"],
+          "query": [{ "key": "topologyId", "value": "{{topologyId}}" }]
+        }
+      }
+    },
+    {
+      "name": "GET 视图清单（空拓扑：应只返回 generic）",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "pm.test('响应码 0', function() { pm.expect(body.code).to.eql(0); });",
+              "pm.test('node_views / edge_views 为空', function() {",
+              "    pm.expect(body.data.nodeViews).to.eql([]);",
+              "    pm.expect(body.data.edgeViews).to.eql([]);",
+              "});",
+              "pm.test('generic 仍返回 nodes/edges/children', function() {",
+              "    var names = body.data.generic.map(function(v) { return v.name; });",
+              "    pm.expect(names).to.eql(['nodes','edges','children']);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/sql/views?topologyId={{emptyTopologyId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["sql", "views"],
+          "query": [{ "key": "topologyId", "value": "{{emptyTopologyId}}" }]
+        }
+      }
+    },
+    {
+      "name": "GET 视图清单（拓扑不存在 → 404/40101）",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('状态码 404', function() { pm.expect(pm.response.code).to.eql(404); });",
+              "var body = pm.response.json();",
+              "pm.test('错误码 40101', function() {",
+              "    pm.expect(body.detail.code).to.eql(40101);",
+              "    pm.expect(body.detail.message).to.include('拓扑');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/sql/views?topologyId=topo_notexist_xxx",
+          "host": ["{{baseUrl}}"],
+          "path": ["sql", "views"],
+          "query": [{ "key": "topologyId", "value": "topo_notexist_xxx" }]
+        }
+      }
+    },
+    {
+      "name": "GET 视图清单（缺 topologyId → 422）",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('状态码 422', function() { pm.expect(pm.response.code).to.eql(422); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/sql/views",
+          "host": ["{{baseUrl}}"],
+          "path": ["sql", "views"]
+        }
+      }
+    },
+    {
+      "name": "[CLEANUP] 删除业务拓扑",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/topologies/{{topologyId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["topologies", "{{topologyId}}"]
+        }
+      }
+    },
+    {
+      "name": "[CLEANUP] 删除空拓扑",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/topologies/{{emptyTopologyId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["topologies", "{{emptyTopologyId}}"]
+        }
+      }
+    }
+  ]
+}

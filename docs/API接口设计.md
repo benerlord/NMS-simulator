@@ -69,7 +69,23 @@
 }
 ```
 
-### 1.3 错误码约定
+### 1.3 HTTP 状态码语义
+
+| 状态码 | 语义 | 使用场景 |
+|--------|------|----------|
+| `200 OK` | 成功 | GET、PUT、PATCH 返回资源 |
+| `201 Created` | 创建成功 | POST 创建资源（应含 `Location` 头） |
+| `204 No Content` | 删除成功 | DELETE 无返回体 |
+| `400 Bad Request` | 参数错误 | 缺少必填字段、JSON 格式错误 |
+| `401 Unauthorized` | 未认证 | Token 缺失或无效 |
+| `403 Forbidden` | 无权限 | 已认证但无权限访问 |
+| `404 Not Found` | 资源不存在 | ID 查不到记录 |
+| `409 Conflict` | 冲突 | 重复名称、状态冲突、被引用无法删除 |
+| `422 Unprocessable Entity` | 语义校验失败 | 字段格式正确但语义非法（如 ID 格式不符） |
+| `429 Too Many Requests` | 限流 | 应返回 `Retry-After` 头 |
+| `500 Internal Server Error` | 内部错误 | 绝不暴露堆栈或 SQL 原文 |
+
+### 1.4 错误码约定
 
 | 区间 | 含义 |
 |------|------|
@@ -81,7 +97,102 @@
 | `40400–40499` | 认证 / Token 相关错误 |
 | `50000–59999` | 服务器内部错误 |
 
-HTTP 状态码同时语义化使用：`400` 参数错误、`404` 资源不存在、`409` 冲突、`422` 语义校验失败、`500` 内部错误。
+### 1.5 错误响应结构
+
+基础错误（字段级验证错误）：
+
+```json
+{
+  "code": 40001,
+  "message": "请求参数校验失败",
+  "details": [
+    {
+      "field": "name",
+      "message": "name 不得为空",
+      "code": "required"
+    },
+    {
+      "field": "name",
+      "message": "name 长度不能超过 100",
+      "code": "max_length"
+    }
+  ]
+}
+```
+
+资源不存在错误：
+
+```json
+{
+  "code": 40101,
+  "message": "拓扑不存在",
+  "details": { "topologyId": "topo_abc" }
+}
+```
+
+冲突错误（重复名称、被引用）：
+
+```json
+{
+  "code": 40103,
+  "message": "拓扑被接口配置引用，无法删除",
+  "details": { "topologyId": "topo_abc", "apiConfigIds": ["api_001"] }
+}
+```
+
+内部错误（不暴露详情）：
+
+```json
+{
+  "code": 50000,
+  "message": "服务器内部错误",
+  "details": null
+}
+```
+
+### 1.6 字段过滤（Sparse Fieldsets）
+
+用于减少响应体体积：
+
+```
+GET /admin/api/topologies?fields=id,name,version
+```
+
+响应只包含指定字段：
+
+```json
+{
+  "code": 0,
+  "data": {
+    "items": [
+      { "id": "topo_abc", "name": "场景A", "version": 1 }
+    ]
+  }
+}
+```
+
+### 1.7 限流（Rate Limiting）
+
+所有管理 API 启用基础限流：
+
+```
+HTTP/1.1 200 OK
+X-RateLimit-Limit: 1000
+X-RateLimit-Remaining: 998
+X-RateLimit-Reset: 1744886400
+```
+
+限流触发时：
+
+```
+HTTP/1.1 429 Too Many Requests
+Retry-After: 60
+{
+  "code": 40002,
+  "message": "请求过于频繁，请稍后重试",
+  "details": { "retryAfter": 60 }
+}
+```
 
 ---
 
@@ -95,7 +206,8 @@ HTTP 状态码同时语义化使用：`400` 参数错误、`404` 资源不存在
 | GET | `/admin/api/topologies/{id}` | 获取拓扑详情（不含节点和边，仅元数据 + 统计） |
 | POST | `/admin/api/topologies` | 新建拓扑 |
 | PUT | `/admin/api/topologies/{id}` | 修改拓扑元数据（name / description） |
-| DELETE | `/admin/api/topologies/{id}` | 删除拓扑（被接口绑定时返回 409） |
+| DELETE | `/admin/api/topologies` | 批量删除全部拓扑（有关联 api_configs 时返回 `code:40103`） |
+| DELETE | `/admin/api/topologies/{id}` | 删除单个拓扑（被接口绑定时返回 `code:40103`） |
 | GET | `/admin/api/topologies/{id}/graph` | 一次性获取拓扑完整图数据（节点 + 边 + 画布坐标），供画布加载 |
 | POST | `/admin/api/topologies/{id}/export` | 导出场景为 JSON 文件 |
 | POST | `/admin/api/topologies/import` | 导入场景文件（冲突时新建副本） |
@@ -106,6 +218,21 @@ HTTP 状态码同时语义化使用：`400` 参数错误、`404` 资源不存在
 ```json
 { "name": "场景A", "description": "测试ManageOne的Token认证流程" }
 ```
+
+**异常场景**：
+
+| 场景 | HTTP 状态码 | code | message |
+|------|------------|------|---------|
+| 新建时 name 为空 | 400 | 40001 | name 不得为空 |
+| 新建时 name 超过 100 字符 | 400 | 40001 | name 长度不能超过 100 |
+| 新建时 name 重复 | 409 | 40003 | 拓扑名称已存在 |
+| 更新时 topology 不存在 | 404 | 40101 | 拓扑不存在 |
+| 更新时 name 为空 | 400 | 40001 | name 不得为空 |
+| 更新时无任何更新字段 | 400 | 40001 | 无更新字段 |
+| 批量删除时有拓扑被引用 | 409 | 40103 | 部分拓扑被接口配置引用，无法删除 |
+| 删除单个时 topology 不存在 | 404 | 40101 | 拓扑不存在 |
+| 删除单个时被 api_configs 引用 | 409 | 40103 | 拓扑被接口配置引用，无法删除 |
+| 获取 graph 时 topology 不存在 | 404 | 40101 | 拓扑不存在 |
 
 **图数据响应示例**：
 
@@ -149,6 +276,15 @@ HTTP 状态码同时语义化使用：`400` 参数错误、`404` 资源不存在
 | PUT | `/admin/api/node-types/{id}` | 更新（含字段整体替换） |
 | DELETE | `/admin/api/node-types/{id}` | 删除（被节点引用时返回 409） |
 
+**异常场景**：
+
+| 场景 | HTTP 状态码 | code | message |
+|------|------------|------|---------|
+| 新建时 code 已存在 | 409 | 40201 | 节点类型 code 已存在 |
+| 新建时缺少必填字段 | 400 | 40001 | {field} 不得为空 |
+| 更新时 node-type 不存在 | 404 | 40201 | 节点类型不存在 |
+| 删除时被节点引用 | 409 | 40202 | 节点类型被节点引用，无法删除 |
+
 **请求体示例**：
 
 ```json
@@ -178,6 +314,13 @@ HTTP 状态码同时语义化使用：`400` 参数错误、`404` 资源不存在
 | POST | `/admin/api/edge-types` | 新建 |
 | PUT | `/admin/api/edge-types/{id}` | 更新 |
 | DELETE | `/admin/api/edge-types/{id}` | 删除（被边引用时返回 409） |
+
+**异常场景**：
+
+| 场景 | HTTP 状态码 | code | message |
+|------|------------|------|---------|
+| 新建时 code 已存在 | 409 | 40201 | 边类型 code 已存在 |
+| 删除时被边引用 | 409 | 40202 | 边类型被边引用，无法删除 |
 
 **请求体示例**：
 
@@ -210,6 +353,18 @@ HTTP 状态码同时语义化使用：`400` 参数错误、`404` 资源不存在
 | PATCH | `/admin/api/nodes/{id}/position` | 仅更新画布坐标（拖拽高频调用） |
 | DELETE | `/admin/api/nodes/{id}` | 删除节点（不递归删除子节点；级联删除相连边） |
 | DELETE | `/admin/api/topologies/{topologyId}/nodes/batch` | 批量删除（body 传 id 数组） |
+
+**异常场景**：
+
+| 场景 | HTTP 状态码 | code | message |
+|------|------------|------|---------|
+| 新建时 topology 不存在 | 404 | 40101 | 拓扑不存在 |
+| 新建时 nodeTypeCode 不存在 | 400 | 40001 | 节点类型不存在 |
+| 新建时缺少必填字段 | 400 | 40001 | {field} 不得为空 |
+| 批量创建时 parentId 不存在 | 400 | 40104 | 父节点不存在 |
+| 更新时 node 不存在 | 404 | 40102 | 节点不存在 |
+| 删除时 node 不存在 | 404 | 40102 | 节点不存在 |
+| 批量删除时拓扑不匹配 | 400 | 40105 | 节点不属于该拓扑 |
 
 **新建请求体**：
 
@@ -263,10 +418,18 @@ HTTP 状态码同时语义化使用：`400` 参数错误、`404` 资源不存在
 }
 ```
 
-后端校验：
-- source/target 必须属于同一 `topologyId`
-- 若边类型为 `exclusive_target=1`，同一 `(edge_type_id, target_id)` 已存在则返回 409
-- 若定义了 `allow_source_type_codes` / `allow_target_type_codes`，校验节点类型是否在白名单内
+**异常场景**：
+
+| 场景 | HTTP 状态码 | code | message |
+|------|------------|------|---------|
+| 新建时 topology 不存在 | 404 | 40101 | 拓扑不存在 |
+| 新建时 edgeTypeCode 不存在 | 400 | 40001 | 边类型不存在 |
+| 新建时 source/target 不存在 | 404 | 40102/40106 | 源/目标节点不存在 |
+| 新建时 source/target 不同拓扑 | 400 | 40107 | 源节点和目标节点不在同一拓扑 |
+| 新建时 exclusive_target 冲突 | 409 | 40108 | 该目标节点已存在相同类型的边 |
+| 新建时节点类型不在白名单 | 400 | 40109 | 源/目标节点类型不在允许范围内 |
+| 更新时 edge 不存在 | 404 | 40106 | 边不存在 |
+| 删除时 edge 不存在 | 404 | 40106 | 边不存在 |
 
 ### 2.6 接口配置（ApiConfig）
 
@@ -282,6 +445,19 @@ HTTP 状态码同时语义化使用：`400` 参数错误、`404` 资源不存在
 | POST | `/admin/api/apis/{id}/test` | 测试执行（不计入请求日志） |
 | POST | `/admin/api/apis/export` | 批量导出（body: `{ "ids": [...] }`，不传则全部） |
 | POST | `/admin/api/apis/import` | 批量导入 |
+
+**异常场景**：
+
+| 场景 | HTTP 状态码 | code | message |
+|------|------------|------|---------|
+| 新建时 method + path 冲突 | 409 | 40301 | 接口路径已存在 |
+| 新建时缺少必填字段 | 400 | 40001 | {field} 不得为空 |
+| 新建时 topology 不存在 | 404 | 40101 | 拓扑不存在 |
+| 更新时 api 不存在 | 404 | 40301 | 接口配置不存在 |
+| 切换 topology 时 topology 不存在 | 404 | 40101 | 拓扑不存在 |
+| 测试执行 SQL 语法错误 | 400 | 40302 | SQL 执行失败 |
+| 测试执行 SQL 含非 SELECT 语句 | 400 | 40303 | 仅允许 SELECT 查询 |
+| 导入时 JSON 格式错误 | 400 | 40001 | 无效的 JSON 格式 |
 
 **接口配置结构**：
 
@@ -502,3 +678,23 @@ MVP 阶段不做管理 API 鉴权与限流，仅以下约束由后端校验：
 | 版本 | 日期 | 变更 |
 |------|------|------|
 | v1.0 | 2026-04-15 | 初版：覆盖 11 个资源模块 + WebSocket 事件 |
+| v1.1 | 2026-04-17 | 完善异常场景：HTTP 状态码语义、字段级验证错误、稀疏字段集、限流响应、各模块异常码表 |
+
+---
+
+## 7. API 设计检查清单
+
+新增或修改接口时逐项核对：
+
+- [ ] 资源 URL 符合命名规范（复数名词、kebab-case、无动词）
+- [ ] HTTP 方法使用正确（GET 读取、POST 创建、PUT 全量更新、PATCH 部分更新、DELETE 删除）
+- [ ] 返回正确的 HTTP 状态码（不是所有接口都返回 200）
+- [ ] 请求参数有 Pydantic/Zod 等 Schema 校验
+- [ ] 错误响应格式统一，包含 code 和 message
+- [ ] 字段级验证错误包含 details 数组
+- [ ] 分页接口有 page + pageSize + total
+- [ ] 列表支持 sort 排序
+- [ ] 删除资源时检查被引用情况
+- [ ] 敏感信息不暴露在错误详情中
+- [ ] 符合已有接口的 camelCase/snake_case 映射约定
+- [ ] OpenAPI 文档已更新

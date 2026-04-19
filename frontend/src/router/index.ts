@@ -20,6 +20,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '拓扑' },
       },
       {
+        path: 'topologies/:id/canvas',
+        name: 'canvas',
+        component: () => import('@/views/CanvasView.vue'),
+        meta: { title: '拓扑画布' },
+      },
+      {
         path: 'types',
         name: 'types',
         component: () => import('@/views/TypesView.vue'),

@@ -1,7 +1,7 @@
 import axios, { type AxiosInstance, type AxiosResponse } from 'axios'
 import { message } from 'ant-design-vue'
 
-import { camelizeKeys } from './case'
+import { camelizeKeys, snakeizeKeys } from './case'
 
 export interface ApiEnvelope<T = unknown> {
   code: number
@@ -25,6 +25,16 @@ const http: AxiosInstance = axios.create({
   baseURL: '/admin/api',
   timeout: 15_000,
   headers: { 'Content-Type': 'application/json' },
+})
+
+http.interceptors.request.use((config) => {
+  if (config.data && typeof config.data === 'object') {
+    config.data = snakeizeKeys(config.data)
+  }
+  if (config.params && typeof config.params === 'object') {
+    config.params = snakeizeKeys(config.params)
+  }
+  return config
 })
 
 http.interceptors.response.use(

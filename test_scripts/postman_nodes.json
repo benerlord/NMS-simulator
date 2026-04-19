@@ -1,0 +1,676 @@
+{
+	"info": {
+		"name": "Nodes API",
+		"_postman_id": "nodes-crud",
+		"description": "M2-02 节点 CRUD API 测试集（嵌套路由 + camelCase）",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{ "key": "baseUrl", "value": "http://localhost:8080/admin/api" },
+		{ "key": "topo_id", "value": "" },
+		{ "key": "node_id", "value": "" },
+		{ "key": "node_id_2", "value": "" }
+	],
+	"item": [
+		{
+			"name": "SETUP - 创建拓扑",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 200', function() { pm.response.to.have.status(200); });",
+							"pm.test('code=0', function() { pm.expect(pm.response.json().code).to.eql(0); });",
+							"pm.test('保存 topo_id', function() { pm.collectionVariables.set('topo_id', pm.response.json().data.id); });"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [{ "key": "Content-Type", "value": "application/json" }],
+				"body": { "mode": "raw", "raw": "{\n    \"name\": \"NodeTestTopology\"\n}" },
+				"url": { "raw": "{{baseUrl}}/topologies", "host": ["{{baseUrl}}"], "path": ["topologies"] }
+			}
+		},
+		{
+			"name": "NODES - 列表查询（空）",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 200', function() { pm.response.to.have.status(200); });",
+							"pm.test('code=0', function() { pm.expect(pm.response.json().code).to.eql(0); });",
+							"pm.test('total=0', function() { pm.expect(pm.response.json().data.total).to.eql(0); });",
+							"pm.test('items 是空数组', function() { pm.expect(pm.response.json().data.items).to.be.an('array').that.has.length(0); });"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/topologies/{{topo_id}}/nodes",
+					"host": ["{{baseUrl}}"],
+					"path": ["topologies", "{{topo_id}}", "nodes"]
+				}
+			}
+		},
+		{
+			"name": "NODES - 创建节点1",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 200', function() { pm.response.to.have.status(200); });",
+							"var d = pm.response.json();",
+							"pm.test('code=0', function() { pm.expect(d.code).to.eql(0); });",
+							"pm.test('返回完整数据', function() {",
+							"    pm.expect(d.data.id).to.be.a('string');",
+							"    pm.expect(d.data.name).to.eql('Switch-1');",
+							"    pm.expect(d.data.dn).to.eql('sw1');",
+							"    pm.expect(d.data.status).to.eql('online');",
+							"    pm.expect(d.data.topologyId).to.eql(pm.collectionVariables.get('topo_id'));",
+							"    pm.expect(d.data.nodeTypeId).to.eql('nt_switch');",
+							"    pm.expect(d.data.attrs).to.be.an('object');",
+							"});",
+							"pm.collectionVariables.set('node_id', d.data.id);"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [{ "key": "Content-Type", "value": "application/json" }],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"nodeTypeId\": \"nt_switch\",\n    \"name\": \"Switch-1\",\n    \"dn\": \"sw1\",\n    \"status\": \"online\"\n}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/topologies/{{topo_id}}/nodes",
+					"host": ["{{baseUrl}}"],
+					"path": ["topologies", "{{topo_id}}", "nodes"]
+				}
+			}
+		},
+		{
+			"name": "NODES - 创建节点2（不同dn）",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 200', function() { pm.response.to.have.status(200); });",
+							"var d = pm.response.json();",
+							"pm.test('code=0', function() { pm.expect(d.code).to.eql(0); });",
+							"pm.collectionVariables.set('node_id_2', d.data.id);"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [{ "key": "Content-Type", "value": "application/json" }],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"nodeTypeId\": \"nt_router\",\n    \"name\": \"Router-1\",\n    \"dn\": \"r1\",\n    \"status\": \"online\"\n}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/topologies/{{topo_id}}/nodes",
+					"host": ["{{baseUrl}}"],
+					"path": ["topologies", "{{topo_id}}", "nodes"]
+				}
+			}
+		},
+		{
+			"name": "NODES - 列表查询（2条）",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 200', function() { pm.response.to.have.status(200); });",
+							"var d = pm.response.json();",
+							"pm.test('total=2', function() { pm.expect(d.data.total).to.eql(2); });",
+							"pm.test('items.length=2', function() { pm.expect(d.data.items.length).to.eql(2); });",
+							"pm.test('所有节点属于该拓扑', function() {",
+							"    d.data.items.forEach(function(it) { pm.expect(it.topologyId).to.eql(pm.collectionVariables.get('topo_id')); });",
+							"});"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/topologies/{{topo_id}}/nodes",
+					"host": ["{{baseUrl}}"],
+					"path": ["topologies", "{{topo_id}}", "nodes"]
+				}
+			}
+		},
+		{
+			"name": "NODES - 按 node_type_id 过滤",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 200', function() { pm.response.to.have.status(200); });",
+							"var d = pm.response.json();",
+							"pm.test('total=1', function() { pm.expect(d.data.total).to.eql(1); });",
+							"pm.test('类型为 switch', function() { pm.expect(d.data.items[0].nodeTypeId).to.eql('nt_switch'); });"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/topologies/{{topo_id}}/nodes?node_type_id=nt_switch",
+					"host": ["{{baseUrl}}"],
+					"path": ["topologies", "{{topo_id}}", "nodes"],
+					"query": [{ "key": "node_type_id", "value": "nt_switch" }]
+				}
+			}
+		},
+		{
+			"name": "NODES - 按 status 过滤",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 200', function() { pm.response.to.have.status(200); });",
+							"pm.test('total=2', function() { pm.expect(pm.response.json().data.total).to.eql(2); });"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/topologies/{{topo_id}}/nodes?status=online",
+					"host": ["{{baseUrl}}"],
+					"path": ["topologies", "{{topo_id}}", "nodes"],
+					"query": [{ "key": "status", "value": "online" }]
+				}
+			}
+		},
+		{
+			"name": "NODES - 列表（拓扑不存在 → 404/40101）",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 404', function() { pm.response.to.have.status(404); });",
+							"pm.test('code=40101', function() { pm.expect(pm.response.json().detail.code).to.eql(40101); });"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/topologies/topo_nonexistent/nodes",
+					"host": ["{{baseUrl}}"],
+					"path": ["topologies", "topo_nonexistent", "nodes"]
+				}
+			}
+		},
+		{
+			"name": "NODES - 获取单个节点",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 200', function() { pm.response.to.have.status(200); });",
+							"var d = pm.response.json();",
+							"pm.test('code=0', function() { pm.expect(d.code).to.eql(0); });",
+							"pm.test('id 匹配', function() { pm.expect(d.data.id).to.eql(pm.collectionVariables.get('node_id')); });",
+							"pm.test('name=Switch-1', function() { pm.expect(d.data.name).to.eql('Switch-1'); });",
+							"pm.test('包含 attrs 对象', function() { pm.expect(d.data.attrs).to.be.an('object'); });",
+							"pm.test('包含 x/y 坐标字段', function() { pm.expect(d.data).to.have.property('x'); pm.expect(d.data).to.have.property('y'); });"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": { "raw": "{{baseUrl}}/nodes/{{node_id}}", "host": ["{{baseUrl}}"], "path": ["nodes", "{{node_id}}"] }
+			}
+		},
+		{
+			"name": "NODES - 获取不存在的节点",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 404', function() { pm.response.to.have.status(404); });",
+							"var d = pm.response.json();",
+							"pm.test('code=40401', function() { pm.expect(d.detail.code).to.eql(40401); });",
+							"pm.test('message 包含 节点不存在', function() { pm.expect(d.detail.message).to.include('节点不存在'); });"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": { "raw": "{{baseUrl}}/nodes/node_nonexistent", "host": ["{{baseUrl}}"], "path": ["nodes", "node_nonexistent"] }
+			}
+		},
+		{
+			"name": "NODES - 创建节点（重复dn → 409）",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 409', function() { pm.response.to.have.status(409); });",
+							"var d = pm.response.json();",
+							"pm.test('code=40404', function() { pm.expect(d.detail.code).to.eql(40404); });",
+							"pm.test('message 包含 DN 已存在', function() { pm.expect(d.detail.message).to.include('DN 已存在'); });"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [{ "key": "Content-Type", "value": "application/json" }],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"nodeTypeId\": \"nt_switch\",\n    \"name\": \"Switch-Dup\",\n    \"dn\": \"sw1\"\n}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/topologies/{{topo_id}}/nodes",
+					"host": ["{{baseUrl}}"],
+					"path": ["topologies", "{{topo_id}}", "nodes"]
+				}
+			}
+		},
+		{
+			"name": "NODES - 创建节点（拓扑不存在 → 404/40402）",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 404', function() { pm.response.to.have.status(404); });",
+							"var d = pm.response.json();",
+							"pm.test('code=40402', function() { pm.expect(d.detail.code).to.eql(40402); });",
+							"pm.test('message 包含 拓扑不存在', function() { pm.expect(d.detail.message).to.include('拓扑不存在'); });"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [{ "key": "Content-Type", "value": "application/json" }],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"nodeTypeId\": \"nt_switch\",\n    \"name\": \"Test\"\n}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/topologies/topo_nonexistent/nodes",
+					"host": ["{{baseUrl}}"],
+					"path": ["topologies", "topo_nonexistent", "nodes"]
+				}
+			}
+		},
+		{
+			"name": "NODES - 创建节点（类型不存在 → 404/40403）",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 404', function() { pm.response.to.have.status(404); });",
+							"var d = pm.response.json();",
+							"pm.test('code=40403', function() { pm.expect(d.detail.code).to.eql(40403); });",
+							"pm.test('message 包含 节点类型不存在', function() { pm.expect(d.detail.message).to.include('节点类型不存在'); });"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [{ "key": "Content-Type", "value": "application/json" }],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"nodeTypeId\": \"nonexistent_type\",\n    \"name\": \"Test\"\n}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/topologies/{{topo_id}}/nodes",
+					"host": ["{{baseUrl}}"],
+					"path": ["topologies", "{{topo_id}}", "nodes"]
+				}
+			}
+		},
+		{
+			"name": "NODES - 更新节点名称",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 200', function() { pm.response.to.have.status(200); });",
+							"var d = pm.response.json();",
+							"pm.test('code=0', function() { pm.expect(d.code).to.eql(0); });",
+							"pm.test('name 已更新', function() { pm.expect(d.data.name).to.eql('Switch-1-Updated'); });"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "PUT",
+				"header": [{ "key": "Content-Type", "value": "application/json" }],
+				"body": { "mode": "raw", "raw": "{\n    \"name\": \"Switch-1-Updated\"\n}" },
+				"url": { "raw": "{{baseUrl}}/nodes/{{node_id}}", "host": ["{{baseUrl}}"], "path": ["nodes", "{{node_id}}"] }
+			}
+		},
+		{
+			"name": "NODES - 更新节点dn（重复 → 409）",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 409', function() { pm.response.to.have.status(409); });",
+							"pm.test('code=40404', function() { pm.expect(pm.response.json().detail.code).to.eql(40404); });"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "PUT",
+				"header": [{ "key": "Content-Type", "value": "application/json" }],
+				"body": { "mode": "raw", "raw": "{\n    \"dn\": \"r1\"\n}" },
+				"url": { "raw": "{{baseUrl}}/nodes/{{node_id}}", "host": ["{{baseUrl}}"], "path": ["nodes", "{{node_id}}"] }
+			}
+		},
+		{
+			"name": "NODES - 更新节点（空body → 400）",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 400', function() { pm.response.to.have.status(400); });",
+							"var d = pm.response.json();",
+							"pm.test('code=40405', function() { pm.expect(d.detail.code).to.eql(40405); });",
+							"pm.test('message 包含 无更新字段', function() { pm.expect(d.detail.message).to.include('无更新字段'); });"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "PUT",
+				"header": [{ "key": "Content-Type", "value": "application/json" }],
+				"body": { "mode": "raw", "raw": "{}" },
+				"url": { "raw": "{{baseUrl}}/nodes/{{node_id}}", "host": ["{{baseUrl}}"], "path": ["nodes", "{{node_id}}"] }
+			}
+		},
+		{
+			"name": "NODES - 更新不存在的节点",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 404', function() { pm.response.to.have.status(404); });",
+							"pm.test('code=40401', function() { pm.expect(pm.response.json().detail.code).to.eql(40401); });"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "PUT",
+				"header": [{ "key": "Content-Type", "value": "application/json" }],
+				"body": { "mode": "raw", "raw": "{\n    \"name\": \"Test\"\n}" },
+				"url": { "raw": "{{baseUrl}}/nodes/node_nonexistent", "host": ["{{baseUrl}}"], "path": ["nodes", "node_nonexistent"] }
+			}
+		},
+		{
+			"name": "NODES - 更新节点位置",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 200', function() { pm.response.to.have.status(200); });",
+							"var d = pm.response.json();",
+							"pm.test('code=0', function() { pm.expect(d.code).to.eql(0); });",
+							"pm.test('x=100.5', function() { pm.expect(d.data.x).to.eql(100.5); });",
+							"pm.test('y=200.5', function() { pm.expect(d.data.y).to.eql(200.5); });"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "PATCH",
+				"header": [{ "key": "Content-Type", "value": "application/json" }],
+				"body": { "mode": "raw", "raw": "{\n    \"x\": 100.5,\n    \"y\": 200.5\n}" },
+				"url": {
+					"raw": "{{baseUrl}}/nodes/{{node_id}}/position",
+					"host": ["{{baseUrl}}"],
+					"path": ["nodes", "{{node_id}}", "position"]
+				}
+			}
+		},
+		{
+			"name": "NODES - 获取节点（验证位置已更新）",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 200', function() { pm.response.to.have.status(200); });",
+							"var d = pm.response.json();",
+							"pm.test('x=100.5', function() { pm.expect(d.data.x).to.eql(100.5); });",
+							"pm.test('y=200.5', function() { pm.expect(d.data.y).to.eql(200.5); });"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": { "raw": "{{baseUrl}}/nodes/{{node_id}}", "host": ["{{baseUrl}}"], "path": ["nodes", "{{node_id}}"] }
+			}
+		},
+		{
+			"name": "NODES - 更新不存在的节点位置",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 404', function() { pm.response.to.have.status(404); });",
+							"pm.test('code=40401', function() { pm.expect(pm.response.json().detail.code).to.eql(40401); });"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "PATCH",
+				"header": [{ "key": "Content-Type", "value": "application/json" }],
+				"body": { "mode": "raw", "raw": "{\n    \"x\": 50,\n    \"y\": 60\n}" },
+				"url": {
+					"raw": "{{baseUrl}}/nodes/node_nonexistent/position",
+					"host": ["{{baseUrl}}"],
+					"path": ["nodes", "node_nonexistent", "position"]
+				}
+			}
+		},
+		{
+			"name": "NODES - 设置节点属性",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 200', function() { pm.response.to.have.status(200); });",
+							"var d = pm.response.json();",
+							"pm.test('code=0', function() { pm.expect(d.code).to.eql(0); });",
+							"pm.test('attrs.ip=192.168.1.1', function() { pm.expect(d.data.attrs.ip).to.eql('192.168.1.1'); });",
+							"pm.test('attrs.vendor=Cisco', function() { pm.expect(d.data.attrs.vendor).to.eql('Cisco'); });"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "PUT",
+				"header": [{ "key": "Content-Type", "value": "application/json" }],
+				"body": {
+					"mode": "raw",
+					"raw": "[\n    {\"field_key\": \"ip\", \"value\": \"192.168.1.1\"},\n    {\"field_key\": \"vendor\", \"value\": \"Cisco\"}\n]"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/nodes/{{node_id}}/attrs",
+					"host": ["{{baseUrl}}"],
+					"path": ["nodes", "{{node_id}}", "attrs"]
+				}
+			}
+		},
+		{
+			"name": "NODES - 获取节点（验证属性已设置）",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 200', function() { pm.response.to.have.status(200); });",
+							"var d = pm.response.json();",
+							"pm.test('attrs.ip=192.168.1.1', function() { pm.expect(d.data.attrs.ip).to.eql('192.168.1.1'); });",
+							"pm.test('attrs.vendor=Cisco', function() { pm.expect(d.data.attrs.vendor).to.eql('Cisco'); });"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": { "raw": "{{baseUrl}}/nodes/{{node_id}}", "host": ["{{baseUrl}}"], "path": ["nodes", "{{node_id}}"] }
+			}
+		},
+		{
+			"name": "NODES - 设置不存在的节点属性",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 404', function() { pm.response.to.have.status(404); });",
+							"pm.test('code=40401', function() { pm.expect(pm.response.json().detail.code).to.eql(40401); });"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "PUT",
+				"header": [{ "key": "Content-Type", "value": "application/json" }],
+				"body": { "mode": "raw", "raw": "[{\"field_key\": \"test\", \"value\": \"value\"}]" },
+				"url": {
+					"raw": "{{baseUrl}}/nodes/node_nonexistent/attrs",
+					"host": ["{{baseUrl}}"],
+					"path": ["nodes", "node_nonexistent", "attrs"]
+				}
+			}
+		},
+		{
+			"name": "NODES - 删除节点",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 200', function() { pm.response.to.have.status(200); });",
+							"pm.test('code=0', function() { pm.expect(pm.response.json().code).to.eql(0); });"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "DELETE",
+				"header": [],
+				"url": { "raw": "{{baseUrl}}/nodes/{{node_id}}", "host": ["{{baseUrl}}"], "path": ["nodes", "{{node_id}}"] }
+			}
+		},
+		{
+			"name": "NODES - 获取已删除的节点",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 404', function() { pm.response.to.have.status(404); });",
+							"pm.test('code=40401', function() { pm.expect(pm.response.json().detail.code).to.eql(40401); });"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": { "raw": "{{baseUrl}}/nodes/{{node_id}}", "host": ["{{baseUrl}}"], "path": ["nodes", "{{node_id}}"] }
+			}
+		},
+		{
+			"name": "NODES - 列表查询（1条）",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('返回码 200', function() { pm.response.to.have.status(200); });",
+							"pm.test('total=1', function() { pm.expect(pm.response.json().data.total).to.eql(1); });"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/topologies/{{topo_id}}/nodes",
+					"host": ["{{baseUrl}}"],
+					"path": ["topologies", "{{topo_id}}", "nodes"]
+				}
+			}
+		},
+		{
+			"name": "TEARDOWN - 删除拓扑",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('清理完成', function() { pm.expect(pm.response.json().code).to.eql(0); });"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "DELETE",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/topologies/{{topo_id}}",
+					"host": ["{{baseUrl}}"],
+					"path": ["topologies", "{{topo_id}}"]
+				}
+			}
+		}
+	]
+}

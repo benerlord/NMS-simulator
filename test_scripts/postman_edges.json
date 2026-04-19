@@ -1,0 +1,925 @@
+{
+  "info": {
+    "name": "M2-03 边 CRUD API",
+    "description": "边（Edge）CRUD API 测试，包含 exclusive_target 约束验证",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080/admin/api"
+    },
+    {
+      "key": "topologyId",
+      "value": ""
+    },
+    {
+      "key": "edgeId",
+      "value": ""
+    },
+    {
+      "key": "node1Id",
+      "value": ""
+    },
+    {
+      "key": "node2Id",
+      "value": ""
+    },
+    {
+      "key": "node3Id",
+      "value": ""
+    },
+    {
+      "key": "edgeTypeId",
+      "value": "et_physical_link"
+    },
+    {
+      "key": "containsEdgeTypeId",
+      "value": "et_contains"
+    }
+  ],
+  "auth": {
+    "type": "noauth"
+  },
+  "item": [
+    {
+      "name": "[SETUP] 创建测试拓扑",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "if (body.code === 0 && body.data && body.data.id) {",
+              "    pm.collectionVariables.set('topologyId', body.data.id);",
+              "    console.log('拓扑已创建:', body.data.id);",
+              "}",
+              "",
+              "pm.test('创建拓扑成功', function() {",
+              "    pm.expect(body.code).to.eql(0);",
+              "    pm.expect(body.data).to.have.property('id');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"name\": \"EdgeTest{{$timestamp}}\",\n    \"description\": \"边API测试\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/topologies",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "topologies"
+          ]
+        }
+      }
+    },
+    {
+      "name": "[SETUP] 创建测试节点1",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "if (body.code === 0 && body.data && body.data.id) {",
+              "    pm.collectionVariables.set('node1Id', body.data.id);",
+              "}",
+              "",
+              "pm.test('创建节点1成功', function() {",
+              "    pm.expect(body.code).to.eql(0);",
+              "    pm.expect(body.data).to.have.property('id');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"nodeTypeId\": \"nt_switch\",\n    \"name\": \"Switch-01\",\n    \"status\": \"online\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/topologies/{{topologyId}}/nodes",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "topologies",
+            "{{topologyId}}",
+            "nodes"
+          ]
+        }
+      }
+    },
+    {
+      "name": "[SETUP] 创建测试节点2",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "if (body.code === 0 && body.data && body.data.id) {",
+              "    pm.collectionVariables.set('node2Id', body.data.id);",
+              "}",
+              "",
+              "pm.test('创建节点2成功', function() {",
+              "    pm.expect(body.code).to.eql(0);",
+              "    pm.expect(body.data).to.have.property('id');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"nodeTypeId\": \"nt_switch\",\n    \"name\": \"Switch-02\",\n    \"status\": \"online\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/topologies/{{topologyId}}/nodes",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "topologies",
+            "{{topologyId}}",
+            "nodes"
+          ]
+        }
+      }
+    },
+    {
+      "name": "[SETUP] 创建测试节点3",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "if (body.code === 0 && body.data && body.data.id) {",
+              "    pm.collectionVariables.set('node3Id', body.data.id);",
+              "}",
+              "",
+              "pm.test('创建节点3成功', function() {",
+              "    pm.expect(body.code).to.eql(0);",
+              "    pm.expect(body.data).to.have.property('id');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"nodeTypeId\": \"nt_switch\",\n    \"name\": \"Switch-03\",\n    \"status\": \"online\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/topologies/{{topologyId}}/nodes",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "topologies",
+            "{{topologyId}}",
+            "nodes"
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /topologies/{topologyId}/edges - 空列表",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "",
+              "pm.test('返回码正确', function() {",
+              "    pm.expect(body.code).to.eql(0);",
+              "});",
+              "",
+              "pm.test('边缘列表为空', function() {",
+              "    pm.expect(body.data.items).to.be.an('array');",
+              "    pm.expect(body.data.items.length).to.eql(0);",
+              "    pm.expect(body.data.total).to.eql(0);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/topologies/{{topologyId}}/edges",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "topologies",
+            "{{topologyId}}",
+            "edges"
+          ]
+        }
+      }
+    },
+    {
+      "name": "POST /topologies/{topologyId}/edges - 创建边",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "if (body.code === 0 && body.data && body.data.id) {",
+              "    pm.collectionVariables.set('edgeId', body.data.id);",
+              "}",
+              "",
+              "pm.test('创建边成功', function() {",
+              "    pm.expect(body.code).to.eql(0);",
+              "    pm.expect(body.data).to.have.property('id');",
+              "    pm.expect(body.data.topologyId).to.eql(pm.collectionVariables.get('topologyId'));",
+              "    pm.expect(body.data.edgeTypeId).to.eql(pm.collectionVariables.get('edgeTypeId'));",
+              "    pm.expect(body.data.sourceId).to.eql(pm.collectionVariables.get('node1Id'));",
+              "    pm.expect(body.data.targetId).to.eql(pm.collectionVariables.get('node2Id'));",
+              "    pm.expect(body.data.status).to.eql('up');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"edgeTypeId\": \"{{edgeTypeId}}\",\n    \"sourceId\": \"{{node1Id}}\",\n    \"targetId\": \"{{node2Id}}\",\n    \"status\": \"up\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/topologies/{{topologyId}}/edges",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "topologies",
+            "{{topologyId}}",
+            "edges"
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /topologies/{topologyId}/edges - 列表查询",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "",
+              "pm.test('返回码正确', function() {",
+              "    pm.expect(body.code).to.eql(0);",
+              "});",
+              "",
+              "pm.test('边缘列表包含一条记录', function() {",
+              "    pm.expect(body.data.items).to.be.an('array');",
+              "    pm.expect(body.data.items.length).to.eql(1);",
+              "    pm.expect(body.data.total).to.eql(1);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/topologies/{{topologyId}}/edges",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "topologies",
+            "{{topologyId}}",
+            "edges"
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /topologies/{topologyId}/edges?edge_type_id - 按类型过滤",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "",
+              "pm.test('按类型过滤成功', function() {",
+              "    pm.expect(body.code).to.eql(0);",
+              "    pm.expect(body.data.items[0].edgeTypeId).to.eql(pm.collectionVariables.get('edgeTypeId'));",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/topologies/{{topologyId}}/edges?edge_type_id={{edgeTypeId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "topologies",
+            "{{topologyId}}",
+            "edges"
+          ],
+          "query": [
+            {
+              "key": "edge_type_id",
+              "value": "{{edgeTypeId}}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /edges/{edgeId} - 获取边详情",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "",
+              "pm.test('获取边详情成功', function() {",
+              "    pm.expect(body.code).to.eql(0);",
+              "    pm.expect(body.data.id).to.eql(pm.collectionVariables.get('edgeId'));",
+              "    pm.expect(body.data).to.have.property('attrs');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/edges/{{edgeId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "edges",
+            "{{edgeId}}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "PUT /edges/{edgeId} - 更新边状态",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "",
+              "pm.test('更新边状态成功', function() {",
+              "    pm.expect(body.code).to.eql(0);",
+              "    pm.expect(body.data.status).to.eql('down');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"status\": \"down\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/edges/{{edgeId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "edges",
+            "{{edgeId}}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "PUT /edges/{edgeId} - 无更新字段",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "",
+              "pm.test('无更新字段返回400', function() {",
+              "    pm.expect(pm.response.code).to.eql(400);",
+              "    pm.expect(body.detail.code).to.eql(40001);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/edges/{{edgeId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "edges",
+            "{{edgeId}}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "POST /topologies/{topologyId}/edges - exclusive_target第一次",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "",
+              "pm.test('创建第一条contains边成功', function() {",
+              "    pm.expect(body.code).to.eql(0);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"edgeTypeId\": \"{{containsEdgeTypeId}}\",\n    \"sourceId\": \"{{node1Id}}\",\n    \"targetId\": \"{{node3Id}}\",\n    \"status\": \"up\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/topologies/{{topologyId}}/edges",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "topologies",
+            "{{topologyId}}",
+            "edges"
+          ]
+        }
+      }
+    },
+    {
+      "name": "POST /topologies/{topologyId}/edges - exclusive_target冲突",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "",
+              "pm.test('exclusive_target冲突返回409', function() {",
+              "    pm.expect(pm.response.code).to.eql(409);",
+              "    pm.expect(body.detail.code).to.eql(40108);",
+              "    pm.expect(body.detail.message).to.include('已存在相同类型的边');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"edgeTypeId\": \"{{containsEdgeTypeId}}\",\n    \"sourceId\": \"{{node2Id}}\",\n    \"targetId\": \"{{node3Id}}\",\n    \"status\": \"up\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/topologies/{{topologyId}}/edges",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "topologies",
+            "{{topologyId}}",
+            "edges"
+          ]
+        }
+      }
+    },
+    {
+      "name": "POST /topologies/{topologyId}/edges - 拓扑不存在",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "",
+              "pm.test('拓扑不存在返回404', function() {",
+              "    pm.expect(pm.response.code).to.eql(404);",
+              "    pm.expect(body.detail.code).to.eql(40101);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"edgeTypeId\": \"{{edgeTypeId}}\",\n    \"sourceId\": \"node1\",\n    \"targetId\": \"node2\",\n    \"status\": \"up\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/topologies/nonexistent/edges",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "topologies",
+            "nonexistent",
+            "edges"
+          ]
+        }
+      }
+    },
+    {
+      "name": "POST /topologies/{topologyId}/edges - 边类型不存在",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "",
+              "pm.test('边类型不存在返回400', function() {",
+              "    pm.expect(pm.response.code).to.eql(400);",
+              "    pm.expect(body.detail.code).to.eql(40001);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"edgeTypeId\": \"nonexistent\",\n    \"sourceId\": \"{{node1Id}}\",\n    \"targetId\": \"{{node2Id}}\",\n    \"status\": \"up\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/topologies/{{topologyId}}/edges",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "topologies",
+            "{{topologyId}}",
+            "edges"
+          ]
+        }
+      }
+    },
+    {
+      "name": "POST /topologies/{topologyId}/edges - 源节点不存在",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "",
+              "pm.test('源节点不存在返回404', function() {",
+              "    pm.expect(pm.response.code).to.eql(404);",
+              "    pm.expect(body.detail.code).to.eql(40102);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"edgeTypeId\": \"{{edgeTypeId}}\",\n    \"sourceId\": \"nonexistent\",\n    \"targetId\": \"{{node2Id}}\",\n    \"status\": \"up\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/topologies/{{topologyId}}/edges",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "topologies",
+            "{{topologyId}}",
+            "edges"
+          ]
+        }
+      }
+    },
+    {
+      "name": "POST /topologies/{topologyId}/edges - 目标节点不存在",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "",
+              "pm.test('目标节点不存在返回404', function() {",
+              "    pm.expect(pm.response.code).to.eql(404);",
+              "    pm.expect(body.detail.code).to.eql(40106);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"edgeTypeId\": \"{{edgeTypeId}}\",\n    \"sourceId\": \"{{node1Id}}\",\n    \"targetId\": \"nonexistent\",\n    \"status\": \"up\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/topologies/{{topologyId}}/edges",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "topologies",
+            "{{topologyId}}",
+            "edges"
+          ]
+        }
+      }
+    },
+    {
+      "name": "DELETE /edges/{edgeId} - 删除边",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "",
+              "pm.test('删除边成功', function() {",
+              "    pm.expect(body.code).to.eql(0);",
+              "    pm.expect(body.data.id).to.eql(pm.collectionVariables.get('edgeId'));",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/edges/{{edgeId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "edges",
+            "{{edgeId}}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /edges/{edgeId} - 边已删除",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "",
+              "pm.test('边不存在返回404', function() {",
+              "    pm.expect(pm.response.code).to.eql(404);",
+              "    pm.expect(body.detail.code).to.eql(40106);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/edges/{{edgeId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "edges",
+            "{{edgeId}}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "PUT /edges/nonexistent - 边不存在",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "",
+              "pm.test('更新不存在的边返回404', function() {",
+              "    pm.expect(pm.response.code).to.eql(404);",
+              "    pm.expect(body.detail.code).to.eql(40106);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"status\": \"down\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/edges/nonexistent",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "edges",
+            "nonexistent"
+          ]
+        }
+      }
+    },
+    {
+      "name": "DELETE /edges/nonexistent - 边不存在",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "",
+              "pm.test('删除不存在的边返回404', function() {",
+              "    pm.expect(pm.response.code).to.eql(404);",
+              "    pm.expect(body.detail.code).to.eql(40106);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/edges/nonexistent",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "edges",
+            "nonexistent"
+          ]
+        }
+      }
+    },
+    {
+      "name": "[TEARDOWN] 删除测试拓扑",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var body = pm.response.json();",
+              "",
+              "pm.test('删除拓扑成功', function() {",
+              "    pm.expect(body.code).to.eql(0);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/topologies/{{topologyId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "topologies",
+            "{{topologyId}}"
+          ]
+        }
+      }
+    }
+  ]
+}
