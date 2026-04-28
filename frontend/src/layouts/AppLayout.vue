@@ -5,8 +5,6 @@ import {
   ApartmentOutlined,
   ApiOutlined,
   AppstoreOutlined,
-  DashboardOutlined,
-  FileTextOutlined,
   KeyOutlined,
   SettingOutlined,
 } from '@ant-design/icons-vue'
@@ -17,19 +15,15 @@ const route = useRoute()
 const router = useRouter()
 
 const iconMap = {
-  DashboardOutlined,
   ApartmentOutlined,
   AppstoreOutlined,
   ApiOutlined,
   KeyOutlined,
-  FileTextOutlined,
   SettingOutlined,
 } as const
 
 const selectedKeys = computed<string[]>(() => {
-  const match = menuItems.find((item) =>
-    item.path === '/' ? route.path === '/' : route.path.startsWith(item.path),
-  )
+  const match = menuItems.find((item) => route.path.startsWith(item.path))
   return match ? [match.key] : []
 })
 

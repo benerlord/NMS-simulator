@@ -196,6 +196,16 @@ def create_api(body: ApiConfigCreate) -> dict:
                 },
             )
 
+        if "?" in (body.path or ""):
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": 40001,
+                    "message": "路径不能包含 ? 字符，查询参数应作为独立 query string 传递",
+                    "details": {"field": "path"},
+                },
+            )
+
         if body.topology_id:
             _ensure_topology(conn, body.topology_id)
 
@@ -236,6 +246,9 @@ def create_api(body: ApiConfigCreate) -> dict:
         ).fetchone()
         detail = _row_to_detail(row)
 
+    from app.mock.registry import registry as mock_registry
+    mock_registry.register(detail.id, detail.method, detail.path)
+
     return {"code": 0, "data": detail.model_dump(mode="json", by_alias=True), "message": "ok"}
 
 
@@ -252,6 +265,15 @@ def update_api(api_id: str, body: ApiConfigUpdate) -> dict:
         updates.append("method = ?")
         params.append(body.method)
     if body.path is not None:
+        if "?" in body.path:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": 40001,
+                    "message": "路径不能包含 ? 字符，查询参数应作为独立 query string 传递",
+                    "details": {"field": "path"},
+                },
+            )
         updates.append("path = ?")
         params.append(body.path)
     if body.group_name is not None:
@@ -308,6 +330,11 @@ def update_api(api_id: str, body: ApiConfigUpdate) -> dict:
             "SELECT * FROM api_configs WHERE id = ?", (api_id,)
         ).fetchone()
         detail = _row_to_detail(row)
+        route_changed = body.method is not None or body.path is not None
+
+    if route_changed:
+        from app.mock.registry import registry as mock_registry
+        mock_registry.update(detail.id, detail.method, detail.path)
 
     return {"code": 0, "data": detail.model_dump(mode="json", by_alias=True), "message": "ok"}
 
@@ -354,6 +381,10 @@ def delete_api(api_id: str) -> dict:
     with transaction() as conn:
         _ensure_api_exists(conn, api_id)
         conn.execute("DELETE FROM api_configs WHERE id = ?", (api_id,))
+
+    from app.mock.registry import registry as mock_registry
+    mock_registry.unregister(api_id)
+
     return {"code": 0, "data": {"id": api_id}, "message": "删除成功"}
 
 
@@ -404,6 +435,9 @@ def _lookup_source(entry: dict[str, Any], req: ApiTestRequest) -> Any:
         if isinstance(req.body, dict):
             return req.body.get(key)
         return None
+    if location == "path":
+        path_params = getattr(req, "path_params", None) or {}
+        return path_params.get(key)
     return (req.query or {}).get(key)
 
 

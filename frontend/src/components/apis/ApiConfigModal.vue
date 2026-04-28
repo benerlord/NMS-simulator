@@ -1,6 +1,16 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { Modal, Form, Input, Select, Switch, Spin } from 'ant-design-vue'
+import {
+  Modal,
+  Form,
+  Input,
+  InputNumber,
+  Select,
+  Switch,
+  Spin,
+  Collapse,
+  CollapsePanel,
+} from 'ant-design-vue'
 import { apiGet } from '@/api/http'
 import {
   apiConfigApi,
@@ -51,10 +61,17 @@ interface FormState {
   enabled: boolean
   params: ParamMapping[]
   responseTemplate: string
+  staticBody: string
+  faultEnabled: boolean
+  faultDelayMs: number | undefined
+  faultErrorRate: number | undefined
+  faultErrorStatus: number | undefined
 }
 
 const DEFAULT_TEMPLATE_PLACEHOLDER =
   '{"code":0,"data":"{{items}}","total":"{{total}}","pageNo":"{{pageNo}}","pageSize":"{{pageSize}}"}'
+
+const DEFAULT_STATIC_PLACEHOLDER = '{"code":0,"data":{"hello":"world"}}'
 
 function emptyForm(): FormState {
   return {
@@ -68,6 +85,11 @@ function emptyForm(): FormState {
     enabled: true,
     params: [],
     responseTemplate: '',
+    staticBody: '',
+    faultEnabled: false,
+    faultDelayMs: undefined,
+    faultErrorRate: undefined,
+    faultErrorStatus: undefined,
   }
 }
 
@@ -115,8 +137,18 @@ async function loadDetail(id: string) {
     const cfg = (detail.config ?? {}) as {
       params?: ParamMapping[]
       response?: { template?: string }
+      staticBody?: unknown
+      fault?: {
+        delayMs?: unknown
+        errorRate?: unknown
+        errorStatus?: unknown
+      }
     }
     const tpl = cfg.response?.template
+    const staticBodyRaw = cfg.staticBody
+    const fault = cfg.fault && typeof cfg.fault === 'object' ? cfg.fault : null
+    const toNum = (v: unknown): number | undefined =>
+      typeof v === 'number' && Number.isFinite(v) ? v : undefined
     formState.value = {
       name: detail.name,
       method: detail.method,
@@ -133,6 +165,16 @@ async function loadDetail(id: string) {
           : tpl !== undefined
             ? JSON.stringify(tpl, null, 2)
             : '',
+      staticBody:
+        staticBodyRaw === undefined
+          ? ''
+          : typeof staticBodyRaw === 'string'
+            ? staticBodyRaw
+            : JSON.stringify(staticBodyRaw, null, 2),
+      faultEnabled: !!fault,
+      faultDelayMs: fault ? toNum(fault.delayMs) : undefined,
+      faultErrorRate: fault ? toNum(fault.errorRate) : undefined,
+      faultErrorStatus: fault ? toNum(fault.errorStatus) : undefined,
     }
   } finally {
     detailLoading.value = false
@@ -157,14 +199,49 @@ function close() {
 }
 
 function buildConfig(): Record<string, unknown> {
-  if (formState.value.dataSource !== 'sql') return {}
   const cfg: Record<string, unknown> = {}
-  if (formState.value.params.length > 0) {
-    cfg.params = formState.value.params
+  if (formState.value.dataSource === 'sql') {
+    if (formState.value.params.length > 0) {
+      cfg.params = formState.value.params
+    }
+    const tpl = formState.value.responseTemplate.trim()
+    if (tpl) {
+      cfg.response = { template: tpl }
+    }
+  } else if (formState.value.dataSource === 'static') {
+    const raw = formState.value.staticBody.trim()
+    if (raw) {
+      try {
+        cfg.staticBody = JSON.parse(raw)
+      } catch {
+        // Form validator gates submit; unreachable in practice.
+      }
+    }
   }
-  const tpl = formState.value.responseTemplate.trim()
-  if (tpl) {
-    cfg.response = { template: tpl }
+
+  if (formState.value.faultEnabled) {
+    const fault: Record<string, unknown> = {}
+    if (
+      typeof formState.value.faultDelayMs === 'number' &&
+      formState.value.faultDelayMs > 0
+    ) {
+      fault.delayMs = formState.value.faultDelayMs
+    }
+    if (
+      typeof formState.value.faultErrorRate === 'number' &&
+      formState.value.faultErrorRate > 0
+    ) {
+      fault.errorRate = formState.value.faultErrorRate
+    }
+    if (
+      typeof formState.value.faultErrorStatus === 'number' &&
+      formState.value.faultErrorStatus >= 400
+    ) {
+      fault.errorStatus = formState.value.faultErrorStatus
+    }
+    if (Object.keys(fault).length > 0) {
+      cfg.fault = fault
+    }
   }
   return cfg
 }
@@ -174,6 +251,34 @@ const templateParseError = computed<string | null>(() => {
   if (!tpl) return null
   try {
     JSON.parse(tpl)
+    return null
+  } catch (e) {
+    return (e as Error).message
+  }
+})
+
+const faultPanelHeader = computed(() => {
+  if (!formState.value.faultEnabled) return '异常注入（未启用）'
+  const parts: string[] = []
+  const d = formState.value.faultDelayMs
+  if (typeof d === 'number' && d > 0) parts.push(`延迟 ${d}ms`)
+  const r = formState.value.faultErrorRate
+  if (typeof r === 'number' && r > 0) {
+    const s = formState.value.faultErrorStatus
+    parts.push(
+      `${(r * 100).toFixed(0)}% → ${typeof s === 'number' && s >= 400 ? s : 500}`,
+    )
+  }
+  return parts.length > 0
+    ? `异常注入（${parts.join('，')}）`
+    : '异常注入（已启用，未配置参数）'
+})
+
+const staticBodyParseError = computed<string | null>(() => {
+  const raw = formState.value.staticBody.trim()
+  if (!raw) return null
+  try {
+    JSON.parse(raw)
     return null
   } catch (e) {
     return (e as Error).message
@@ -366,6 +471,116 @@ async function handleSubmit() {
           </div>
         </Form.Item>
 
+        <Form.Item
+          v-if="formState.dataSource === 'static'"
+          label="静态响应体"
+          name="staticBody"
+          :rules="[
+            {
+              validator: async (_rule: unknown, value: string) => {
+                if (!value || !value.trim()) return
+                try {
+                  JSON.parse(value)
+                } catch (e) {
+                  throw new Error('静态响应体不是合法 JSON：' + (e as Error).message)
+                }
+              },
+            },
+          ]"
+        >
+          <Input.TextArea
+            v-model:value="formState.staticBody"
+            :rows="8"
+            :placeholder="DEFAULT_STATIC_PLACEHOLDER"
+            spellcheck="false"
+            class="tpl-textarea"
+          />
+          <div v-if="staticBodyParseError" class="hint hint-error">
+            JSON 解析失败：{{ staticBodyParseError }}
+          </div>
+          <div v-else class="hint">
+            整段原样作为 HTTP 响应体返回（不走模板）。支持对象 / 数组 / 标量。留空时返回
+            <code>{"code":0,"data":null}</code> 兜底。
+          </div>
+        </Form.Item>
+
+        <Collapse :bordered="false" class="fault-collapse">
+          <CollapsePanel key="fault" :header="faultPanelHeader">
+            <Form.Item label="启用异常注入" name="faultEnabled">
+              <Switch
+                v-model:checked="formState.faultEnabled"
+                checked-children="开"
+                un-checked-children="关"
+              />
+              <div class="hint">
+                开启后请求会按 <code>delayMs</code> 注入延迟、按 <code>errorRate</code>
+                概率短路返回 <code>{ "code": 50001 }</code> 错误响应（HTTP 状态由
+                <code>errorStatus</code> 决定）。延迟先于错误判定，错误命中时延迟同样生效。
+              </div>
+            </Form.Item>
+
+            <div v-if="formState.faultEnabled" class="form-row fault-row">
+              <Form.Item
+                label="固定延迟 (ms)"
+                name="faultDelayMs"
+                class="form-col-third"
+              >
+                <InputNumber
+                  v-model:value="formState.faultDelayMs"
+                  :min="0"
+                  :max="60000"
+                  :step="100"
+                  placeholder="0 ~ 60000"
+                  style="width: 100%"
+                />
+                <div class="hint">单次请求固定延迟，留空或 0 不延迟。</div>
+              </Form.Item>
+
+              <Form.Item
+                label="错误概率 (0-1)"
+                name="faultErrorRate"
+                class="form-col-third"
+              >
+                <InputNumber
+                  v-model:value="formState.faultErrorRate"
+                  :min="0"
+                  :max="1"
+                  :step="0.05"
+                  placeholder="0 ~ 1"
+                  style="width: 100%"
+                />
+                <div class="hint">如 0.1 = 10% 概率返回错误，留空或 0 不注入。</div>
+              </Form.Item>
+
+              <Form.Item
+                label="错误状态码"
+                name="faultErrorStatus"
+                class="form-col-third"
+                :rules="[
+                  {
+                    validator: async (_rule: unknown, value: number | null | undefined) => {
+                      if (value === null || value === undefined) return
+                      if (!Number.isInteger(value) || value < 400 || value > 599) {
+                        throw new Error('错误状态码须为 400 ~ 599 之间的整数')
+                      }
+                    },
+                  },
+                ]"
+              >
+                <InputNumber
+                  v-model:value="formState.faultErrorStatus"
+                  :min="400"
+                  :max="599"
+                  :step="1"
+                  placeholder="400 ~ 599 (默认 500)"
+                  style="width: 100%"
+                />
+                <div class="hint">命中错误时返回的 HTTP 状态码，留空默认 500。</div>
+              </Form.Item>
+            </div>
+          </CollapsePanel>
+        </Collapse>
+
         <Form.Item v-if="!isEdit" label="启用" name="enabled">
           <Switch
             v-model:checked="formState.enabled"
@@ -431,5 +646,23 @@ async function handleSubmit() {
 .sql-editor-col {
   flex: 1;
   min-width: 0;
+}
+
+.fault-collapse {
+  margin-bottom: 16px;
+  background: #fafafa;
+}
+
+.fault-collapse :deep(.ant-collapse-header) {
+  font-weight: 500;
+}
+
+.form-col-third {
+  flex: 1;
+  min-width: 0;
+}
+
+.fault-row {
+  margin-top: 4px;
 }
 </style>

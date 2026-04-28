@@ -75,3 +75,45 @@ export interface TopologyGraph {
   edges: TopologyEdge[]
   canvasNodes: TopologyCanvasNode[]
 }
+
+// --- Import/Export (M4-02) ---
+export interface TopologyExportNodeIo {
+  id: string
+  nodeTypeCode: string
+  name: string
+  dn: string | null
+  status: string
+  attrs: Record<string, unknown>
+  canvas: { x: number; y: number } | null
+}
+
+export interface TopologyExportEdgeIo {
+  id: string
+  edgeTypeCode: string
+  sourceId: string
+  targetId: string
+  status: string
+  attrs: Record<string, unknown>
+}
+
+export interface TopologyExportMetaIo {
+  name: string
+  description: string | null
+  version: number
+}
+
+export interface TopologyExportDoc {
+  schemaVersion: string
+  exportedAt: string
+  topology: TopologyExportMetaIo
+  nodes: TopologyExportNodeIo[]
+  edges: TopologyExportEdgeIo[]
+}
+
+export interface TopologyImportResult {
+  topologyId: string
+  name: string
+  nodeCount: number
+  edgeCount: number
+  canvasCount: number
+}

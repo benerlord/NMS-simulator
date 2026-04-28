@@ -14,7 +14,28 @@
       "Read(//c/Users/benerlord/.claude/**)",
       "Read(//c/Users/benerlord/.claude/skills/**)",
       "Read(//c/Users/benerlord/.agents//**)",
-      "Read(//c/Users/benerlord/.agents/skills/fastapi-python//**)"
+      "Read(//c/Users/benerlord/.agents/skills/fastapi-python//**)",
+      "Bash(tee /tmp/backend_m4_01.log)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://127.0.0.1:8080/admin/api/health)",
+      "Bash(taskkill //F //FI \"WINDOWTITLE ne *\" //IM python.exe)",
+      "Bash(netstat -ano)",
+      "Bash(taskkill //F //PID 34104)",
+      "Bash(npx vue-tsc *)",
+      "Bash(pnpm build *)",
+      "Bash(curl -s \"http://127.0.0.1:8080/admin/api/tokens?page=1&page_size=5\")",
+      "Bash(curl -s -X POST \"http://127.0.0.1:8080/admin/api/tokens\" -H \"Content-Type: application/json\" -d '{\"token\":\"m3_06_ui_probe\",\"expires_at\":\"2026-12-31T23:59:59\",\"auth_type\":\"xtoken\",\"meta\":{\"scope\":\"test\"}}')",
+      "Bash(curl -s -X DELETE \"http://127.0.0.1:8080/admin/api/tokens/expired\")",
+      "Bash(curl -s -X POST \"http://127.0.0.1:8080/admin/api/tokens/m3_06_ui_probe/revoke\")",
+      "Bash(awk '{print $1}')",
+      "Bash(curl -s \"http://127.0.0.1:8080/admin/api/health\")",
+      "PowerShell(Get-NetTCPConnection *)",
+      "Bash(curl -s http://127.0.0.1:8080/admin/api/health)",
+      "Bash(curl -s http://127.0.0.1:8080/admin/api/health -m 2)",
+      "Bash(curl *)",
+      "Bash(pnpm --version)",
+      "Bash(/c/Users/benerlord/Desktop/InterfaceTest/start.sh *)",
+      "Bash(pnpm dev *)",
+      "PowerShell(Stop-Process *)"
     ]
   }
 }

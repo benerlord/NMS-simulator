@@ -6,13 +6,8 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/',
     component: AppLayout,
+    redirect: '/topologies',
     children: [
-      {
-        path: '',
-        name: 'dashboard',
-        component: () => import('@/views/DashboardView.vue'),
-        meta: { title: '仪表盘' },
-      },
       {
         path: 'topologies',
         name: 'topologies',
@@ -44,12 +39,6 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'Token' },
       },
       {
-        path: 'logs',
-        name: 'logs',
-        component: () => import('@/views/LogsView.vue'),
-        meta: { title: '请求日志' },
-      },
-      {
         path: 'settings',
         name: 'settings',
         component: () => import('@/views/SettingsView.vue'),
@@ -60,12 +49,10 @@ const routes: RouteRecordRaw[] = [
 ]
 
 export const menuItems = [
-  { key: 'dashboard', path: '/',            label: '仪表盘',    icon: 'DashboardOutlined' },
   { key: 'topologies', path: '/topologies', label: '拓扑',      icon: 'ApartmentOutlined' },
   { key: 'types',     path: '/types',       label: '类型管理',  icon: 'AppstoreOutlined' },
   { key: 'apis',      path: '/apis',        label: '接口',      icon: 'ApiOutlined' },
   { key: 'tokens',    path: '/tokens',      label: 'Token',     icon: 'KeyOutlined' },
-  { key: 'logs',      path: '/logs',        label: '请求日志',  icon: 'FileTextOutlined' },
   { key: 'settings',  path: '/settings',    label: '系统设置',  icon: 'SettingOutlined' },
 ] as const
 

@@ -19,7 +19,9 @@
 |------|---------|--------|------|
 | **管理 API** | `/admin/api/**` | 前端 SPA | 无（内网信任） |
 | **WebSocket** | `/admin/ws` | 前端 SPA | 无 |
-| **模拟接口** | `/mock/**` | MindOps 采集插件 | 按每个接口配置 |
+| **模拟接口** | `<api_configs.path>` | MindOps 采集插件 | 按每个接口配置 |
+
+模拟接口默认**无统一前缀**，每条接口的路径以 `api_configs.path` 原样挂载在根路径下（例：`GET /rest/openapi/network/v1/devices`），调用方可直接复刻原系统的 URL 进行测试。如需统一前缀（如内网约束要求 `/mock/**`），改 `settings.mock_path_prefix` 即可生效（默认空串）。
 
 本文档仅定义**管理 API** 与 **WebSocket 事件**。模拟接口由用户在运行时动态配置。
 
@@ -442,7 +444,7 @@ Retry-After: 60
 | PATCH | `/admin/api/apis/{id}/enabled` | 切换启用开关（body: `{ "enabled": true }`） |
 | PATCH | `/admin/api/apis/{id}/topology` | 切换绑定拓扑（body: `{ "topologyId": "topo_xxx" }`） |
 | DELETE | `/admin/api/apis/{id}` | 删除 |
-| POST | `/admin/api/apis/{id}/test` | 测试执行（不计入请求日志） |
+| POST | `/admin/api/apis/{id}/test` | 测试执行（只读、不写库） |
 | POST | `/admin/api/apis/export` | 批量导出（body: `{ "ids": [...] }`，不传则全部） |
 | POST | `/admin/api/apis/import` | 批量导入 |
 
@@ -559,51 +561,44 @@ Retry-After: 60
 
 ### 2.8 Token 管理
 
+> **说明**：Token 注册表服务于 Pipeline 认证校验。ManageOne / eSight 等系统的鉴权接口本身是用户配置的 mock API（`POST /rest/manage/user/login` 等），本模块仅管理"哪些 token 有效"的注册记录，由工程师手动录入。
+
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/admin/api/tokens` | 分页列出（可按 `revoked` / 未过期过滤） |
+| POST | `/admin/api/tokens` | 手动录入 Token（见请求体示例） |
 | POST | `/admin/api/tokens/{token}/revoke` | 手动撤销 |
 | DELETE | `/admin/api/tokens/expired` | 清理所有已过期 Token |
 
-### 2.9 请求日志
+**POST /admin/api/tokens 请求体**：
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/admin/api/logs/requests` | 分页查询；可按 `apiId` / `method` / `statusCode` / `timeRange` 过滤 |
-| GET | `/admin/api/logs/requests/{id}` | 日志详情（含完整 query、错误信息） |
-| DELETE | `/admin/api/logs/requests` | 清空日志（可选 `before=<ts>`） |
+```json
+{
+  "token": "manageone-token-abc123",
+  "expires_at": "2026-12-31T23:59:59",
+  "auth_type": "xtoken",
+  "issued_by_api": "/rest/manage/user/login",
+  "meta": { "name": "ManageOne 测试 Token" }
+}
+```
 
-### 2.10 系统设置
+**POST /admin/api/tokens/{token}/revoke 请求体**：无
+
+**响应**：操作成功返回 `200`，body 为更新后的 Token 对象。
+
+### 2.9 系统设置
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/admin/api/settings` | 返回全部键值 |
-| PUT | `/admin/api/settings` | 批量更新（body: `{ "autosave_interval": 60, "request_log_max": 10000 }`） |
+| PUT | `/admin/api/settings` | 批量更新（body: `{ "autosave_interval": 60, "mock_path_prefix": "" }`） |
 | GET | `/admin/api/settings/{key}` | 单个读取 |
 
-### 2.11 仪表盘 / 系统状态
+### 2.10 系统状态
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/admin/api/health` | 健康检查（Liveness） |
-| GET | `/admin/api/dashboard/summary` | 仪表盘聚合：启用接口数、拓扑数、节点总数、今日请求量、近 N 条最新请求 |
-
-**仪表盘响应示例**：
-
-```json
-{
-  "code": 0,
-  "data": {
-    "service": { "status": "running", "startedAt": "2026-04-15T08:00:00Z", "mockPort": 8080 },
-    "topologyCount": 5,
-    "nodeCount": 30123,
-    "edgeCount": 58291,
-    "apiCount": { "total": 42, "enabled": 38 },
-    "requestsToday": 1203,
-    "recentRequests": [ ... ]
-  }
-}
-```
 
 ---
 
@@ -612,7 +607,7 @@ Retry-After: 60
 ### 3.1 连接
 
 - 路径：`/admin/ws`
-- 连接后，前端可通过发送 `{"type":"subscribe","topics":["log.request","api.registered","topology.saved"]}` 订阅感兴趣的事件
+- 连接后，前端可通过发送 `{"type":"subscribe","topics":["api.registered","topology.saved"]}` 订阅感兴趣的事件
 - 服务端心跳：每 30s 发送 `{"type":"ping"}`，客户端回 `{"type":"pong"}`
 
 ### 3.2 事件清单
@@ -623,29 +618,10 @@ Retry-After: 60
 | `topology.changed` | S→C | `{ "topologyId": "topo_abc", "by": "other-tab" }` | 提示其他 Tab 修改了同一拓扑 |
 | `api.registered` | S→C | `{ "apiId": "api_001", "method":"GET", "path":"..." }` | 接口新增 / 更新 / 删除时刷新列表 |
 | `api.enabledChanged` | S→C | `{ "apiId":"api_001", "enabled": true }` | 启用开关状态同步 |
-| `log.request` | S→C | 见下 | 实时推送模拟请求日志 |
 | `token.issued` | S→C | `{ "token":"x-..." }` | Token 变动 |
 | `token.revoked` | S→C | `{ "token":"x-..." }` | Token 撤销 |
-| `subscribe` / `unsubscribe` | C→S | `{ "topics":["log.request"] }` | 订阅 / 退订 |
+| `subscribe` / `unsubscribe` | C→S | `{ "topics":["api.registered"] }` | 订阅 / 退订 |
 | `ping` / `pong` | 双向 | — | 心跳 |
-
-**`log.request` 载荷**：
-
-```json
-{
-  "type": "log.request",
-  "data": {
-    "id": 10234,
-    "ts": "2026-04-15T09:12:33Z",
-    "apiId": "api_001",
-    "method": "GET",
-    "path": "/rest/openapi/network/v1/devices",
-    "statusCode": 200,
-    "durationMs": 42,
-    "clientIp": "127.0.0.1"
-  }
-}
-```
 
 ---
 

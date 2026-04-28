@@ -63,7 +63,7 @@ def _build_context(
         "page": page,
         "pageNo": page,
         "pageSize": page_size,
-        "uuid": uuid.uuid4().hex,
+        "uuid": str(uuid.uuid4()),  # with dashes, per docs §2.5
         "now": _now_iso(),
     }
 

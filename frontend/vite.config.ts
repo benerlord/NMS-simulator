@@ -17,7 +17,6 @@ export default defineConfig({
     proxy: {
       '/admin/api': { target: backend, changeOrigin: true },
       '/admin/ws': { target: backend, changeOrigin: true, ws: true },
-      '/mock': { target: backend, changeOrigin: true },
     },
   },
 })

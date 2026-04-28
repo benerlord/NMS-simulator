@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { Table, Button, Space, Tag, Popconfirm, Input } from 'ant-design-vue'
-import { SearchOutlined, PlusOutlined } from '@ant-design/icons-vue'
+import {
+  SearchOutlined,
+  PlusOutlined,
+  ImportOutlined,
+  ExportOutlined,
+} from '@ant-design/icons-vue'
 import type { TopologyListItem } from '@/api/topology'
 
 interface Props {
@@ -22,6 +27,8 @@ const emit = defineEmits<{
   (e: 'edit', item: TopologyListItem): void
   (e: 'delete', id: string): void
   (e: 'enterCanvas', id: string): void
+  (e: 'export', item: TopologyListItem): void
+  (e: 'import'): void
 }>()
 
 const nameInput = ref('')
@@ -44,6 +51,14 @@ function onCreate() {
 
 function onEnterCanvas(id: string) {
   emit('enterCanvas', id)
+}
+
+function onExport(item: TopologyListItem) {
+  emit('export', item)
+}
+
+function onImport() {
+  emit('import')
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -96,7 +111,7 @@ const columns = [
   {
     title: '操作',
     key: 'action',
-    width: 160,
+    width: 220,
     fixed: 'right' as const,
   },
 ]
@@ -128,6 +143,10 @@ function formatDate(iso: string): string {
       </Space>
 
       <Space>
+        <Button @click="onImport">
+          <template #icon><ImportOutlined /></template>
+          导入
+        </Button>
         <Button @click="onCreate">
           <template #icon><PlusOutlined /></template>
           新建
@@ -176,6 +195,10 @@ function formatDate(iso: string): string {
         <template v-else-if="column.key === 'action'">
           <Space>
             <a @click="onEditItem(record as TopologyListItem)">编辑</a>
+            <a @click="onExport(record as TopologyListItem)">
+              <ExportOutlined />
+              导出
+            </a>
             <Popconfirm
               title="确定删除该拓扑？"
               ok-text="确定"

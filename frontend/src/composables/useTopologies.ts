@@ -5,6 +5,8 @@ import type {
   TopologyDetail,
   TopologyCreate,
   TopologyUpdate,
+  TopologyExportDoc,
+  TopologyImportResult,
   PageResult,
 } from '@/api/topology'
 
@@ -66,6 +68,22 @@ export function useTopologies(options: UseTopologiesOptions = {}) {
     return result ?? { deletedCount: 0 }
   }
 
+  async function exportTopology(id: string): Promise<TopologyExportDoc> {
+    return apiGet<TopologyExportDoc>(`/topologies/${id}/export`)
+  }
+
+  async function importTopology(doc: TopologyExportDoc): Promise<TopologyImportResult> {
+    // Send as pre-stringified JSON so the request interceptor's snakeizeKeys
+    // does not mutate user-defined attr keys inside `nodes[].attrs`/`edges[].attrs`.
+    // Backend's CamelModel with `populate_by_name=True` already accepts camelCase.
+    const result = await apiPost<TopologyImportResult>(
+      '/topologies/import',
+      JSON.stringify(doc) as unknown,
+    )
+    await fetchTopologies()
+    return result
+  }
+
   function onPageChange(p: number, ps: number) {
     page.value = p
     pageSize.value = ps
@@ -99,6 +117,8 @@ export function useTopologies(options: UseTopologiesOptions = {}) {
     updateTopology,
     deleteTopology,
     deleteAllTopologies,
+    exportTopology,
+    importTopology,
     onPageChange,
     onSearch,
     onSort,

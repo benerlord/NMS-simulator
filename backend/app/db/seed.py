@@ -36,7 +36,7 @@ EDGE_TYPES: list[dict] = [
 PRESET_SETTINGS: list[tuple[str, str]] = [
     ("autosave_interval", "60"),
     ("request_log_max", "10000"),
-    ("mock_path_prefix", "/mock"),
+    ("mock_path_prefix", ""),
 ]
 
 
