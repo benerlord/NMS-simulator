@@ -522,6 +522,90 @@ Retry-After: 60
 }
 ```
 
+**响应模板占位符列表**（M6-01 LEGACY-05 Phase 1 新增派生变量；M6-02 Phase 2 将增加表达式语法，详见《开发方案》§2.12）：
+
+| 占位符 | 类型 | 说明 |
+|---|---|---|
+| `{{items}}` | list | SQL 执行结果（当前页行数组） |
+| `{{total}}` | int | 总行数 `COUNT(*)` |
+| `{{page}}` / `{{pageNo}}` | int | 当前页（别名） |
+| `{{pageSize}}` | int | 每页大小 |
+| `{{totalPageNo}}` / `{{totalPages}}` | int | 总页数 = `ceil(total/pageSize)`，pageSize=0 时为 0（别名） |
+| `{{hasNext}}` | bool | `page < totalPageNo` |
+| `{{hasPrev}}` | bool | `page > 1 且 total > 0` |
+| `{{offset}}` | int | `(page-1) * pageSize` |
+| `{{count}}` | int | 当前页实际行数 = `len(items)`，末页可能小于 pageSize |
+| `{{uuid}}` | string | uuid4（含连字符） |
+| `{{now}}` | string | 当前 UTC 时间，ISO-8601 秒精度，结尾 `Z` |
+
+**ManageOne CMDB 风格响应模板示范**（适配 `objList / totalNum / totalPageNo / currentPage` 字段命名）：
+
+```json
+{
+  "objList": "{{items}}",
+  "totalNum": "{{total}}",
+  "pageSize": "{{pageSize}}",
+  "totalPageNo": "{{totalPageNo}}",
+  "currentPage": "{{pageNo}}"
+}
+```
+
+调用 `?pageNo=1&pageSize=100` 在 28 行测试数据下渲染结果：
+
+```json
+{ "objList": [...], "totalNum": 28, "pageSize": 100, "totalPageNo": 1, "currentPage": 1 }
+```
+
+**表达式语法（M6-02 LEGACY-05 Phase 2 新增）**：
+
+`{{ }}` 内的内容若不是单一标识符，则按算术表达式求值。语法（EBNF）：
+
+```ebnf
+expression  = term { ("+" | "-") term } ;
+term        = factor { ("*" | "/" | "%") factor } ;
+factor      = ("+" | "-") factor | primary ;
+primary     = NUMBER | IDENTIFIER | function_call | "(" expression ")" ;
+function_call = IDENTIFIER "(" [ expression { "," expression } ] ")" ;
+```
+
+函数白名单（7 个，严格元数）：
+
+| 函数 | 元数 | 说明 |
+|---|---|---|
+| `ceil(x)` | 1 | 向上取整 |
+| `floor(x)` | 1 | 向下取整 |
+| `round(x)` | 1 | 四舍六入五取偶（Python 默认） |
+| `abs(x)` | 1 | 绝对值 |
+| `int(x)` | 1 | 截断为整数 |
+| `min(a, b)` | 2 | 严格 2 元，不支持 3+ |
+| `max(a, b)` | 2 | 严格 2 元，不支持 3+ |
+
+资源上限：表达式串 ≤ 200 字符；AST 节点 ≤ 50；结果绝对值 ≤ 10¹⁵。
+
+**正向示例**：
+
+| 表达式 | 上下文 | 结果 |
+|---|---|---|
+| `{{ceil(total / pageSize)}}` | total=28, pageSize=100 | `1` |
+| `{{(pageNo - 1) * pageSize}}` | pageNo=2, pageSize=100 | `100` |
+| `{{min(pageNo * pageSize, total)}}` | pageNo=1, pageSize=100, total=28 | `28` |
+| `{{max(0, total - pageNo * pageSize)}}` | pageNo=1, pageSize=100, total=28 | `0` |
+| `{{int(total / pageSize) + 1}}` | total=28, pageSize=100 | `1` |
+
+**反例**（全部抛 `40303`）：
+
+| 表达式 | 错误码 / 错误类型 |
+|---|---|
+| `{{__import__('os')}}` | 字符串字面量被拒（'os'） |
+| `{{open(0)}}` | 未授权函数 `open` |
+| `{{1 / 0}}` | 表达式除零 |
+| `{{2 ** 100}}` | 禁用运算符 `Pow` |
+| `{{a.b}}` | 禁用语法 `Attribute` |
+
+**类型保留**：whole-string 占位（`"x": "{{total + 1}}"`）保留原生 int/float；in-string 占位（`"page {{pageNo + 1}} / {{ceil(total/pageSize)}}"`）按 `_stringify` 拼字符串。
+
+**错误码**：所有表达式失败统一映射 `TemplateRenderError` → HTTP 400 + `code: 40303`，无新增错误码。
+
 **测试执行请求体**：
 
 ```json
