@@ -70,6 +70,7 @@ def _runtime_block() -> SettingsRuntime:
         app_port=runtime_settings.app_port,
         log_level=runtime_settings.log_level,
         db_path=str(runtime_settings.db_path),
+        ssl_enabled=runtime_settings.ssl_enabled,
     )
 
 

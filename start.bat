@@ -11,5 +11,5 @@ if exist .env (
 if "%APP_HOST%"=="" set APP_HOST=0.0.0.0
 if "%APP_PORT%"=="" set APP_PORT=8080
 
-python -m uvicorn app.main:app --host %APP_HOST% --port %APP_PORT%
+python -m app.main
 endlocal

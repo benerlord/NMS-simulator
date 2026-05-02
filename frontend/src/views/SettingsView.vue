@@ -90,9 +90,15 @@ onMounted(loadSettings)
     <a-alert
       type="info"
       show-icon
-      :message="`应用基础信息为只读：${runtime?.appHost ?? ''}:${runtime?.appPort ?? ''} · 日志级别 ${runtime?.logLevel ?? ''}。修改这些项需调整 .env 后重启后端进程。`"
       style="margin-bottom: 16px"
-    />
+    >
+      <template #message>
+        应用基础信息为只读：{{ runtime?.appHost ?? '' }}:{{ runtime?.appPort ?? '' }}
+        · 协议 {{ runtime?.sslEnabled ? 'HTTPS' : 'HTTP' }}
+        · 日志级别 {{ runtime?.logLevel ?? '' }}。
+        修改这些项需调整 <code>.env</code> 后重启后端进程。
+      </template>
+    </a-alert>
 
     <a-descriptions
       title="应用基础（只读，需重启）"
@@ -103,6 +109,14 @@ onMounted(loadSettings)
     >
       <a-descriptions-item label="监听地址">{{ runtime?.appHost ?? '-' }}</a-descriptions-item>
       <a-descriptions-item label="监听端口">{{ runtime?.appPort ?? '-' }}</a-descriptions-item>
+      <a-descriptions-item label="协议">
+        <a-tag :color="runtime?.sslEnabled ? 'green' : 'default'">
+          {{ runtime?.sslEnabled ? 'HTTPS' : 'HTTP' }}
+        </a-tag>
+        <span v-if="runtime?.sslEnabled" class="hint" style="margin-left: 8px">
+          自签证书，调用方需跳过证书验证（<code>-k</code> / <code>verify=False</code>）
+        </span>
+      </a-descriptions-item>
       <a-descriptions-item label="日志级别">{{ runtime?.logLevel ?? '-' }}</a-descriptions-item>
       <a-descriptions-item label="数据库路径">{{ runtime?.dbPath ?? '-' }}</a-descriptions-item>
     </a-descriptions>

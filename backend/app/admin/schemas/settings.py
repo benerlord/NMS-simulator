@@ -19,6 +19,7 @@ class SettingsRuntime(CamelModel):
     app_port: int
     log_level: str
     db_path: str
+    ssl_enabled: bool = False
 
 
 class SettingsData(CamelModel):

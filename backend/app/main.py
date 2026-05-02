@@ -51,11 +51,25 @@ app.include_router(ws_router)
 def main() -> None:
     import uvicorn
 
+    kwargs: dict = {}
+
+    if settings.ssl_enabled:
+        from app.core.cert_utils import ensure_cert
+
+        certfile, keyfile = ensure_cert(settings.ssl_certfile, settings.ssl_keyfile)
+        kwargs["ssl_certfile"] = certfile
+        kwargs["ssl_keyfile"] = keyfile
+        if settings.ssl_keyfile_password:
+            kwargs["ssl_keyfile_password"] = settings.ssl_keyfile_password
+        print(f"  protocol  = HTTPS (self-signed cert)")
+        print(f"  certfile  = {certfile}")
+
     uvicorn.run(
         "app.main:app",
         host=settings.app_host,
         port=settings.app_port,
         log_level=settings.log_level.lower(),
+        **kwargs,
     )
 
 

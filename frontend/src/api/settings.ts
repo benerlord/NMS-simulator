@@ -11,6 +11,7 @@ export interface SettingsRuntime {
   appPort: number
   logLevel: string
   dbPath: string
+  sslEnabled: boolean
 }
 
 export interface SettingsSnapshot {
