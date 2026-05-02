@@ -29,7 +29,9 @@ const http: AxiosInstance = axios.create({
 
 http.interceptors.request.use((config) => {
   if (config.data && typeof config.data === 'object') {
-    config.data = snakeizeKeys(config.data)
+    // `config` is an opaque JSON blob whose internal keys must NOT be
+    // snake_cased — the pipeline reads them in camelCase.
+    config.data = snakeizeKeys(config.data, ['config'])
   }
   if (config.params && typeof config.params === 'object') {
     config.params = snakeizeKeys(config.params)

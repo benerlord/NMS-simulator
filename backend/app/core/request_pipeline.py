@@ -1,10 +1,15 @@
 """Six-step request pipeline for mock routes (M3-03).
 
-Per docs §5.1 each mock request flows through six ordered steps:
+Per docs §5.1 each mock request flows through these ordered steps:
 
   [1] route_match    — handled by FastAPI routing (outside this module)
   [2] check_enabled  — api_configs.enabled=false → 40404
   [3] authenticate   — config.auth type (none/xtoken/basic); M3-06
+  [3.5] validate_request — config.request 声明（M5-01）：
+        - headers required + expectValue（不做白名单）
+        - query    required + 类型校验 + 严格白名单（未声明字段 → 40025）
+        - body     required 校验
+        缺省 config.request 时整段跳过 → M4 老接口零变化。
   [4] inject_fault   — config.inject delay/error; M3-05
   [5] execute        — SQL (execute_paged) or static (noop; body comes from step 6)
   [6] render         — template → body; or staticBody passthrough; or default
@@ -27,6 +32,29 @@ from fastapi.responses import JSONResponse, Response
 from app.core.response_template import TemplateRenderError, render_template
 from app.core.sql_executor import SqlValidationError, execute_paged
 from app.db.connection import connect
+
+
+def _cfg_get(cfg: dict, camel: str, *also: str) -> Any:
+    """Read a config key that may be stored in camelCase or snake_case.
+
+    The frontend's `snakeizeKeys` interceptor converts all keys in the request
+    body (including the opaque `config` JSON blob) to snake_case, so keys like
+    ``staticBody`` may be persisted as ``static_body``.  This helper checks the
+    canonical camelCase form first, then the auto-derived snake_case variant,
+    then any extra aliases passed via *also.  Returns None when no variant is
+    present.
+    """
+    if camel in cfg:
+        return cfg[camel]
+    snake = "".join(
+        "_" + c.lower() if c.isupper() else c for c in camel
+    ).lstrip("_")
+    if snake != camel and snake in cfg:
+        return cfg[snake]
+    for alt in also:
+        if alt in cfg:
+            return cfg[alt]
+    return None
 
 
 class PipelineError(Exception):
@@ -107,8 +135,11 @@ async def run(api_id: str, request: Request) -> Response:
         with connect() as conn:
             _step2_check_enabled(conn, ctx, _row_to_detail)
             _step3_authenticate(conn, ctx)
-            await _step4_inject_fault(ctx)
+            # 提前 build req_ctx 是 M5-01 必需：step3.5 校验复用 headers/query；
+            # body 也已被 _build_req_ctx 读取并由 starlette 缓存，避免重复消费。
             ctx.req_ctx = await _build_req_ctx(request)
+            await _step3_5_validate_request(ctx)
+            await _step4_inject_fault(ctx)
             _step5_execute(conn, ctx, _build_sql_params, _resolve_pagination)
             _step6_render(ctx, _default_sql_template)
     except PipelineError as exc:
@@ -152,7 +183,7 @@ def _step3_authenticate(conn, ctx: PipelineContext) -> None:
         return
 
     if auth_type == "xtoken":
-        header_name = auth.get("headerName", "X-Auth-Token")
+        header_name = _cfg_get(auth, "headerName", "header_name") or "X-Auth-Token"
         token = ctx.request.headers.get(header_name)
         if not token:
             raise PipelineError(401, 40401, "未提供认证令牌")
@@ -224,6 +255,111 @@ def _base64_decode(s: str) -> str:
     return base64.b64decode(s.encode()).decode()
 
 
+# ---------- Step 3.5 (M5-01) ----------
+async def _step3_5_validate_request(ctx: PipelineContext) -> None:
+    """请求契约校验：headers / query / body 三段（M5-01）。
+
+    短路错误码（HTTP 400）：
+        40020 缺少必填请求头
+        40021 请求头值不匹配 expectValue
+        40022 缺少必填 query 参数
+        40023 query 参数类型错误
+        40024 （预留 LEGACY-02：content-type 严格匹配）
+        40025 严格模式下未声明的 query 参数
+        40026 请求体必填但为空
+
+    设计要点：
+        - `config.request` 缺失 → 整段跳过（M4 老接口零变化）
+        - headers **不**做白名单（HTTP 标准头会自动注入，强制白名单会使所有请求失败）
+        - query 严格白名单仅在 `config.request` 显式包含 `query` 字段时启用：
+              * 缺 query 字段 → 不做白名单（自由模式）
+              * query=[]    → 严格模式，任何 query 参数都拒绝
+              * query=[...] → 严格模式，仅声明的允许
+          这样让用户在字段层级显式选择是否启用白名单。
+        - body required=True 时 await request.body() 读取已缓存的 bytes（不会
+          重复消费 stream，因为 starlette 的 Request 内部缓存 raw bytes）
+    """
+    cfg = ctx.detail.config if isinstance(ctx.detail.config, dict) else {}
+    req_spec = cfg.get("request")
+    if not isinstance(req_spec, dict):
+        return
+
+    # 1) headers：required + expectValue（不做白名单）
+    headers_spec = req_spec.get("headers")
+    if isinstance(headers_spec, list):
+        for h in headers_spec:
+            if not isinstance(h, dict):
+                continue
+            name = h.get("name")
+            if not name or not isinstance(name, str):
+                continue
+            actual = ctx.request.headers.get(name)
+            if h.get("required") and actual is None:
+                raise PipelineError(400, 40020, f"缺少必填请求头 {name}")
+            expect = _cfg_get(h, "expectValue", "expect_value")
+            if expect and actual is not None and actual != expect:
+                raise PipelineError(
+                    400, 40021, f"请求头 {name} 不匹配预期值"
+                )
+
+    # 2) query：required + 类型 + 严格白名单（条件触发）
+    if "query" in req_spec:
+        query_spec = req_spec.get("query") or []
+        if not isinstance(query_spec, list):
+            query_spec = []
+        declared_names: set[str] = set()
+        for q in query_spec:
+            if not isinstance(q, dict):
+                continue
+            name = q.get("name")
+            if not name or not isinstance(name, str):
+                continue
+            declared_names.add(name)
+            actual = ctx.request.query_params.get(name)
+            if q.get("required") and actual is None:
+                raise PipelineError(
+                    400, 40022, f"缺少必填 query 参数 {name}"
+                )
+            if actual is not None:
+                qtype = q.get("type", "string")
+                if qtype != "string":
+                    try:
+                        _coerce_query(actual, qtype)
+                    except ValueError:
+                        raise PipelineError(
+                            400, 40023,
+                            f"query 参数 {name} 类型应为 {qtype}",
+                        )
+        # 严格白名单：未声明的 query key 全部拒绝
+        for actual_name in ctx.request.query_params.keys():
+            if actual_name not in declared_names:
+                raise PipelineError(
+                    400, 40025,
+                    f"未声明的 query 参数: {actual_name}",
+                )
+
+    # 3) body：required 校验
+    body_spec = req_spec.get("body")
+    if isinstance(body_spec, dict) and body_spec.get("required"):
+        raw = await ctx.request.body()
+        if not raw or not raw.strip():
+            raise PipelineError(400, 40026, "请求体不得为空")
+
+
+def _coerce_query(raw: str, qtype: str) -> object:
+    """把 query string 按声明类型解析。失败抛 ValueError 由调用方转 40023。"""
+    if qtype == "int":
+        return int(raw)
+    if qtype == "bool":
+        low = raw.strip().lower()
+        if low in ("true", "1", "yes", "on"):
+            return True
+        if low in ("false", "0", "no", "off"):
+            return False
+        raise ValueError(f"invalid bool: {raw!r}")
+    return raw  # string 默认
+
+
 # ---------- Step 4 ----------
 async def _step4_inject_fault(ctx: PipelineContext) -> None:
     """Latency + probabilistic error injection (M3-05).
@@ -242,18 +378,18 @@ async def _step4_inject_fault(ctx: PipelineContext) -> None:
     if not isinstance(fault, dict):
         return
 
-    delay_ms = fault.get("delayMs")
+    delay_ms = _cfg_get(fault, "delayMs", "delay_ms")
     if isinstance(delay_ms, (int, float)) and not isinstance(delay_ms, bool) and delay_ms > 0:
         await asyncio.sleep(delay_ms / 1000.0)
 
-    error_rate = fault.get("errorRate")
+    error_rate = _cfg_get(fault, "errorRate", "error_rate")
     if (
         isinstance(error_rate, (int, float))
         and not isinstance(error_rate, bool)
         and error_rate > 0
         and random.random() < float(error_rate)
     ):
-        raw_status = fault.get("errorStatus")
+        raw_status = _cfg_get(fault, "errorStatus", "error_status")
         try:
             http_status = int(raw_status) if raw_status is not None else 500
         except (TypeError, ValueError):
@@ -295,8 +431,8 @@ def _step6_render(ctx: PipelineContext, default_tpl) -> None:
     detail = ctx.detail
     cfg = detail.config if isinstance(detail.config, dict) else {}
     response_cfg = cfg.get("response") if isinstance(cfg.get("response"), dict) else {}
-    ctx.status_code = int(response_cfg.get("statusCode") or 200)
-    ctx.content_type = response_cfg.get("contentType") or "application/json"
+    ctx.status_code = int(_cfg_get(response_cfg, "statusCode", "status_code") or 200)
+    ctx.content_type = (_cfg_get(response_cfg, "contentType", "content_type") or "application/json")
     template = response_cfg.get("template")
 
     if detail.data_source == "sql":
@@ -316,8 +452,9 @@ def _step6_render(ctx: PipelineContext, default_tpl) -> None:
 
     # Static-mode body resolution: staticBody wins, else template-with-empty,
     # else the {code:0, data:null} floor.
-    if cfg.get("staticBody") is not None:
-        ctx.body = cfg.get("staticBody")
+    static_body = _cfg_get(cfg, "staticBody", "static_body")
+    if static_body is not None:
+        ctx.body = static_body
     elif template is not None:
         try:
             ctx.body = render_template(

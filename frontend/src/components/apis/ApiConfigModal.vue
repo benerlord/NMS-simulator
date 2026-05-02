@@ -16,14 +16,22 @@ import {
   apiConfigApi,
   type ApiConfigCreate,
   type ApiConfigUpdate,
+  type AuthConfig,
+  type BodySpec,
   type DataSource,
+  type HeaderSpec,
   type HttpMethod,
+  type QuerySpec,
 } from '@/api/api_config'
 import type { TopologyListItem, PageResult } from '@/api/topology'
 import SqlEditor from './SqlEditor.vue'
 import SqlViewPanel from './SqlViewPanel.vue'
 import SqlRunner from './SqlRunner.vue'
 import ParamMappingTable, { type ParamMapping } from './ParamMappingTable.vue'
+import HeaderSpecTable from './HeaderSpecTable.vue'
+import QuerySpecTable from './QuerySpecTable.vue'
+import BodySpecPanel from './BodySpecPanel.vue'
+import AuthConfigPanel from './AuthConfigPanel.vue'
 
 interface Props {
   open: boolean
@@ -66,6 +74,15 @@ interface FormState {
   faultDelayMs: number | undefined
   faultErrorRate: number | undefined
   faultErrorStatus: number | undefined
+  // M5：请求规格（headers / query / body）+ 鉴权
+  requestHeaders: HeaderSpec[]
+  requestQuery: QuerySpec[]
+  // requestQueryStrict 决定是否把 query 段写进 config（白名单触发条件）
+  // true  → 写 cfg.request.query，启用严格白名单（即便数组为空也意味着"零 query 允许"）
+  // false → 不写 cfg.request.query，自由模式（任意 query 放过）
+  requestQueryStrict: boolean
+  requestBody: BodySpec | null
+  authConfig: AuthConfig
 }
 
 const DEFAULT_TEMPLATE_PLACEHOLDER =
@@ -90,6 +107,11 @@ function emptyForm(): FormState {
     faultDelayMs: undefined,
     faultErrorRate: undefined,
     faultErrorStatus: undefined,
+    requestHeaders: [],
+    requestQuery: [],
+    requestQueryStrict: false,
+    requestBody: null,
+    authConfig: { type: 'none' },
   }
 }
 
@@ -143,12 +165,28 @@ async function loadDetail(id: string) {
         errorRate?: unknown
         errorStatus?: unknown
       }
+      request?: {
+        headers?: HeaderSpec[]
+        query?: QuerySpec[]
+        body?: BodySpec | null
+      }
+      auth?: AuthConfig
     }
     const tpl = cfg.response?.template
     const staticBodyRaw = cfg.staticBody
     const fault = cfg.fault && typeof cfg.fault === 'object' ? cfg.fault : null
     const toNum = (v: unknown): number | undefined =>
       typeof v === 'number' && Number.isFinite(v) ? v : undefined
+    // M5: 反向回填 request / auth
+    const req =
+      cfg.request && typeof cfg.request === 'object' ? cfg.request : null
+    // 严格白名单触发条件：cfg.request 中"显式存在 query 字段"（即便为空数组）
+    const queryDeclared =
+      !!req && Object.prototype.hasOwnProperty.call(req, 'query')
+    const auth =
+      cfg.auth && typeof cfg.auth === 'object' && cfg.auth.type
+        ? cfg.auth
+        : { type: 'none' as const }
     formState.value = {
       name: detail.name,
       method: detail.method,
@@ -175,6 +213,12 @@ async function loadDetail(id: string) {
       faultDelayMs: fault ? toNum(fault.delayMs) : undefined,
       faultErrorRate: fault ? toNum(fault.errorRate) : undefined,
       faultErrorStatus: fault ? toNum(fault.errorStatus) : undefined,
+      requestHeaders: Array.isArray(req?.headers) ? req!.headers : [],
+      requestQuery: Array.isArray(req?.query) ? req!.query : [],
+      requestQueryStrict: queryDeclared,
+      requestBody:
+        req?.body && typeof req.body === 'object' ? (req.body as BodySpec) : null,
+      authConfig: { ...auth },
     }
   } finally {
     detailLoading.value = false
@@ -243,6 +287,35 @@ function buildConfig(): Record<string, unknown> {
       cfg.fault = fault
     }
   }
+
+  // M5: 写 cfg.request（headers 非空 / query 严格白名单启用 / body 非 null 任一满足）
+  const request: Record<string, unknown> = {}
+  if (formState.value.requestHeaders.length > 0) {
+    request.headers = formState.value.requestHeaders
+  }
+  if (formState.value.requestQueryStrict) {
+    // 即使 query 数组为空也写入：[] 表示"严格模式 + 零 query 允许"
+    request.query = formState.value.requestQuery
+  }
+  if (formState.value.requestBody) {
+    request.body = formState.value.requestBody
+  }
+  if (Object.keys(request).length > 0) {
+    cfg.request = request
+  }
+
+  // M5: 写 cfg.auth（type !== 'none' 才写，none 视为未启用）
+  if (formState.value.authConfig.type !== 'none') {
+    const auth: Record<string, unknown> = { type: formState.value.authConfig.type }
+    if (
+      formState.value.authConfig.type === 'xtoken' &&
+      formState.value.authConfig.headerName
+    ) {
+      auth.headerName = formState.value.authConfig.headerName
+    }
+    cfg.auth = auth
+  }
+
   return cfg
 }
 
@@ -255,6 +328,32 @@ const templateParseError = computed<string | null>(() => {
   } catch (e) {
     return (e as Error).message
   }
+})
+
+const requestPanelHeader = computed(() => {
+  const parts: string[] = []
+  if (formState.value.requestHeaders.length > 0) {
+    parts.push(`headers ${formState.value.requestHeaders.length}`)
+  }
+  if (formState.value.requestQueryStrict) {
+    parts.push(`query 严格 ${formState.value.requestQuery.length}`)
+  }
+  if (formState.value.requestBody) {
+    parts.push(`body${formState.value.requestBody.required ? '*' : ''}`)
+  }
+  return parts.length > 0
+    ? `请求规格（${parts.join('，')}）`
+    : '请求规格（未声明）'
+})
+
+const authPanelHeader = computed(() => {
+  const t = formState.value.authConfig.type
+  if (t === 'none') return '鉴权配置（未启用）'
+  if (t === 'xtoken') {
+    const h = formState.value.authConfig.headerName || 'X-Auth-Token'
+    return `鉴权配置（xtoken / ${h}）`
+  }
+  return '鉴权配置（Basic）'
 })
 
 const faultPanelHeader = computed(() => {
@@ -272,6 +371,31 @@ const faultPanelHeader = computed(() => {
   return parts.length > 0
     ? `异常注入（${parts.join('，')}）`
     : '异常注入（已启用，未配置参数）'
+})
+
+const availableFieldNames = computed<string[]>(() => {
+  const names = new Set<string>()
+  for (const q of formState.value.requestQuery) {
+    const n = q.name.trim()
+    if (n) names.add(n)
+  }
+  const body = formState.value.requestBody
+  if (body && body.contentType === 'application/json') {
+    const raw = (body.example ?? '').trim()
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw)
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          for (const k of Object.keys(parsed)) {
+            if (k) names.add(k)
+          }
+        }
+      } catch {
+        // example is not valid JSON — skip, no body field suggestions
+      }
+    }
+  }
+  return [...names].sort()
 })
 
 const staticBodyParseError = computed<string | null>(() => {
@@ -423,6 +547,7 @@ async function handleSubmit() {
           <div class="sql-editor-row">
             <SqlViewPanel
               :topology-id="formState.topologyId ?? null"
+              :request-field-names="availableFieldNames"
               class="sql-view-col"
               @insert="handleInsertFromPanel"
             />
@@ -447,7 +572,10 @@ async function handleSubmit() {
           label="参数映射"
           name="params"
         >
-          <ParamMappingTable v-model="formState.params" />
+          <ParamMappingTable
+            v-model="formState.params"
+            :available-field-names="availableFieldNames"
+          />
         </Form.Item>
 
         <Form.Item
@@ -505,6 +633,34 @@ async function handleSubmit() {
         </Form.Item>
 
         <Collapse :bordered="false" class="fault-collapse">
+          <CollapsePanel key="request" :header="requestPanelHeader">
+            <div class="request-spec-stack">
+              <HeaderSpecTable v-model="formState.requestHeaders" />
+
+              <div class="query-strict-row">
+                <span class="query-strict-label">启用 Query 严格白名单</span>
+                <Switch
+                  v-model:checked="formState.requestQueryStrict"
+                  checked-children="启用"
+                  un-checked-children="未启用"
+                />
+                <span class="hint hint-inline">
+                  {{
+                    formState.requestQueryStrict
+                      ? '启用后未声明的 query 字段会被 400 + 40025 拒绝（即使本表为空）'
+                      : '未启用：调用方可传任意 query；启用后转为白名单语义'
+                  }}
+                </span>
+              </div>
+              <QuerySpecTable
+                v-if="formState.requestQueryStrict"
+                v-model="formState.requestQuery"
+              />
+
+              <BodySpecPanel v-model="formState.requestBody" />
+            </div>
+          </CollapsePanel>
+
           <CollapsePanel key="fault" :header="faultPanelHeader">
             <Form.Item label="启用异常注入" name="faultEnabled">
               <Switch
@@ -578,6 +734,10 @@ async function handleSubmit() {
                 <div class="hint">命中错误时返回的 HTTP 状态码，留空默认 500。</div>
               </Form.Item>
             </div>
+          </CollapsePanel>
+
+          <CollapsePanel key="auth" :header="authPanelHeader">
+            <AuthConfigPanel v-model="formState.authConfig" />
           </CollapsePanel>
         </Collapse>
 
@@ -664,5 +824,32 @@ async function handleSubmit() {
 
 .fault-row {
   margin-top: 4px;
+}
+
+.request-spec-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.query-strict-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px dashed #e8e8e8;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.query-strict-label {
+  font-weight: 500;
+  color: #595959;
+  font-size: 13px;
+}
+
+.hint-inline {
+  margin-top: 0;
+  flex: 1;
 }
 </style>

@@ -88,6 +88,16 @@ from .topology_io import (
     TopologyImportResponse,
     TopologyImportResult,
 )
+from .request_spec import (
+    HeaderSpec,
+    QuerySpec,
+    QueryParamType,
+    BodySpec,
+    BodyContentType,
+    RequestSpec,
+    AuthConfig,
+    AuthType,
+)
 
 __all__ = [
     "TopologyCreate",
@@ -162,4 +172,12 @@ __all__ = [
     "TopologyExportResponse",
     "TopologyImportResponse",
     "TopologyImportResult",
+    "HeaderSpec",
+    "QuerySpec",
+    "QueryParamType",
+    "BodySpec",
+    "BodyContentType",
+    "RequestSpec",
+    "AuthConfig",
+    "AuthType",
 ]

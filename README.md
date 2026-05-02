@@ -208,6 +208,7 @@ M4-03 性能基准（30k 节点 / 30k 边）实测：
 | 启动后端报 `ModuleNotFoundError: app` 或 uvicorn 报 `import_from_string` 失败 | 你在仓库根跑命令了。手动启动必须先 `cd backend` 再跑 `python -m app.main` 或 `python -m uvicorn app.main:app`；用 `start.sh / start.bat` 会自动 cd，不会踩这个坑 |
 | 前端打开白屏 + 控制台 `Failed to fetch /admin/api/health` | 后端没起，或端口被占。Windows: `netstat -ano \| findstr 8080`；`Stop-Process -Id <PID> -Force` |
 | Mock 调用返回 404 | 检查 `/settings` 里的 `mock_path_prefix` 是不是预期的；改前缀后会自动热重载，不需要重启进程 |
+| Mock 调用返回 `400` + `code: 40025` | 严格白名单拦截：该接口在 `config.request.query` 中声明了允许的 query 字段，调用方传了未声明的字段。要么把该字段加入 query 声明，要么关闭严格白名单开关（前端接口编辑弹窗 → 请求规格 → 启用 Query 严格白名单） |
 | `pnpm install` 卡住 | 设国内镜像：`pnpm config set registry https://registry.npmmirror.com` |
 | 改完 `.env` 不生效 | `start.sh / start.bat` 在启动时读取 `backend/.env`；改完要重启进程；`autosave_interval` / `mock_path_prefix` 例外，可以在 `/settings` 页热改 |
 | 删库重来 | 删 `backend/data/app.db*`（含 `-wal`、`-shm`）后重启，自动重建 |

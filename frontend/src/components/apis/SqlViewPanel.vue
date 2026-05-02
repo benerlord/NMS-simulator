@@ -6,6 +6,7 @@ import { fetchSqlViews, type SqlViewItem, type SqlViewsData } from '@/api/sql'
 
 interface Props {
   topologyId: string | null | undefined
+  requestFieldNames?: string[]
 }
 
 const props = defineProps<Props>()
@@ -60,6 +61,10 @@ function insertColumn(column: string) {
 
 function insertFromClause(view: SqlViewItem) {
   emit('insert', `SELECT * FROM ${view.name}`)
+}
+
+function insertParam(name: string) {
+  emit('insert', `:${name}`)
 }
 </script>
 
@@ -182,6 +187,31 @@ function insertFromClause(view: SqlViewItem) {
           </Collapse.Panel>
         </Collapse>
       </Spin>
+
+      <div
+        v-if="requestFieldNames !== undefined"
+        class="request-params-section"
+      >
+        <div class="request-params-header">
+          请求参数 ({{ requestFieldNames.length }})
+        </div>
+        <div
+          v-if="requestFieldNames.length > 0"
+          class="request-params-tags"
+        >
+          <Tag
+            v-for="name in requestFieldNames"
+            :key="name"
+            class="param-tag"
+            @click="insertParam(name)"
+          >
+            :{{ name }}
+          </Tag>
+        </div>
+        <div v-else class="request-params-empty">
+          暂无可用的请求参数
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -308,5 +338,42 @@ function insertFromClause(view: SqlViewItem) {
 .col-tag:hover {
   color: #1677ff;
   border-color: #1677ff;
+}
+
+.request-params-section {
+  border-top: 1px solid #e8e8e8;
+  padding: 8px 8px 4px;
+}
+
+.request-params-header {
+  font-size: 12px;
+  font-weight: 600;
+  color: #595959;
+  margin-bottom: 6px;
+}
+
+.request-params-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.param-tag {
+  cursor: pointer;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 11px;
+  margin: 0;
+  user-select: none;
+}
+
+.param-tag:hover {
+  color: #1677ff;
+  border-color: #1677ff;
+}
+
+.request-params-empty {
+  font-size: 11px;
+  color: #bfbfbf;
+  padding: 4px 0;
 }
 </style>

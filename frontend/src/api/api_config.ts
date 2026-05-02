@@ -3,6 +3,50 @@ import { apiGet, apiPost, apiPut, apiPatch, apiDelete } from './http'
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 export type DataSource = 'sql' | 'static'
 
+// ---------- M5: 请求契约 / 鉴权 ----------
+// 落到 api_configs.config.{request, auth}；后端 schema 见 backend/app/admin/schemas/request_spec.py。
+
+export type QueryParamType = 'string' | 'int' | 'bool'
+export type BodyContentType =
+  | 'application/json'
+  | 'application/x-www-form-urlencoded'
+  | 'text/plain'
+export type AuthType = 'none' | 'xtoken' | 'basic'
+
+export interface HeaderSpec {
+  name: string
+  required: boolean
+  expectValue?: string | null
+  example?: string | null
+  description?: string | null
+}
+
+export interface QuerySpec {
+  name: string
+  type: QueryParamType
+  required: boolean
+  example?: string | null
+  description?: string | null
+}
+
+export interface BodySpec {
+  contentType: BodyContentType
+  required: boolean
+  example?: string | null
+  description?: string | null
+}
+
+export interface RequestSpec {
+  headers?: HeaderSpec[]
+  query?: QuerySpec[]
+  body?: BodySpec | null
+}
+
+export interface AuthConfig {
+  type: AuthType
+  headerName?: string | null
+}
+
 export interface ApiConfigItem {
   id: string
   name: string

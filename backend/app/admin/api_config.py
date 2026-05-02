@@ -562,14 +562,17 @@ def _run_sql_test(
 
 
 def _run_static_test(detail: ApiConfigDetail) -> ApiTestResult:
+    from app.core.request_pipeline import _cfg_get
+
     cfg = detail.config if isinstance(detail.config, dict) else {}
     response_cfg = cfg.get("response") if isinstance(cfg.get("response"), dict) else {}
-    status_code = int(response_cfg.get("statusCode") or 200)
-    content_type = response_cfg.get("contentType") or "application/json"
+    status_code = int(_cfg_get(response_cfg, "statusCode", "status_code") or 200)
+    content_type = (_cfg_get(response_cfg, "contentType", "content_type") or "application/json")
 
     body: Any
-    if cfg.get("staticBody") is not None:
-        body = cfg.get("staticBody")
+    static_body = _cfg_get(cfg, "staticBody", "static_body")
+    if static_body is not None:
+        body = static_body
     elif response_cfg.get("template") is not None:
         try:
             body = render_template(

@@ -21,14 +21,18 @@ export function camelizeKeys<T = unknown>(input: unknown): T {
   return input as T
 }
 
-export function snakeizeKeys<T = unknown>(input: unknown): T {
+export function snakeizeKeys<T = unknown>(
+  input: unknown,
+  skipKeys?: string[],
+): T {
   if (Array.isArray(input)) {
-    return input.map((item) => snakeizeKeys(item)) as unknown as T
+    return input.map((item) => snakeizeKeys(item, skipKeys)) as unknown as T
   }
   if (input && typeof input === 'object' && input.constructor === Object) {
     const out: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
-      out[toSnake(k)] = snakeizeKeys(v)
+      const snakeKey = toSnake(k)
+      out[snakeKey] = skipKeys?.includes(k) ? v : snakeizeKeys(v, skipKeys)
     }
     return out as T
   }

@@ -4,8 +4,9 @@
 
 | 项目 | 内容 |
 |------|------|
-| 文档版本 | v1.0 |
+| 文档版本 | v1.2 |
 | 创建日期 | 2026-04-15 |
+| 最后更新 | 2026-05-01 |
 | 适用范围 | MVP 阶段 |
 | 关联文档 | `系统架构设计.md`、`数据库表设计.md` v2.3 |
 
@@ -476,6 +477,21 @@ Retry-After: 60
   "sqlText": "SELECT * FROM switches WHERE (:status IS NULL OR status=:status)",
   "config": {
     "auth": { "type": "xtoken", "headerName": "X-Auth-Token" },
+    "request": {
+      "headers": [
+        { "name": "X-Tenant-Id", "required": true, "expectValue": null, "example": "t-001", "description": "租户 ID" }
+      ],
+      "query": [
+        { "name": "status", "type": "string", "required": false, "example": "online", "description": "按状态过滤" },
+        { "name": "pageNo", "type": "int", "required": false, "example": "1", "description": "页码" }
+      ],
+      "body": {
+        "contentType": "application/json",
+        "required": false,
+        "example": "{\"userName\": \"admin\"}",
+        "description": "请求体示例"
+      }
+    },
     "params": [
       { "param": "status", "sqlParam": ":status", "default": null }
     ],
@@ -531,6 +547,83 @@ Retry-After: 60
   }
 }
 ```
+
+**`config.request` 字段说明**（M5 新增，可选 — 缺省时不做请求校验）：
+
+`config.request` 缺省或为 `null` 时完全跳过请求校验，行为与 M4 一致（向后兼容）。
+
+**headers 声明**（`request.headers: HeaderSpec[]`）：
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `name` | string | 是 | 请求头名称（大小写不敏感） |
+| `required` | boolean | 是 | 缺少时返回 400 + 40020 |
+| `expectValue` | string | 否 | 精确匹配值；留空仅校验存在性；不匹配返回 400 + 40021 |
+| `example` | string | 否 | 文档示例值，不做校验 |
+| `description` | string | 否 | 字段说明 |
+
+> **注意**：headers **不做严格白名单**。HTTP 标准头（`User-Agent` / `Accept` / `Host` / `Connection` 等）由浏览器/curl 自动注入，强制白名单会使所有调用失败。仅校验声明字段的存在性与 expectValue。
+
+**query 声明**（`request.query: QuerySpec[]`）：
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `name` | string | 是 | 参数名 |
+| `type` | `"string"` / `"int"` / `"bool"` | 是 | 声明类型；传值不匹配返回 400 + 40023 |
+| `required` | boolean | 是 | 缺少时返回 400 + 40022 |
+| `example` | string | 否 | 文档示例值 |
+| `description` | string | 否 | 字段说明 |
+
+> **严格白名单触发条件**：`config.request` 中**显式包含 `query` 字段**（即便数组为空）即启用白名单——调用方传入任何未声明的 query 参数返回 400 + 40025。若 `config.request` 完全缺省 `query` 字段则为自由模式（任意 query 放过）。
+
+**body 声明**（`request.body: BodySpec`）：
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `contentType` | `"application/json"` / `"application/x-www-form-urlencoded"` / `"text/plain"` | 是 | 声明 Content-Type（content-type 严格匹配延后到 LEGACY-02） |
+| `required` | boolean | 是 | body 必填且请求体为空时返回 400 + 40026 |
+| `example` | string | 否 | JSON 示例字符串，仅文档展示，不做 schema 校验 |
+| `description` | string | 否 | 字段说明 |
+
+**`config.auth` 字段说明**（M5 新增，可选 — 缺省或 `type=none` 时不做鉴权）：
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `type` | `"none"` / `"xtoken"` / `"basic"` | 是 | `none` 视为未启用 |
+| `headerName` | string | 否 | 仅 xtoken 模式有效，默认 `X-Auth-Token` |
+
+**鉴权模式说明**：
+
+| 模式 | 调用方携带方式 | 后端验证 |
+|------|--------------|---------|
+| `none` | 无需携带 | 跳过 step 3 |
+| `xtoken` | header `{headerName}: <token>` | 查 `tokens` 表：`token` 存在 AND `revoked=0` AND `expires_at > now`；失败返回 401 + 40401/40402/40403 |
+| `basic` | header `Authorization: Basic base64(token:password)` | token 作为 username，`meta.password` 校验；失败返回 401 + 40404 |
+
+---
+
+**mock 端请求校验错误码**（M5 新增，HTTP 400，段位 40020-40029）：
+
+| 错误码 | HTTP | 含义 | 触发条件 |
+|--------|------|------|---------|
+| 40020 | 400 | 缺少必填请求头 | 声明 `required: true` 的 header 未出现在请求中 |
+| 40021 | 400 | 请求头值不匹配 | header 存在但 `expectValue` 与声明不同 |
+| 40022 | 400 | 缺少必填 query 参数 | 声明 `required: true` 的 query 参数未出现在请求中 |
+| 40023 | 400 | query 参数类型错误 | 声明 `int` 但传 `abc`，声明 `bool` 但传非 true/false/1/0/yes/no |
+| 40024 | 415 | （**预留** LEGACY-02） | content-type 严格匹配 |
+| 40025 | 400 | 未声明的 query 参数 | 严格白名单启用时传入未声明字段 |
+| 40026 | 400 | 请求体必填但为空 | `body.required=true` 但请求体为空 |
+
+**鉴权错误码**（M3-06 已有）：
+
+| 错误码 | HTTP | 含义 |
+|--------|------|------|
+| 40401 | 401 | 未提供 Token / Token 不存在 |
+| 40402 | 401 | Token 已过期 |
+| 40403 | 401 | Token 已被撤销 |
+| 40404 | 401 | Basic 认证失败（凭证错误 / 格式错误） |
+
+> **管道执行顺序**：step 2 (enabled) → step 3 (authenticate) → step 3.5 (validate_request) → step 4 (fault) → step 5 (execute) → step 6 (render)。鉴权先于请求校验——即使 request 参数也缺，无有效 token 时返回 401 而非 400（最小信息泄露）。
 
 ### 2.7 SQL 辅助（SQL Helper）
 
@@ -655,6 +748,7 @@ MVP 阶段不做管理 API 鉴权与限流，仅以下约束由后端校验：
 |------|------|------|
 | v1.0 | 2026-04-15 | 初版：覆盖 11 个资源模块 + WebSocket 事件 |
 | v1.1 | 2026-04-17 | 完善异常场景：HTTP 状态码语义、字段级验证错误、稀疏字段集、限流响应、各模块异常码表 |
+| v1.2 | 2026-05-01 | M5：新增 `config.request`（headers/query/body）+ `config.auth` 字段文档；mock 端错误码 40020-40026；鉴权错误码 40401-40404；管道顺序说明 |
 
 ---
 
