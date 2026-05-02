@@ -35,7 +35,9 @@
       "Bash(pnpm --version)",
       "Bash(/c/Users/benerlord/Desktop/InterfaceTest/start.sh *)",
       "Bash(pnpm dev *)",
-      "PowerShell(Stop-Process *)"
+      "PowerShell(Stop-Process *)",
+      "Bash(powershell.exe *)",
+      "Bash(awk '{print $5}')"
     ]
   }
 }

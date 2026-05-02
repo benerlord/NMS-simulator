@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual env
+.venv/
+venv/
+env/
+
+# App data — start scripts auto-create on first launch
+backend/data/app.db
+backend/data/app.db-wal
+backend/data/app.db-shm
+
+# HTTPS self-signed certs (generated at runtime by cert_utils)
+backend/data/ssl/
+
+# Frontend build artifacts
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Misc accidents (e.g. shell `2>=41` typo)
+=41
+
+# Logs
+*.log
