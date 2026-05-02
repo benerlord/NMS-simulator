@@ -1,13 +1,19 @@
 """Response template renderer for API config test / mock endpoints.
 
 Supported placeholders (per docs/开发方案.md §2.5):
-    {{items}}   -> list returned by the SQL executor
-    {{total}}   -> total row count
-    {{page}}    -> current page number
-    {{pageNo}}  -> alias for page (API doc uses pageNo)
-    {{pageSize}}-> page size
-    {{uuid}}    -> freshly generated uuid4 hex (with dashes)
-    {{now}}     -> current UTC time, ISO-8601 seconds precision, ending with Z
+    {{items}}        -> list returned by the SQL executor
+    {{total}}        -> total row count
+    {{page}}         -> current page number
+    {{pageNo}}       -> alias for page (API doc uses pageNo)
+    {{pageSize}}     -> page size
+    {{totalPageNo}}  -> total pages, ceil(total/pageSize); 0 when pageSize<=0
+    {{totalPages}}   -> alias for totalPageNo
+    {{hasNext}}      -> bool, page < totalPageNo
+    {{hasPrev}}      -> bool, page > 1 and total > 0
+    {{offset}}       -> (page - 1) * pageSize
+    {{count}}        -> len(items), actual rows on current page
+    {{uuid}}         -> freshly generated uuid4 hex (with dashes)
+    {{now}}          -> current UTC time, ISO-8601 seconds precision, ending with Z
 
 Rules:
 - The template is a nested structure (dict/list/primitive) already parsed from
@@ -24,6 +30,7 @@ Rules:
 from __future__ import annotations
 
 import json
+import math
 import re
 import uuid
 from datetime import datetime
@@ -57,12 +64,23 @@ def _build_context(
     page: int,
     page_size: int,
 ) -> dict[str, Any]:
+    # Derived pagination vars (M6-01 LEGACY-05 Phase 1).
+    # pageSize<=0 is defended even though _resolve_pagination clamps to ≥1,
+    # because render_template is also called from static-mode rendering path
+    # (request_pipeline._step6_render with page_size=0 when no SQL ran).
+    total_page_no = math.ceil(total / page_size) if page_size > 0 else 0
     return {
         "items": items,
         "total": total,
         "page": page,
         "pageNo": page,
         "pageSize": page_size,
+        "totalPageNo": total_page_no,
+        "totalPages": total_page_no,
+        "hasNext": page < total_page_no,
+        "hasPrev": page > 1 and total > 0,
+        "offset": (page - 1) * page_size if page_size > 0 else 0,
+        "count": len(items),
         "uuid": str(uuid.uuid4()),  # with dashes, per docs §2.5
         "now": _now_iso(),
     }
