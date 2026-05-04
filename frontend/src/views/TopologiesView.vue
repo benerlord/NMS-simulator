@@ -65,8 +65,14 @@ async function handleModalSubmit(data: TopologyCreate | TopologyUpdate) {
 
 async function handleDelete(id: string) {
   try {
-    await deleteTopology(id)
-    message.success('删除成功')
+    // LEGACY-07: 后端返回 unboundApiCount，回显告知用户解绑了多少接口
+    const result = await deleteTopology(id)
+    const unbound = result?.unboundApiCount ?? 0
+    if (unbound > 0) {
+      message.success(`删除成功，已自动解绑 ${unbound} 个接口配置`)
+    } else {
+      message.success('删除成功')
+    }
   } catch {
     // error toast handled by http interceptor
   }

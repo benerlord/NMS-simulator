@@ -209,8 +209,9 @@ Retry-After: 60
 | GET | `/admin/api/topologies/{id}` | 获取拓扑详情（不含节点和边，仅元数据 + 统计） |
 | POST | `/admin/api/topologies` | 新建拓扑 |
 | PUT | `/admin/api/topologies/{id}` | 修改拓扑元数据（name / description） |
-| DELETE | `/admin/api/topologies` | 批量删除全部拓扑（有关联 api_configs 时返回 `code:40103`） |
-| DELETE | `/admin/api/topologies/{id}` | 删除单个拓扑（被接口绑定时返回 `code:40103`） |
+| DELETE | `/admin/api/topologies` | 批量删除全部拓扑；自动解绑引用的 api_configs，返回 `{deletedCount, unboundApiCount}` — LEGACY-07 |
+| DELETE | `/admin/api/topologies/{id}` | 删除单个拓扑；自动解绑引用的 api_configs，返回 `{unboundApiCount}` — LEGACY-07 |
+| GET | `/admin/api/topologies/{id}/delete-impact` | 删除前预扫描，返回 `{topologyId, topologyName, affectedApiCount, affectedApis[]}` — LEGACY-07 |
 | GET | `/admin/api/topologies/{id}/graph` | 一次性获取拓扑完整图数据（节点 + 边 + 画布坐标），供画布加载 |
 | POST | `/admin/api/topologies/{id}/export` | 导出场景为 JSON 文件 |
 | POST | `/admin/api/topologies/import` | 导入场景文件（冲突时新建副本） |
@@ -232,10 +233,9 @@ Retry-After: 60
 | 更新时 topology 不存在 | 404 | 40101 | 拓扑不存在 |
 | 更新时 name 为空 | 400 | 40001 | name 不得为空 |
 | 更新时无任何更新字段 | 400 | 40001 | 无更新字段 |
-| 批量删除时有拓扑被引用 | 409 | 40103 | 部分拓扑被接口配置引用，无法删除 |
 | 删除单个时 topology 不存在 | 404 | 40101 | 拓扑不存在 |
-| 删除单个时被 api_configs 引用 | 409 | 40103 | 拓扑被接口配置引用，无法删除 |
 | 获取 graph 时 topology 不存在 | 404 | 40101 | 拓扑不存在 |
+| ~~删除时被 api_configs 引用~~ | ~~409~~ | ~~40103~~ | LEGACY-07 后不再触发；自动解绑接口配置（保留备用错误码） |
 
 **图数据响应示例**：
 

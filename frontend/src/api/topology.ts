@@ -35,6 +35,23 @@ export interface PageResult<T> {
 
 export interface DeleteResult {
   deletedCount?: number
+  // LEGACY-07: 删除拓扑时自动解绑 api_configs，回显被解绑接口数
+  unboundApiCount?: number
+}
+
+// LEGACY-07: 删除拓扑前的预扫描结果（受影响的 api_configs）
+export interface AffectedApi {
+  id: string
+  name: string
+  method: string
+  path: string
+}
+
+export interface TopologyDeleteImpact {
+  topologyId: string
+  topologyName: string
+  affectedApiCount: number
+  affectedApis: AffectedApi[]
 }
 
 // --- Graph types ---

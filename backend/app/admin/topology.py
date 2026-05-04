@@ -31,6 +31,11 @@ def _new_id() -> str:
     return f"topo_{uuid.uuid4().hex[:12]}"
 
 
+def _now() -> str:
+    """ISO-8601 UTC timestamp ending with Z (matches api_config.py format)."""
+    return datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def _row_to_list_item(row) -> TopologyListItem:
     return TopologyListItem(
         id=row["id"],
@@ -85,32 +90,31 @@ class GraphResponse(BaseModel):
 # DELETE /admin/api/topologies (批量删除全部)
 @router.delete("/topologies")
 def delete_all_topologies() -> dict:
-    with connect() as conn:
-        # 查找被 api_configs 引用的拓扑
-        ref_rows = conn.execute(
-            "SELECT DISTINCT topology_id FROM api_configs WHERE topology_id IS NOT NULL"
-        ).fetchall()
-        if ref_rows:
-            referenced_ids = [r["topology_id"] for r in ref_rows]
-            return {
-                "code": 40103,
-                "message": "部分拓扑被接口配置引用，无法删除",
-                "details": {"referencedTopologyIds": referenced_ids},
-            }
-
-        # 先删除关联的节点、边、画布数据
+    with transaction() as conn:
         topo_rows = conn.execute("SELECT id FROM topologies").fetchall()
         topo_ids = [r["id"] for r in topo_rows]
         if not topo_ids:
-            return {"code": 0, "data": {"deletedCount": 0}, "message": "无拓扑可删除"}
+            return {"code": 0, "data": {"deletedCount": 0, "unboundApiCount": 0}, "message": "无拓扑可删除"}
 
-        deleted_count = len(topo_ids)
+        # LEGACY-07: 应用层主动解绑 api_configs（FK 保留 NO ACTION 兜底）
+        unbound = conn.execute(
+            "UPDATE api_configs SET topology_id = NULL, updated_at = ? "
+            "WHERE topology_id IS NOT NULL",
+            (_now(),),
+        )
+        unbound_count = unbound.rowcount
+
+        # 删除关联的节点、边、画布数据
         for topo_id in topo_ids:
             conn.execute("DELETE FROM canvas_nodes WHERE topology_id = ?", (topo_id,))
             conn.execute("DELETE FROM edges WHERE topology_id = ?", (topo_id,))
             conn.execute("DELETE FROM nodes WHERE topology_id = ?", (topo_id,))
         conn.execute("DELETE FROM topologies")
-    return {"code": 0, "data": {"deletedCount": deleted_count}, "message": "删除成功"}
+    return {
+        "code": 0,
+        "data": {"deletedCount": len(topo_ids), "unboundApiCount": unbound_count},
+        "message": "删除成功",
+    }
 
 
 # GET /admin/api/topologies
@@ -243,7 +247,7 @@ def update_topology(id: str, body: TopologyUpdate) -> dict:
 # DELETE /admin/api/topologies/{id}
 @router.delete("/topologies/{id}")
 def delete_topology(id: str) -> dict:
-    with connect() as conn:
+    with transaction() as conn:
         row = conn.execute(
             "SELECT id FROM topologies WHERE id = ?", (id,)
         ).fetchone()
@@ -253,19 +257,66 @@ def delete_topology(id: str) -> dict:
                 detail={"code": 40101, "message": "拓扑不存在", "details": {"topologyId": id}},
             )
 
-        ref = conn.execute(
-            "SELECT id FROM api_configs WHERE topology_id = ? LIMIT 1", (id,)
-        ).fetchone()
-        if ref:
-            return {
-                "code": 40103,
-                "message": "拓扑被接口配置引用，无法删除",
-                "details": {"topologyId": id},
-            }
+        # LEGACY-07: 应用层主动解绑 api_configs（FK 保留 NO ACTION 兜底）
+        unbound = conn.execute(
+            "UPDATE api_configs SET topology_id = NULL, updated_at = ? WHERE topology_id = ?",
+            (_now(), id),
+        )
+        unbound_count = unbound.rowcount
 
-    with transaction() as conn:
+        conn.execute("DELETE FROM canvas_nodes WHERE topology_id = ?", (id,))
+        conn.execute("DELETE FROM edges WHERE topology_id = ?", (id,))
+        conn.execute("DELETE FROM nodes WHERE topology_id = ?", (id,))
         conn.execute("DELETE FROM topologies WHERE id = ?", (id,))
-    return {"code": 0, "data": None, "message": "删除成功"}
+    return {
+        "code": 0,
+        "data": {"unboundApiCount": unbound_count},
+        "message": "删除成功",
+    }
+
+
+# GET /admin/api/topologies/{id}/delete-impact (LEGACY-07: 删除前预扫描)
+@router.get("/topologies/{id}/delete-impact")
+def get_topology_delete_impact(id: str) -> dict:
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT id, name FROM topologies WHERE id = ?", (id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": 40101, "message": "拓扑不存在", "details": {"topologyId": id}},
+            )
+        # 受影响接口总数（精确）
+        count_row = conn.execute(
+            "SELECT COUNT(*) AS n FROM api_configs WHERE topology_id = ?", (id,)
+        ).fetchone()
+        affected_count = int(count_row["n"]) if count_row else 0
+        # 取前 50 个接口的展示信息
+        api_rows = conn.execute(
+            "SELECT id, name, method, path FROM api_configs "
+            "WHERE topology_id = ? ORDER BY name LIMIT 50",
+            (id,),
+        ).fetchall()
+        affected_apis = [
+            {
+                "id": r["id"],
+                "name": r["name"],
+                "method": r["method"],
+                "path": r["path"],
+            }
+            for r in api_rows
+        ]
+    return {
+        "code": 0,
+        "data": {
+            "topologyId": row["id"],
+            "topologyName": row["name"],
+            "affectedApiCount": affected_count,
+            "affectedApis": affected_apis,
+        },
+        "message": "ok",
+    }
 
 
 class CanvasPositionsRequest(BaseModel):

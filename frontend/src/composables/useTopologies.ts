@@ -7,6 +7,8 @@ import type {
   TopologyUpdate,
   TopologyExportDoc,
   TopologyImportResult,
+  TopologyDeleteImpact,
+  DeleteResult,
   PageResult,
 } from '@/api/topology'
 
@@ -57,15 +59,22 @@ export function useTopologies(options: UseTopologiesOptions = {}) {
     return result
   }
 
-  async function deleteTopology(id: string): Promise<void> {
-    await apiDelete(`/topologies/${id}`)
+  async function deleteTopology(id: string): Promise<DeleteResult> {
+    // LEGACY-07: 后端会自动解绑引用此拓扑的 api_configs，返回 unboundApiCount
+    const result = await apiDelete<DeleteResult>(`/topologies/${id}`)
     await fetchTopologies()
+    return result ?? {}
   }
 
-  async function deleteAllTopologies(): Promise<{ deletedCount: number }> {
-    const result = await apiDelete<{ deletedCount: number }>('/topologies')
+  async function deleteAllTopologies(): Promise<DeleteResult> {
+    const result = await apiDelete<DeleteResult>('/topologies')
     await fetchTopologies()
-    return result ?? { deletedCount: 0 }
+    return result ?? { deletedCount: 0, unboundApiCount: 0 }
+  }
+
+  // LEGACY-07: 删除前预扫描受影响的接口数与列表
+  async function fetchDeleteImpact(id: string): Promise<TopologyDeleteImpact> {
+    return apiGet<TopologyDeleteImpact>(`/topologies/${id}/delete-impact`)
   }
 
   async function exportTopology(id: string): Promise<TopologyExportDoc> {
@@ -117,6 +126,7 @@ export function useTopologies(options: UseTopologiesOptions = {}) {
     updateTopology,
     deleteTopology,
     deleteAllTopologies,
+    fetchDeleteImpact,
     exportTopology,
     importTopology,
     onPageChange,

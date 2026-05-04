@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { Table, Button, Space, Tag, Popconfirm, Input } from 'ant-design-vue'
+import { h, ref } from 'vue'
+import { Table, Button, Space, Tag, Input, Modal, Alert, message } from 'ant-design-vue'
 import {
   SearchOutlined,
   PlusOutlined,
   ImportOutlined,
   ExportOutlined,
 } from '@ant-design/icons-vue'
-import type { TopologyListItem } from '@/api/topology'
+import { apiGet } from '@/api/http'
+import type { TopologyListItem, TopologyDeleteImpact } from '@/api/topology'
 
 interface Props {
   items: TopologyListItem[]
@@ -41,8 +42,82 @@ function onEditItem(item: TopologyListItem) {
   emit('edit', item)
 }
 
-function onDeleteItem(id: string) {
-  emit('delete', id)
+// LEGACY-07: 删除前先调 delete-impact 端点预扫描受影响接口，再弹 Modal.confirm
+async function onDeleteItem(record: TopologyListItem) {
+  let impact: TopologyDeleteImpact | null = null
+  try {
+    impact = await apiGet<TopologyDeleteImpact>(`/topologies/${record.id}/delete-impact`)
+  } catch {
+    // 预扫描失败：弹通用确认框，不阻断
+    message.warning('预扫描失败，但仍可继续删除')
+  }
+
+  const affectedCount = impact?.affectedApiCount ?? 0
+  const affectedApis = impact?.affectedApis ?? []
+
+  Modal.confirm({
+    title: `删除拓扑 "${record.name}"`,
+    width: 540,
+    okText: '确认删除',
+    okButtonProps: { danger: true },
+    cancelText: '取消',
+    icon: null,
+    content: () =>
+      h('div', [
+        affectedCount > 0
+          ? h(Alert, {
+              type: 'warning',
+              showIcon: true,
+              message: `${affectedCount} 个接口配置当前绑定此拓扑，将被自动解绑（接口配置保留，仅 topology_id 置空）`,
+              style: 'margin-bottom: 12px',
+            })
+          : h(Alert, {
+              type: 'info',
+              showIcon: true,
+              message: '该拓扑当前未被任何接口配置引用',
+              style: 'margin-bottom: 12px',
+            }),
+        affectedApis.length > 0
+          ? h(
+              'div',
+              {
+                style:
+                  'max-height: 200px; overflow-y: auto; padding: 8px 12px; background: #fafafa; border: 1px solid #f0f0f0; border-radius: 4px; margin-bottom: 8px',
+              },
+              [
+                h(
+                  'div',
+                  { style: 'font-size: 12px; color: #888; margin-bottom: 6px' },
+                  affectedApis.length < affectedCount
+                    ? `受影响接口（前 ${affectedApis.length} 个，共 ${affectedCount} 个）：`
+                    : '受影响接口：',
+                ),
+                ...affectedApis.map((api) =>
+                  h(
+                    'div',
+                    { style: 'font-size: 13px; line-height: 1.6' },
+                    [
+                      h(
+                        'span',
+                        {
+                          style:
+                            'display: inline-block; width: 56px; color: #1677ff; font-weight: 500',
+                        },
+                        api.method,
+                      ),
+                      h('span', {}, api.name + ' '),
+                      h('span', { style: 'color: #999' }, api.path),
+                    ],
+                  ),
+                ),
+              ],
+            )
+          : null,
+      ]),
+    onOk: () => {
+      emit('delete', record.id)
+    },
+  })
 }
 
 function onCreate() {
@@ -199,14 +274,12 @@ function formatDate(iso: string): string {
               <ExportOutlined />
               导出
             </a>
-            <Popconfirm
-              title="确定删除该拓扑？"
-              ok-text="确定"
-              cancel-text="取消"
-              @confirm="onDeleteItem((record as TopologyListItem).id)"
+            <a
+              style="color: #ff4d4f"
+              @click="onDeleteItem(record as TopologyListItem)"
             >
-              <a style="color: #ff4d4f">删除</a>
-            </Popconfirm>
+              删除
+            </a>
             <a @click="onEnterCanvas((record as TopologyListItem).id)">进入画布</a>
           </Space>
         </template>
