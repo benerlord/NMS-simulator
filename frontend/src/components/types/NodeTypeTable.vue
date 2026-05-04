@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons-vue'
+import { ref, computed } from 'vue'
+import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, ExportOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
 import NodeTypeModal from './NodeTypeModal.vue'
 import NodeTypeFieldEditor from './NodeTypeFieldEditor.vue'
 import { useNodeTypes } from '@/composables/useTypes'
+import { nodeTypeApi } from '@/api/types'
+import { downloadJson, timestampFilename } from '@/utils/download'
 import type { NodeTypeDetail, NodeTypeCreate, NodeTypeUpdate, NodeTypeFieldCreate, NodeTypeFieldUpdate } from '@/api/types'
 
 const {
@@ -14,6 +16,7 @@ const {
   createNodeType,
   updateNodeType,
   deleteNodeType,
+  deleteNodeTypes,
   createNodeTypeField,
   updateNodeTypeField,
   deleteNodeTypeField,
@@ -87,6 +90,54 @@ async function handleDeleteField(typeId: string, fieldId: number) {
 
 // Expanded rows for showing fields
 const expandedRowKeys = ref<string[]>([])
+const selectedRowKeys = ref<string[]>([])
+const searchText = ref('')
+const categoryFilter = ref<string[]>([])
+
+const categoryOptions = computed(() => {
+  const cats = [...new Set(nodeTypes.value.map(nt => nt.category))]
+  return cats.map(c => ({ label: c, value: c }))
+})
+
+const filteredNodeTypes = computed(() => {
+  let list = nodeTypes.value
+  const kw = searchText.value.trim().toLowerCase()
+  if (kw) {
+    list = list.filter(nt =>
+      nt.code.toLowerCase().includes(kw) ||
+      nt.name.toLowerCase().includes(kw) ||
+      (nt.description ?? '').toLowerCase().includes(kw) ||
+      nt.category.toLowerCase().includes(kw)
+    )
+  }
+  if (categoryFilter.value.length > 0) {
+    list = list.filter(nt => categoryFilter.value.includes(nt.category))
+  }
+  return list
+})
+
+async function handleExport() {
+  try {
+    const ids = selectedRowKeys.value.length > 0 ? selectedRowKeys.value : undefined
+    const result = await nodeTypeApi.export(ids)
+    downloadJson(result.items, timestampFilename('node-types-export'))
+    message.success(`已导出 ${result.items.length} 个节点类型`)
+  } catch {}
+}
+
+async function handleBatchDelete() {
+  if (selectedRowKeys.value.length === 0) return
+  try {
+    const result = await deleteNodeTypes(selectedRowKeys.value)
+    if (result.skipped.length > 0) {
+      const skippedInfo = result.skipped.map(s => `${s.id}: ${s.reason}`).join('; ')
+      message.warning(`部分类型未能删除: ${skippedInfo}`)
+    } else {
+      message.success(`成功删除 ${result.deletedCount} 个节点类型`)
+    }
+    selectedRowKeys.value = []
+  } catch {}
+}
 
 fetchNodeTypes()
 </script>
@@ -95,17 +146,51 @@ fetchNodeTypes()
   <div class="node-type-table">
     <div class="table-toolbar">
       <span class="toolbar-title">节点类型</span>
-      <a-button type="primary" @click="openCreate">
-        <template #icon><PlusOutlined /></template>
-        新建节点类型
-      </a-button>
+      <a-space>
+        <a-input-search
+          v-model:value="searchText"
+          placeholder="搜索代码/名称/描述"
+          allow-clear
+          style="width: 220px"
+        />
+        <a-select
+          v-model:value="categoryFilter"
+          mode="multiple"
+          placeholder="分类筛选"
+          :options="categoryOptions"
+          :max-tag-count="1"
+          allow-clear
+          style="width: 160px"
+        />
+        <a-popconfirm
+          :title="`确定删除选中的 ${selectedRowKeys.length} 个节点类型？`"
+          :disabled="selectedRowKeys.length === 0"
+          ok-text="确定"
+          cancel-text="取消"
+          @confirm="handleBatchDelete"
+        >
+          <a-button :disabled="selectedRowKeys.length === 0" danger>
+            <template #icon><DeleteOutlined /></template>
+            批量删除
+          </a-button>
+        </a-popconfirm>
+        <a-button @click="handleExport">
+          <template #icon><ExportOutlined /></template>
+          批量导出
+        </a-button>
+        <a-button type="primary" @click="openCreate">
+          <template #icon><PlusOutlined /></template>
+          新建节点类型
+        </a-button>
+      </a-space>
     </div>
 
     <a-table
-      :dataSource="nodeTypes"
+      :dataSource="filteredNodeTypes"
       :loading="nodeTypesLoading"
       :pagination="{ pageSize: 10 }"
       rowKey="id"
+      :rowSelection="{ selectedRowKeys, onChange: (keys: string[]) => { selectedRowKeys = keys } }"
       :expandedRowKeys="expandedRowKeys"
       @expand="(expanded: boolean, record: NodeTypeDetail) => { if (expanded) expandedRowKeys = [record.id]; else expandedRowKeys = [] }"
     >

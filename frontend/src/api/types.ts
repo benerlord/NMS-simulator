@@ -152,6 +152,11 @@ export interface EdgeTypeFieldUpdate {
   sortOrder?: number | null
 }
 
+export interface BatchDeleteResult {
+  deletedCount: number
+  skipped: { id: string; reason: string }[]
+}
+
 // ============ API Functions ============
 
 export const nodeTypeApi = {
@@ -178,6 +183,12 @@ export const nodeTypeApi = {
 
   deleteField: (typeId: string, fieldId: number): Promise<{ id: number }> =>
     apiDelete(`/node-types/${typeId}/fields/${fieldId}`),
+
+  batchDelete: (ids: string[]): Promise<BatchDeleteResult> =>
+    apiPost('/node-types/batch-delete', { ids }),
+
+  export: (ids?: string[]): Promise<{ items: NodeTypeDetail[] }> =>
+    apiPost('/node-types/export', { ids }),
 }
 
 export const edgeTypeApi = {
@@ -204,4 +215,10 @@ export const edgeTypeApi = {
 
   deleteField: (typeId: string, fieldId: number): Promise<{ id: number }> =>
     apiDelete(`/edge-types/${typeId}/fields/${fieldId}`),
+
+  batchDelete: (ids: string[]): Promise<BatchDeleteResult> =>
+    apiPost('/edge-types/batch-delete', { ids }),
+
+  export: (ids?: string[]): Promise<{ items: EdgeTypeDetail[] }> =>
+    apiPost('/edge-types/export', { ids }),
 }

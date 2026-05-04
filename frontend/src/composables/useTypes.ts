@@ -51,6 +51,12 @@ export function useNodeTypes() {
     return result
   }
 
+  async function deleteNodeTypes(ids: string[]) {
+    const result = await nodeTypeApi.batchDelete(ids)
+    await fetchNodeTypes()
+    return result
+  }
+
   async function createNodeTypeField(typeId: string, data: NodeTypeFieldCreate) {
     const result = await nodeTypeApi.createField(typeId, data)
     await fetchNodeTypes()
@@ -87,6 +93,7 @@ export function useNodeTypes() {
     createNodeType,
     updateNodeType,
     deleteNodeType,
+    deleteNodeTypes,
     createNodeTypeField,
     updateNodeTypeField,
     deleteNodeTypeField,
@@ -131,6 +138,12 @@ export function useEdgeTypes() {
     return result
   }
 
+  async function deleteEdgeTypes(ids: string[]) {
+    const result = await edgeTypeApi.batchDelete(ids)
+    await fetchEdgeTypes()
+    return result
+  }
+
   async function createEdgeTypeField(typeId: string, data: EdgeTypeFieldCreate) {
     const result = await edgeTypeApi.createField(typeId, data)
     await fetchEdgeTypes()
@@ -157,6 +170,7 @@ export function useEdgeTypes() {
     createEdgeType,
     updateEdgeType,
     deleteEdgeType,
+    deleteEdgeTypes,
     createEdgeTypeField,
     updateEdgeTypeField,
     deleteEdgeTypeField,

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Optional, List
 
 from pydantic import BaseModel, Field
 
@@ -78,6 +78,18 @@ class NodeTypeItem(CamelModel):
 
 class NodeTypeDetail(NodeTypeItem):
     fields: list[NodeTypeFieldItem] = []
+
+
+class NodeTypeBatchDelete(BaseModel):
+    ids: list[str] = Field(..., min_length=1, max_length=200)
+
+
+class EdgeTypeBatchDelete(BaseModel):
+    ids: list[str] = Field(..., min_length=1, max_length=200)
+
+
+class TypeExportRequest(CamelModel):
+    ids: Optional[list[str]] = Field(default=None)
 
 
 # --- edge_types ---

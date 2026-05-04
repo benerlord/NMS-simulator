@@ -48,5 +48,9 @@ def init_db() -> None:
 
     with connect() as conn:
         run_migrations(conn)
-    with transaction() as conn:
-        run_seed(conn)
+        existing = conn.execute(
+            "SELECT COUNT(*) as cnt FROM node_types"
+        ).fetchone()
+    if existing["cnt"] == 0:
+        with transaction() as conn:
+            run_seed(conn)

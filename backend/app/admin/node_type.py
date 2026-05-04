@@ -12,6 +12,9 @@ from app.admin.schemas.node_type import (
     NodeTypeFieldItem,
     NodeTypeFieldCreate,
     NodeTypeFieldUpdate,
+    NodeTypeBatchDelete,
+    EdgeTypeBatchDelete,
+    TypeExportRequest,
     EdgeTypeCreate,
     EdgeTypeUpdate,
     EdgeTypeDetail,
@@ -201,6 +204,64 @@ def update_node_type(type_id: str, data: NodeTypeUpdate) -> dict:
     return {"code": 0, "data": {"id": type_id}, "message": "ok"}
 
 
+@router.post("/node-types/batch-delete")
+def batch_delete_node_types(data: NodeTypeBatchDelete) -> dict:
+    deleted_count = 0
+    skipped: list[dict] = []
+    with transaction() as conn:
+        for type_id in data.ids:
+            existing = conn.execute(
+                "SELECT id FROM node_types WHERE id = ?", (type_id,)
+            ).fetchone()
+            if not existing:
+                skipped.append({"id": type_id, "reason": "类型不存在"})
+                continue
+            in_use = conn.execute(
+                "SELECT id FROM nodes WHERE node_type_id = ? LIMIT 1", (type_id,)
+            ).fetchone()
+            if in_use:
+                skipped.append({"id": type_id, "reason": "该类型已被节点使用，无法删除"})
+                continue
+            conn.execute("DELETE FROM node_type_fields WHERE node_type_id = ?", (type_id,))
+            conn.execute("DELETE FROM node_types WHERE id = ?", (type_id,))
+            deleted_count += 1
+    return {"code": 0, "data": {"deletedCount": deleted_count, "skipped": skipped}, "message": "ok"}
+
+
+@router.post("/node-types/export")
+def export_node_types(data: TypeExportRequest) -> dict:
+    with connect() as conn:
+        if data.ids:
+            placeholders = ",".join("?" for _ in data.ids)
+            rows = conn.execute(
+                f"SELECT * FROM node_types WHERE id IN ({placeholders}) ORDER BY category, name",
+                tuple(data.ids),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM node_types ORDER BY category, name"
+            ).fetchall()
+        items = []
+        for r in rows:
+            item = NodeTypeDetail(
+                id=r["id"],
+                code=r["code"],
+                name=r["name"],
+                category=r["category"],
+                icon=r["icon"],
+                color=r["color"],
+                shape=r["shape"],
+                render_mode=r["render_mode"],
+                dn_template=r["dn_template"],
+                description=r["description"],
+                created_at=r["created_at"],
+                updated_at=r["updated_at"],
+                fields=_get_node_type_fields(conn, r["id"]),
+            )
+            items.append(item.model_dump(mode="json", by_alias=True))
+        return {"code": 0, "data": {"items": items}, "message": "ok"}
+
+
 @router.delete("/node-types/{type_id}")
 def delete_node_type(type_id: str) -> dict:
     with transaction() as conn:
@@ -377,6 +438,65 @@ def update_edge_type(type_id: str, data: EdgeTypeUpdate) -> dict:
             (*fields.values(), type_id),
         )
     return {"code": 0, "data": {"id": type_id}, "message": "ok"}
+
+
+@router.post("/edge-types/batch-delete")
+def batch_delete_edge_types(data: EdgeTypeBatchDelete) -> dict:
+    deleted_count = 0
+    skipped: list[dict] = []
+    with transaction() as conn:
+        for type_id in data.ids:
+            existing = conn.execute(
+                "SELECT id FROM edge_types WHERE id = ?", (type_id,)
+            ).fetchone()
+            if not existing:
+                skipped.append({"id": type_id, "reason": "类型不存在"})
+                continue
+            in_use = conn.execute(
+                "SELECT id FROM edges WHERE edge_type_id = ? LIMIT 1", (type_id,)
+            ).fetchone()
+            if in_use:
+                skipped.append({"id": type_id, "reason": "该类型已被边使用，无法删除"})
+                continue
+            conn.execute("DELETE FROM edge_type_fields WHERE edge_type_id = ?", (type_id,))
+            conn.execute("DELETE FROM edge_types WHERE id = ?", (type_id,))
+            deleted_count += 1
+    return {"code": 0, "data": {"deletedCount": deleted_count, "skipped": skipped}, "message": "ok"}
+
+
+@router.post("/edge-types/export")
+def export_edge_types(data: TypeExportRequest) -> dict:
+    with connect() as conn:
+        if data.ids:
+            placeholders = ",".join("?" for _ in data.ids)
+            rows = conn.execute(
+                f"SELECT * FROM edge_types WHERE id IN ({placeholders}) ORDER BY name",
+                tuple(data.ids),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM edge_types ORDER BY name"
+            ).fetchall()
+        items = []
+        for r in rows:
+            item = EdgeTypeDetail(
+                id=r["id"],
+                code=r["code"],
+                name=r["name"],
+                semantic=r["semantic"],
+                directed=bool(r["directed"]),
+                exclusive_target=bool(r["exclusive_target"]),
+                allow_source_type_codes=r["allow_source_type_codes"],
+                allow_target_type_codes=r["allow_target_type_codes"],
+                line_style=r["line_style"],
+                color=r["color"],
+                description=r["description"],
+                created_at=r["created_at"],
+                updated_at=r["updated_at"],
+                fields=_get_edge_type_fields(conn, r["id"]),
+            )
+            items.append(item.model_dump(mode="json", by_alias=True))
+        return {"code": 0, "data": {"items": items}, "message": "ok"}
 
 
 @router.delete("/edge-types/{type_id}")
