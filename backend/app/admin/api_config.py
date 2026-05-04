@@ -1,4 +1,5 @@
 import json
+import re
 import sqlite3
 import time
 import uuid
@@ -360,7 +361,11 @@ def patch_api_enabled(api_id: str, body: ApiConfigEnabledPatch) -> dict:
 @router.patch("/apis/{api_id}/topology", response_model=ApiConfigDetailResponse)
 def patch_api_topology(api_id: str, body: ApiConfigTopologyPatch) -> dict:
     with transaction() as conn:
-        _ensure_api_exists(conn, api_id)
+        row = _ensure_api_exists(conn, api_id)
+        # LEGACY-06: 同值跳过，避免无意义的 updated_at 抖动
+        if body.topology_id == row["topology_id"]:
+            detail = _row_to_detail(row)
+            return {"code": 0, "data": detail.model_dump(mode="json", by_alias=True), "message": "ok"}
         if body.topology_id:
             _ensure_topology(conn, body.topology_id)
         conn.execute(
@@ -373,6 +378,68 @@ def patch_api_topology(api_id: str, body: ApiConfigTopologyPatch) -> dict:
         detail = _row_to_detail(row)
 
     return {"code": 0, "data": detail.model_dump(mode="json", by_alias=True), "message": "ok"}
+
+
+# GET /admin/api/apis/{api_id}/topology-switch-preview?targetTopologyId=xxx
+# LEGACY-06: 切换拓扑前预扫描 SQL 视图引用，差集呈现给前端
+_SQL_VIEW_REF_RE = re.compile(r"\b(?:FROM|JOIN)\s+([A-Za-z_]\w*)", re.IGNORECASE)
+
+
+def _extract_sql_view_refs(sql_text: Optional[str]) -> list[str]:
+    """从 SQL 中提取 FROM/JOIN 后的视图名（去重，保持出现顺序）。
+
+    解析容忍：方括号 / 反引号包名、子查询 `FROM (SELECT ...)`、CTE 别名都不会
+    被误识别（`\\w+` 只匹配标识符字符）。解析失败返回空集合而非抛错。
+    """
+    if not sql_text or not sql_text.strip():
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    for m in _SQL_VIEW_REF_RE.finditer(sql_text):
+        name = m.group(1)
+        if name not in seen:
+            seen.add(name)
+            out.append(name)
+    return out
+
+
+@router.get("/apis/{api_id}/topology-switch-preview")
+def get_topology_switch_preview(
+    api_id: str,
+    target_topology_id: str = Query(..., alias="targetTopologyId"),
+) -> dict:
+    from app.core.cte_builder import collect_views
+
+    with connect() as conn:
+        row = _ensure_api_exists(conn, api_id)
+        _ensure_topology(conn, target_topology_id)
+        sql_text = row["sql_text"] or ""
+        current_refs = _extract_sql_view_refs(sql_text)
+
+        views = collect_views(conn, target_topology_id)
+        available_set: set[str] = set()
+        for k in ("nodeViews", "edgeViews", "generic"):
+            for v in views.get(k, []):
+                available_set.add(v["name"])
+        available_views = sorted(available_set)
+
+        missing_views = [r for r in current_refs if r not in available_set]
+        warning = (
+            f"切换后 SQL 引用的 {len(missing_views)} 个视图在新拓扑下不存在"
+            if missing_views
+            else None
+        )
+
+    return {
+        "code": 0,
+        "data": {
+            "missingViews": missing_views,
+            "availableViews": available_views,
+            "currentSqlReferences": current_refs,
+            "warning": warning,
+        },
+        "message": "ok",
+    }
 
 
 # DELETE /admin/api/apis/{api_id}

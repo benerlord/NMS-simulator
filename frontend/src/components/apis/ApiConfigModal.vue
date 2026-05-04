@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, h, ref, watch } from 'vue'
 import {
   Modal,
   Form,
@@ -10,6 +10,8 @@ import {
   Spin,
   Collapse,
   CollapsePanel,
+  Alert,
+  Checkbox,
 } from 'ant-design-vue'
 import { apiGet } from '@/api/http'
 import {
@@ -22,6 +24,7 @@ import {
   type HeaderSpec,
   type HttpMethod,
   type QuerySpec,
+  type TopologySwitchPreview,
 } from '@/api/api_config'
 import type { TopologyListItem, PageResult } from '@/api/topology'
 import SqlEditor from './SqlEditor.vue'
@@ -118,6 +121,8 @@ function emptyForm(): FormState {
 const formState = ref<FormState>(emptyForm())
 const topologies = ref<TopologyListItem[]>([])
 const loadingTopologies = ref(false)
+// LEGACY-06: 编辑模式下记录初始 topology_id，用于切换检测、回滚与提交时差异判断
+const originalTopologyId = ref<string | null>(null)
 
 const isEdit = computed(() => !!props.apiId)
 const title = computed(() => (isEdit.value ? '编辑接口' : '新建接口'))
@@ -220,6 +225,8 @@ async function loadDetail(id: string) {
         req?.body && typeof req.body === 'object' ? (req.body as BodySpec) : null,
       authConfig: { ...auth },
     }
+    // LEGACY-06: 记录初始 topology_id，用于变更检测与回滚
+    originalTopologyId.value = detail.topologyId ?? null
   } finally {
     detailLoading.value = false
   }
@@ -234,12 +241,87 @@ watch(
       loadDetail(props.apiId)
     } else {
       formState.value = emptyForm()
+      originalTopologyId.value = null
     }
   },
 )
 
 function close() {
   emit('update:open', false)
+}
+
+// LEGACY-06: 编辑模式下切换拓扑的二次确认 + 预扫描
+async function handleTopologyChange(newId: string | undefined) {
+  if (!isEdit.value || !props.apiId) return
+  // 切回原值不弹窗（用户可能误点又恢复）
+  if ((newId ?? null) === originalTopologyId.value) return
+  if (!newId) return // 切到 undefined（清空）暂不弹窗，等用户保存时一并处理
+
+  let preview: TopologySwitchPreview | null = null
+  try {
+    preview = await apiConfigApi.fetchTopologySwitchPreview(props.apiId, newId)
+  } catch {
+    // 预扫描失败不阻断流程，弹窗内退化为通用提示
+  }
+
+  // 用 ref 让 Modal 内部的 Checkbox 状态可被 onOk 读取
+  const clearSql = ref(false)
+  const oldId = originalTopologyId.value
+
+  Modal.confirm({
+    title: '切换绑定拓扑',
+    width: 520,
+    okText: '确认切换',
+    cancelText: '取消',
+    icon: null,
+    content: () =>
+      h('div', [
+        h('p', { style: 'margin-bottom: 12px' }, '编辑模式下切换拓扑会让 SQL 引用的视图集合发生变化。'),
+        preview && preview.missingViews.length > 0
+          ? h(Alert, {
+              type: 'warning',
+              showIcon: true,
+              message: `${preview.missingViews.length} 个视图引用在新拓扑下不存在`,
+              description: preview.missingViews.join('、'),
+              style: 'margin-bottom: 12px',
+            })
+          : preview
+            ? h(Alert, {
+                type: 'success',
+                showIcon: true,
+                message: 'SQL 引用的所有视图在新拓扑下都存在',
+                style: 'margin-bottom: 12px',
+              })
+            : h(Alert, {
+                type: 'info',
+                showIcon: true,
+                message: '预扫描未完成，建议切换后通过"运行预览"验证',
+                style: 'margin-bottom: 12px',
+              }),
+        h('div', { style: 'margin-top: 8px' }, [
+          h(
+            Checkbox,
+            {
+              checked: clearSql.value,
+              'onUpdate:checked': (v: boolean) => {
+                clearSql.value = v
+              },
+            },
+            () => '切换时同时清空 SQL（默认保留以便手动调整）',
+          ),
+        ]),
+      ]),
+    onOk: () => {
+      if (clearSql.value) {
+        formState.value.sqlText = ''
+      }
+      // 不立即调 PATCH /topology；保留 formState.topologyId=newId 由 handleSubmit 落库
+    },
+    onCancel: () => {
+      // 回滚 Select 值；nextTick 不必要，v-model 同步赋值即可
+      formState.value.topologyId = oldId ?? undefined
+    },
+  })
 }
 
 function buildConfig(): Record<string, unknown> {
@@ -420,6 +502,12 @@ async function handleSubmit() {
     const config = buildConfig()
 
     if (isEdit.value && props.apiId) {
+      // LEGACY-06: 编辑模式下若 topologyId 变化，先独立 PATCH /topology 解耦失败可重试
+      const newTopoId = formState.value.topologyId ?? null
+      if (newTopoId !== originalTopologyId.value) {
+        await apiConfigApi.patchTopology(props.apiId, newTopoId)
+        originalTopologyId.value = newTopoId
+      }
       const payload: ApiConfigUpdate = {
         name: formState.value.name.trim(),
         path: formState.value.path.trim(),
@@ -532,10 +620,12 @@ async function handleSubmit() {
             allow-clear
             show-search
             option-filter-prop="label"
-            :disabled="isEdit"
             :options="topologies.map((t) => ({ label: t.name, value: t.id }))"
+            @change="handleTopologyChange"
           />
-          <div v-if="isEdit" class="hint">编辑时拓扑绑定请通过列表操作，此字段不可改</div>
+          <div v-if="isEdit" class="hint">
+            切换拓扑会弹窗确认并预扫描 SQL 视图引用；保存时独立调用 PATCH /topology
+          </div>
         </Form.Item>
 
         <Form.Item

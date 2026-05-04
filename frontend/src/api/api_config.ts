@@ -104,6 +104,14 @@ export interface ApiConfigListResult {
   pageSize: number
 }
 
+// LEGACY-06: 切换拓扑前的预扫描结果
+export interface TopologySwitchPreview {
+  missingViews: string[]
+  availableViews: string[]
+  currentSqlReferences: string[]
+  warning: string | null
+}
+
 export const apiConfigApi = {
   list: (params?: ApiConfigListParams): Promise<ApiConfigListResult> =>
     apiGet('/apis', params as Record<string, unknown> | undefined),
@@ -122,6 +130,13 @@ export const apiConfigApi = {
 
   patchTopology: (id: string, topologyId: string | null): Promise<ApiConfigDetail> =>
     apiPatch(`/apis/${id}/topology`, { topologyId }),
+
+  // LEGACY-06: 切换前调用此端点，把 missingViews 列表呈现在二次确认弹窗里
+  fetchTopologySwitchPreview: (
+    id: string,
+    targetTopologyId: string,
+  ): Promise<TopologySwitchPreview> =>
+    apiGet(`/apis/${id}/topology-switch-preview`, { targetTopologyId }),
 
   delete: (id: string): Promise<{ id: string }> =>
     apiDelete(`/apis/${id}`),

@@ -443,7 +443,8 @@ Retry-After: 60
 | POST | `/admin/api/apis` | 新建（method + path 冲突返回 409） |
 | PUT | `/admin/api/apis/{id}` | 更新 |
 | PATCH | `/admin/api/apis/{id}/enabled` | 切换启用开关（body: `{ "enabled": true }`） |
-| PATCH | `/admin/api/apis/{id}/topology` | 切换绑定拓扑（body: `{ "topologyId": "topo_xxx" }`） |
+| PATCH | `/admin/api/apis/{id}/topology` | 切换绑定拓扑（body: `{ "topologyId": "topo_xxx" }`，同值幂等不更新 updated_at — LEGACY-06） |
+| GET | `/admin/api/apis/{id}/topology-switch-preview?targetTopologyId=xxx` | 切换前预扫描：返回 `{missingViews, availableViews, currentSqlReferences, warning}` — LEGACY-06 |
 | DELETE | `/admin/api/apis/{id}` | 删除 |
 | POST | `/admin/api/apis/{id}/test` | 测试执行（只读、不写库） |
 | POST | `/admin/api/apis/export` | 批量导出（body: `{ "ids": [...] }`，不传则全部） |
