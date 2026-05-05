@@ -2,6 +2,8 @@
 import { onMounted, onBeforeUnmount, shallowRef, ref, watch } from 'vue'
 import { Graph, History } from '@antv/x6'
 import type { TopologyGraph } from '@/api/topology'
+import type { GroupGraphData } from '@/api/nodeGroup'
+import { nodeGroupApi } from '@/api/nodeGroup'
 import type { Cell, Node } from '@antv/x6'
 import { useNodeTypes } from '@/composables/useTypes'
 import { nodeApi } from '@/api/node'
@@ -12,12 +14,21 @@ import {
   INFRA_NODE_HEIGHT,
   buildInfraNodeAttrs,
   registerInfraNodeShape,
+  MACRO_NODE_SHAPE,
+  MACRO_NODE_WIDTH,
+  MACRO_NODE_HEIGHT,
+  buildMacroNodeAttrs,
+  registerMacroNodeShape,
 } from '@/utils/nodeShape'
 
 registerInfraNodeShape()
+registerMacroNodeShape()
 
 interface Props {
   graphData: TopologyGraph | null
+  groupGraph?: GroupGraphData | null
+  topologyId: string
+  connectingMode?: boolean
   graph?: unknown
 }
 
@@ -26,8 +37,12 @@ const props = defineProps<Props>()
 const emit = defineEmits<{
   (e: 'init', graph: unknown): void
   (e: 'nodeMoved', nodeId: string, x: number, y: number): void
-  (e: 'nodeClick', nodeId: string): void
-  (e: 'edgeClick', edgeId: string): void
+  (e: 'nodeSelect', nodeId: string, isMacro: boolean): void
+  (e: 'edgeSelect', edgeId: string, isMacro: boolean, isHybrid: boolean, edgeData: Record<string, unknown> | null): void
+  (e: 'selectionClear'): void
+  (e: 'nodeDblClick', nodeId: string): void
+  (e: 'edgeDblClick', edgeId: string): void
+  (e: 'macroEdgeDblClick', edgeId: string, edgeData: Record<string, unknown>): void
 }>()
 
 const containerRef = shallowRef<HTMLDivElement | null>(null)
@@ -192,25 +207,162 @@ function initGraph(data: TopologyGraph | null) {
       )
     }
 
+    // Macro nodes
+    const gg = props.groupGraph
+    // Build set of all node IDs on canvas (normal + macro) for edge endpoint resolution
+    const allNodeIds = new Set<string>(data.nodes.map((n) => n.id))
+    if (gg) {
+      const macroIds = new Set(gg.macroNodes.map((mn) => mn.id))
+      for (const mn of gg.macroNodes) {
+        allNodeIds.add(mn.id)
+        const x = mn.x ?? Math.random() * 600
+        const y = mn.y ?? Math.random() * 400
+        const onlineRatio = mn.nodeCount > 0 ? mn.statusBreakdown.online / mn.nodeCount : 0
+        const statusLabel = mn.isMaterialized
+          ? `${mn.statusBreakdown.online}/${mn.nodeCount} online`
+          : ''
+        cells.push(
+          graph.createNode({
+            id: mn.id,
+            shape: MACRO_NODE_SHAPE,
+            x,
+            y,
+            width: MACRO_NODE_WIDTH,
+            height: MACRO_NODE_HEIGHT,
+            attrs: buildMacroNodeAttrs({
+              groupName: mn.groupName,
+              nodeCount: mn.nodeCount,
+              onlineRatio,
+              statusLabel,
+            }),
+            data: {
+              macroNodeId: mn.id,
+              topologyId: mn.topologyId,
+              nodeTypeId: mn.nodeTypeId,
+              groupName: mn.groupName,
+              nodeCount: mn.nodeCount,
+              isMaterialized: mn.isMaterialized,
+            },
+          }),
+        )
+      }
+
+      for (const me of gg.macroEdges) {
+        // Render if both endpoints exist on canvas (can be macro↔macro or macro↔normal)
+        if (allNodeIds.has(me.sourceGroupId) && allNodeIds.has(me.targetGroupId)) {
+          const tgtIsMacro = macroIds.has(me.targetGroupId)
+          const isHybrid = !tgtIsMacro
+
+          // Hybrid edges: respect visual direction (user's source→target order)
+          const visualSource = isHybrid
+            ? (me.visualSourceIsMacro ? me.sourceGroupId : me.targetGroupId)
+            : me.sourceGroupId
+          const visualTarget = isHybrid
+            ? (me.visualSourceIsMacro ? me.targetGroupId : me.sourceGroupId)
+            : me.targetGroupId
+
+          const modeLabel = me.ratioK ? ` K=${me.ratioK}` : ''
+          const label = isHybrid
+            ? `${me.edgeTypeCode} 混合连接 ×${me.totalEdgeCount}`
+            : `${me.edgeTypeCode} (${me.mode}${modeLabel}) ×${me.totalEdgeCount}`
+
+          cells.push(
+            graph.createEdge({
+              id: `macro-${me.sourceGroupId}-${me.targetGroupId}`,
+              source: visualSource,
+              target: visualTarget,
+              attrs: {
+                line: isHybrid
+                  ? {
+                      stroke: '#1890ff',
+                      strokeWidth: 2,
+                      strokeDasharray: '8 4 2 4',
+                      targetMarker: { name: 'block', width: 8, height: 6, fill: '#1890ff' },
+                    }
+                  : {
+                      stroke: '#faad14',
+                      strokeWidth: 2,
+                      strokeDasharray: '6 4',
+                      targetMarker: { name: 'block', width: 8, height: 6, fill: '#faad14' },
+                    },
+              },
+              labels: [
+                {
+                  attrs: {
+                    text: { text: label },
+                    rect: { fill: '#fff', fillOpacity: 0.9, rx: 2 },
+                  },
+                  position: { distance: 0.5 },
+                },
+              ],
+              data: {
+                sourceGroupId: me.sourceGroupId,
+                targetGroupId: me.targetGroupId,
+                edgeTypeCode: me.edgeTypeCode,
+                mode: me.mode,
+                ratioK: me.ratioK,
+                totalEdgeCount: me.totalEdgeCount,
+                isHybrid,
+              },
+            }),
+          )
+        }
+      }
+    }
+
     graph.resetCells(cells)
     history.enable()
   }
 
   graph.on('node:moved', (args: { node: Node; x: number; y: number }) => {
+    const data = args.node.getData()
+    if (data?.macroNodeId) {
+      nodeGroupApi.updatePosition(data.macroNodeId, { x: args.x, y: args.y }).catch(() => {})
+    }
     emit('nodeMoved', args.node.id, args.x, args.y)
   })
 
   graph.on('node:click', (args: { node: Node }) => {
+    if (props.connectingMode) {
+      hideTooltip()
+      emit('nodeDblClick', args.node.id)
+      return
+    }
+    // Select on single click (not in connecting mode)
+    const data = args.node.getData()
+    emit('nodeSelect', args.node.id, !!data?.macroNodeId)
+  })
+
+  graph.on('node:dblclick', (args: { node: Node }) => {
     hideTooltip()
-    emit('nodeClick', args.node.id)
+    emit('nodeDblClick', args.node.id)
   })
 
   graph.on('edge:click', (args: { edge: Cell }) => {
+    const edgeData = args.edge.getData()
+    const isMacro = !!edgeData?.sourceGroupId
+    const isHybrid = !!edgeData?.isHybrid
+    emit('edgeSelect', args.edge.id, isMacro, isHybrid, edgeData)
+  })
+
+  graph.on('edge:dblclick', (args: { edge: Cell }) => {
     hideTooltip()
-    emit('edgeClick', args.edge.id)
+    const edgeData = args.edge.getData()
+    if (edgeData?.sourceGroupId) {
+      emit('macroEdgeDblClick', args.edge.id, edgeData)
+    } else {
+      emit('edgeDblClick', args.edge.id)
+    }
+  })
+
+  graph.on('blank:click', () => {
+    emit('selectionClear')
   })
 
   graph.on('node:mouseenter', ({ node, e }: { node: Node; e: MouseEvent }) => {
+    const data = node.getData()
+    // Skip tooltip for macro nodes
+    if (data?.macroNodeId) return
     scheduleTooltip(node, e.clientX, e.clientY)
   })
 
@@ -246,10 +398,10 @@ onBeforeUnmount(() => {
 })
 
 watch(
-  () => props.graphData,
-  (data) => {
+  () => [props.graphData, props.groupGraph],
+  () => {
     hideTooltip()
-    initGraph(data)
+    initGraph(props.graphData)
   },
 )
 </script>

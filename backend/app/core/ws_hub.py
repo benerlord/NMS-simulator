@@ -80,3 +80,11 @@ async def websocket_endpoint(websocket: WebSocket):
 
 async def broadcast_topology_saved(topology_id: str):
     await hub.broadcast("topology.saved", {"topologyId": topology_id})
+
+
+async def broadcast_group_progress(topology_id: str, group_id: str, payload: dict):
+    await hub.broadcast("group.materialize.progress", {
+        "topologyId": topology_id,
+        "groupId": group_id,
+        **payload,
+    })

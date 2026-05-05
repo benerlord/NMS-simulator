@@ -3,8 +3,7 @@ import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
-const backend = process.env.VITE_BACKEND ?? 'https://localhost:8080'
-const backendIsHttps = backend.startsWith('https://')
+const backend = process.env.VITE_BACKEND ?? 'http://localhost:8080'
 
 export default defineConfig({
   plugins: [vue()],
@@ -19,13 +18,13 @@ export default defineConfig({
       '/admin/api': {
         target: backend,
         changeOrigin: true,
-        secure: !backendIsHttps,
+        secure: false,
       },
       '/admin/ws': {
         target: backend,
         changeOrigin: true,
         ws: true,
-        secure: !backendIsHttps,
+        secure: false,
       },
     },
   },

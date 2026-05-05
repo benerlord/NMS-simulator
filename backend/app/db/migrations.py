@@ -189,8 +189,39 @@ CREATE TABLE IF NOT EXISTS settings (
   value           TEXT NOT NULL,
   updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS node_groups (
+  id              TEXT PRIMARY KEY,
+  topology_id     TEXT NOT NULL,
+  node_type_id    TEXT NOT NULL,
+  group_name      TEXT NOT NULL,
+  node_count      INTEGER NOT NULL CHECK (node_count > 0),
+  name_template   TEXT NOT NULL DEFAULT '{group}-{i:05d}',
+  attr_strategies TEXT NOT NULL DEFAULT '[]',
+  edge_strategies TEXT,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (topology_id) REFERENCES topologies(id) ON DELETE CASCADE,
+  FOREIGN KEY (node_type_id) REFERENCES node_types(id)
+);
+CREATE INDEX IF NOT EXISTS idx_node_groups_topo ON node_groups(topology_id);
 """
 
 
 def run_migrations(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA_SQL)
+    # Idempotent column addition for nodes.group_id
+    try:
+        conn.execute("ALTER TABLE nodes ADD COLUMN group_id TEXT")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_nodes_group ON nodes(group_id)")
+    # Idempotent column addition for node_groups canvas position
+    try:
+        conn.execute("ALTER TABLE node_groups ADD COLUMN canvas_x REAL")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute("ALTER TABLE node_groups ADD COLUMN canvas_y REAL")
+    except sqlite3.OperationalError:
+        pass

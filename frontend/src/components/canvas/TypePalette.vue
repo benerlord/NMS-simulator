@@ -64,7 +64,7 @@ function onDragStart(event: DragEvent, nodeType: NodeTypeDetail) {
 
 <style scoped>
 .type-palette {
-  width: 180px;
+  width: 200px;
   background: #fff;
   border-right: 1px solid #e8e8e8;
   display: flex;
