@@ -225,3 +225,13 @@ def run_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE node_groups ADD COLUMN canvas_y REAL")
     except sqlite3.OperationalError:
         pass
+    # Idempotent column addition for node_type_fields.max_length
+    try:
+        conn.execute("ALTER TABLE node_type_fields ADD COLUMN max_length INTEGER")
+    except sqlite3.OperationalError:
+        pass
+    # Idempotent column addition for edge_type_fields.max_length
+    try:
+        conn.execute("ALTER TABLE edge_type_fields ADD COLUMN max_length INTEGER")
+    except sqlite3.OperationalError:
+        pass

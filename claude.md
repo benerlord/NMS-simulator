@@ -224,6 +224,7 @@ InterfaceTest/
   - D5 画布集成：macro-node Shape + 连线自适应 + 画布删除 + CanvasView 重构
   - D6 联调测试：7 个用户旅程 + 性能测试 + 零回归
 - ✅ 统一查询视图：topology_nodes + topology_edges
+- ✅ 类型字段文本最大长度：node_type_fields / edge_type_fields 新增 max_length 列，类型管理可配置；画布上编辑节点/边属性时前后端双重校验（前端 `:maxlength` + `:showCount` 字符计数 + 后端 `set_node_attrs` / `set_edge_attrs` 长度校验）
 
 ### 待开发
 - 编辑组定义打开 GroupCreateModal（目前右键"编辑组定义"已 emit 事件但 CanvasView 尚未接入 editGroupId）

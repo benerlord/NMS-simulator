@@ -37,7 +37,10 @@
       "Bash(pnpm dev *)",
       "PowerShell(Stop-Process *)",
       "Bash(powershell.exe *)",
-      "Bash(awk '{print $5}')"
+      "Bash(awk '{print $5}')",
+      "Bash(npm run *)",
+      "Bash(taskkill //F //IM \"node.exe\")",
+      "Bash(taskkill //F //IM \"python.exe\")"
     ]
   }
 }

@@ -8,6 +8,7 @@ export interface NodeTypeFieldItem {
   fieldKey: string
   fieldLabel: string
   fieldType: 'text' | 'number' | 'select' | 'boolean'
+  maxLength: number | null
   defaultValue: string | null
   options: string | null
   required: boolean
@@ -59,6 +60,7 @@ export interface NodeTypeFieldCreate {
   fieldKey: string
   fieldLabel: string
   fieldType: 'text' | 'number' | 'select' | 'boolean'
+  maxLength?: number | null
   defaultValue?: string | null
   options?: string | null
   required?: boolean
@@ -68,6 +70,7 @@ export interface NodeTypeFieldCreate {
 export interface NodeTypeFieldUpdate {
   fieldLabel?: string | null
   fieldType?: 'text' | 'number' | 'select' | 'boolean' | null
+  maxLength?: number | null
   defaultValue?: string | null
   options?: string | null
   required?: boolean | null
@@ -82,6 +85,7 @@ export interface EdgeTypeFieldItem {
   fieldKey: string
   fieldLabel: string
   fieldType: 'text' | 'number' | 'select' | 'boolean'
+  maxLength: number | null
   defaultValue: string | null
   options: string | null
   required: boolean
@@ -137,6 +141,7 @@ export interface EdgeTypeFieldCreate {
   fieldKey: string
   fieldLabel: string
   fieldType: 'text' | 'number' | 'select' | 'boolean'
+  maxLength?: number | null
   defaultValue?: string | null
   options?: string | null
   required?: boolean
@@ -146,6 +151,7 @@ export interface EdgeTypeFieldCreate {
 export interface EdgeTypeFieldUpdate {
   fieldLabel?: string | null
   fieldType?: 'text' | 'number' | 'select' | 'boolean' | null
+  maxLength?: number | null
   defaultValue?: string | null
   options?: string | null
   required?: boolean | null

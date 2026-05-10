@@ -143,6 +143,8 @@ async function handleCreate() {
           <Input
             :value="getFieldValue(field.fieldKey)"
             @input="(e: any) => setFieldValue(field.fieldKey, e.target.value)"
+            :maxlength="field.maxLength || undefined"
+            :showCount="!!field.maxLength"
           />
         </template>
         <template v-else-if="field.fieldType === 'number'">

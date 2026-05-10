@@ -40,6 +40,16 @@ def _get_required_edge_fields(conn, edge_type_id: str) -> set[str]:
     return {r["field_key"] for r in rows}
 
 
+def _get_max_length_edge_map(conn, edge_type_id: str) -> dict[str, tuple[str, int]]:
+    """返回 {field_key: (field_label, max_length)} 仅包含定义了 max_length 的文本字段"""
+    rows = conn.execute(
+        "SELECT field_key, field_label, max_length FROM edge_type_fields "
+        "WHERE edge_type_id = ? AND field_type = 'text' AND max_length IS NOT NULL",
+        (edge_type_id,),
+    ).fetchall()
+    return {r["field_key"]: (r["field_label"], r["max_length"]) for r in rows}
+
+
 def _get_edge_attrs(conn, edge_id: str) -> dict:
     rows = conn.execute(
         "SELECT field_key, value FROM edge_attrs WHERE edge_id = ?", (edge_id,)
@@ -327,6 +337,20 @@ def set_edge_attrs(edge_id: str, attrs: list[EdgeAttrSet]) -> dict:
                 status_code=400,
                 detail={"code": 40110, "message": "必填字段不能为空", "details": {"missing_fields": missing_labels}},
             )
+
+        # 校验 max_length
+        max_len_map = _get_max_length_edge_map(conn, edge_row["edge_type_id"])
+        for attr in attrs:
+            if attr.field_key in max_len_map and attr.value:
+                label, limit = max_len_map[attr.field_key]
+                if len(attr.value) > limit:
+                    raise HTTPException(
+                        status_code=400,
+                        detail={
+                            "code": 40111,
+                            "message": f"字段「{label}」内容长度不能超过 {limit} 个字符",
+                        },
+                    )
 
         with transaction() as tx:
             # 删除现有 attrs

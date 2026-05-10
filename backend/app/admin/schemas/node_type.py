@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Optional, List
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from ._base import CamelModel
 
@@ -34,19 +34,41 @@ class NodeTypeFieldCreate(CamelModel):
     field_key: str = Field(..., min_length=1, max_length=50)
     field_label: str = Field(..., min_length=1, max_length=100)
     field_type: str = Field(..., pattern="^(text|number|select|boolean)$")
+    max_length: Optional[int] = Field(default=None, ge=1)
     default_value: Optional[str] = Field(default=None, max_length=200)
     options: Optional[str] = Field(default=None, max_length=500)
     required: bool = Field(default=False)
     sort_order: int = Field(default=0)
 
+    @model_validator(mode='after')
+    def validate_max_length_for_text(self) -> 'NodeTypeFieldCreate':
+        if self.field_type != 'text':
+            return self
+        if self.max_length is None:
+            raise ValueError('文本类型必须设置 max_length')
+        if self.max_length < 1:
+            raise ValueError('max_length 必须 >= 1')
+        return self
+
 
 class NodeTypeFieldUpdate(CamelModel):
     field_label: Optional[str] = Field(default=None, min_length=1, max_length=100)
     field_type: Optional[str] = Field(default=None, pattern="^(text|number|select|boolean)$")
+    max_length: Optional[int] = Field(default=None, ge=1)
     default_value: Optional[str] = Field(default=None, max_length=200)
     options: Optional[str] = Field(default=None, max_length=500)
     required: Optional[bool] = Field(default=None)
     sort_order: Optional[int] = Field(default=None)
+
+    @model_validator(mode='after')
+    def validate_max_length_for_text(self) -> 'NodeTypeFieldUpdate':
+        if self.field_type is None or self.field_type != 'text':
+            return self
+        if self.max_length is None:
+            raise ValueError('文本类型必须设置 max_length')
+        if self.max_length < 1:
+            raise ValueError('max_length 必须 >= 1')
+        return self
 
 
 class NodeTypeFieldItem(CamelModel):
@@ -55,6 +77,7 @@ class NodeTypeFieldItem(CamelModel):
     field_key: str
     field_label: str
     field_type: str
+    max_length: Optional[int]
     default_value: Optional[str]
     options: Optional[str]
     required: bool
@@ -123,19 +146,41 @@ class EdgeTypeFieldCreate(CamelModel):
     field_key: str = Field(..., min_length=1, max_length=50)
     field_label: str = Field(..., min_length=1, max_length=100)
     field_type: str = Field(..., pattern="^(text|number|select|boolean)$")
+    max_length: Optional[int] = Field(default=None, ge=1)
     default_value: Optional[str] = Field(default=None, max_length=200)
     options: Optional[str] = Field(default=None, max_length=500)
     required: bool = Field(default=False)
     sort_order: int = Field(default=0)
 
+    @model_validator(mode='after')
+    def validate_max_length_for_text(self) -> 'EdgeTypeFieldCreate':
+        if self.field_type != 'text':
+            return self
+        if self.max_length is None:
+            raise ValueError('文本类型必须设置 max_length')
+        if self.max_length < 1:
+            raise ValueError('max_length 必须 >= 1')
+        return self
+
 
 class EdgeTypeFieldUpdate(CamelModel):
     field_label: Optional[str] = Field(default=None, min_length=1, max_length=100)
     field_type: Optional[str] = Field(default=None, pattern="^(text|number|select|boolean)$")
+    max_length: Optional[int] = Field(default=None, ge=1)
     default_value: Optional[str] = Field(default=None, max_length=200)
     options: Optional[str] = Field(default=None, max_length=500)
     required: Optional[bool] = Field(default=None)
     sort_order: Optional[int] = Field(default=None)
+
+    @model_validator(mode='after')
+    def validate_max_length_for_text(self) -> 'EdgeTypeFieldUpdate':
+        if self.field_type is None or self.field_type != 'text':
+            return self
+        if self.max_length is None:
+            raise ValueError('文本类型必须设置 max_length')
+        if self.max_length < 1:
+            raise ValueError('max_length 必须 >= 1')
+        return self
 
 
 class EdgeTypeFieldItem(CamelModel):
@@ -144,6 +189,7 @@ class EdgeTypeFieldItem(CamelModel):
     field_key: str
     field_label: str
     field_type: str
+    max_length: Optional[int]
     default_value: Optional[str]
     options: Optional[str]
     required: bool

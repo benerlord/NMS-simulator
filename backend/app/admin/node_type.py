@@ -82,6 +82,7 @@ def _get_node_type_fields(conn, node_type_id: str) -> list[NodeTypeFieldItem]:
             field_key=r["field_key"],
             field_label=r["field_label"],
             field_type=r["field_type"],
+            max_length=r["max_length"],
             default_value=r["default_value"],
             options=r["options"],
             required=bool(r["required"]),
@@ -103,6 +104,7 @@ def _get_edge_type_fields(conn, edge_type_id: str) -> list[EdgeTypeFieldItem]:
             field_key=r["field_key"],
             field_label=r["field_label"],
             field_type=r["field_type"],
+            max_length=r["max_length"],
             default_value=r["default_value"],
             options=r["options"],
             required=bool(r["required"]),
@@ -297,10 +299,10 @@ def create_node_type_field(type_id: str, data: NodeTypeFieldCreate) -> dict:
             raise HTTPException(status_code=409, detail={"code": 40204, "message": "字段Key已存在"})
         conn.execute(
             """INSERT INTO node_type_fields
-               (node_type_id, field_key, field_label, field_type, default_value, options, required, sort_order)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+               (node_type_id, field_key, field_label, field_type, max_length, default_value, options, required, sort_order)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (type_id, data.field_key, data.field_label, data.field_type,
-             data.default_value, data.options, int(data.required), data.sort_order),
+             data.max_length, data.default_value, data.options, int(data.required), data.sort_order),
         )
         row = conn.execute(
             "SELECT last_insert_rowid() as id"
@@ -534,10 +536,10 @@ def create_edge_type_field(type_id: str, data: EdgeTypeFieldCreate) -> dict:
             raise HTTPException(status_code=409, detail={"code": 40304, "message": "字段Key已存在"})
         conn.execute(
             """INSERT INTO edge_type_fields
-               (edge_type_id, field_key, field_label, field_type, default_value, options, required, sort_order)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+               (edge_type_id, field_key, field_label, field_type, max_length, default_value, options, required, sort_order)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (type_id, data.field_key, data.field_label, data.field_type,
-             data.default_value, data.options, int(data.required), data.sort_order),
+             data.max_length, data.default_value, data.options, int(data.required), data.sort_order),
         )
         row = conn.execute(
             "SELECT last_insert_rowid() as id"

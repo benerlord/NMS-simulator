@@ -25,6 +25,7 @@ interface FieldForm {
   fieldKey: string
   fieldLabel: string
   fieldType: 'text' | 'number' | 'select' | 'boolean'
+  maxLength: number | null
   defaultValue: string
   options: string
   required: boolean
@@ -44,6 +45,7 @@ const formData = ref<FieldForm>({
 const showForm = ref(false)
 
 const isSelect = computed(() => formData.value.fieldType === 'select')
+const isText = computed(() => formData.value.fieldType === 'text')
 
 function openCreate() {
   editingId.value = null
@@ -51,6 +53,7 @@ function openCreate() {
     fieldKey: '',
     fieldLabel: '',
     fieldType: 'text',
+    maxLength: null,
     defaultValue: '',
     options: '',
     required: false,
@@ -65,6 +68,7 @@ function openEdit(field: EdgeTypeFieldItem) {
     fieldKey: field.fieldKey,
     fieldLabel: field.fieldLabel,
     fieldType: field.fieldType,
+    maxLength: field.maxLength,
     defaultValue: field.defaultValue ?? '',
     options: field.options ?? '',
     required: field.required,
@@ -83,6 +87,7 @@ function submitForm() {
     emit('update', editingId.value, {
       fieldLabel: formData.value.fieldLabel,
       fieldType: formData.value.fieldType,
+      maxLength: formData.value.fieldType === 'text' ? formData.value.maxLength : null,
       defaultValue: formData.value.defaultValue || null,
       options: formData.value.options || null,
       required: formData.value.required,
@@ -93,6 +98,7 @@ function submitForm() {
       fieldKey: formData.value.fieldKey,
       fieldLabel: formData.value.fieldLabel,
       fieldType: formData.value.fieldType,
+      maxLength: formData.value.fieldType === 'text' ? formData.value.maxLength : null,
       defaultValue: formData.value.defaultValue || null,
       options: formData.value.options || null,
       required: formData.value.required,
@@ -125,6 +131,11 @@ function submitForm() {
       <a-table-column title="类型" dataIndex="fieldType" width="100">
         <template #default="{ text }">
           <a-tag>{{ text }}</a-tag>
+        </template>
+      </a-table-column>
+      <a-table-column title="最大长度" dataIndex="maxLength" width="80">
+        <template #default="{ text }">
+          <span class="field-default">{{ text ?? '-' }}</span>
         </template>
       </a-table-column>
       <a-table-column title="必填" dataIndex="required" width="60">
@@ -188,6 +199,15 @@ function submitForm() {
         </a-form-item>
         <a-form-item v-if="isSelect" label="选项列表">
           <a-input v-model:value="formData.options" placeholder="用逗号分隔，如: 100M,1G,10G" />
+        </a-form-item>
+        <a-form-item v-if="isText" label="最大长度" required>
+          <a-input-number
+            v-model:value="formData.maxLength"
+            :min="1"
+            :precision="0"
+            placeholder="如: 100"
+            style="width: 100%"
+          />
         </a-form-item>
         <a-form-item label="默认值">
           <a-input v-model:value="formData.defaultValue" placeholder="可选" />
