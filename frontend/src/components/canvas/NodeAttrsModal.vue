@@ -115,6 +115,7 @@ async function handleCreate() {
     @cancel="emit('close')"
     @ok="handleCreate"
     ok-text="创建"
+    :styles="{ body: { maxHeight: 'calc(100vh - 200px)', overflowY: 'auto' } }"
   >
     <div class="node-type-name">{{ nodeTypeName }}</div>
 
@@ -196,5 +197,14 @@ async function handleCreate() {
   text-align: center;
   color: #999;
   padding: 20px;
+}
+
+</style>
+
+<style>
+/* Teleport 模式下 scoped 样式无法穿透到 Modal body */
+.ant-modal-body {
+  max-height: calc(100vh - 200px);
+  overflow-y: auto;
 }
 </style>

@@ -225,6 +225,7 @@ InterfaceTest/
   - D6 联调测试：7 个用户旅程 + 性能测试 + 零回归
 - ✅ 统一查询视图：topology_nodes + topology_edges
 - ✅ 类型字段文本最大长度：node_type_fields / edge_type_fields 新增 max_length 列，类型管理可配置；画布上编辑节点/边属性时前后端双重校验（前端 `:maxlength` + `:showCount` 字符计数 + 后端 `set_node_attrs` / `set_edge_attrs` 长度校验）
+- ✅ 画布属性面板按钮固定底部：NodeAttrsPanel / EdgeAttrsPanel 的保存删除按钮从滚动区域内移到 flex 布局固定底部，NodeAttrsModal 的 Modal body 添加 max-height + overflow-y 限制
 
 ### 待开发
 - 编辑组定义打开 GroupCreateModal（目前右键"编辑组定义"已 emit 事件但 CanvasView 尚未接入 editGroupId）

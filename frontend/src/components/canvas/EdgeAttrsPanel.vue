@@ -136,16 +136,16 @@ function setFieldValue(key: string, value: string) {
               </template>
             </Form.Item>
           </Form>
-
-          <div class="panel-footer">
-            <Button danger @click="edgeId && emit('delete', edgeId)">
-              删除
-            </Button>
-            <Button type="primary" :loading="saving" @click="handleSave">
-              保存
-            </Button>
-          </div>
         </template>
+      </div>
+
+      <div v-if="!loading" class="panel-footer">
+        <Button danger @click="edgeId && emit('delete', edgeId)">
+          删除
+        </Button>
+        <Button type="primary" :loading="saving" @click="handleSave">
+          保存
+        </Button>
       </div>
     </div>
   </Transition>
