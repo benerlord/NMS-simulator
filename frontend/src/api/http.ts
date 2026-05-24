@@ -57,8 +57,10 @@ http.interceptors.response.use(
     const status = error.response?.status
     const raw = error.response?.data
     const body = raw ? camelizeKeys<ApiEnvelope>(raw) : undefined
-    const code = body?.code ?? status ?? -1
-    const msg = body?.message ?? error.message ?? 'network error'
+    // FastAPI HTTPException wraps code/message inside `detail`
+    const detail = (body as any)?.detail
+    const code = body?.code ?? detail?.code ?? status ?? -1
+    const msg = body?.message ?? detail?.message ?? error.message ?? 'network error'
     message.error(`[${code}] ${msg}`)
     return Promise.reject(new ApiError(code, msg, body?.details))
   },

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { Modal, Form, Input, InputNumber, Select, Button, Tag, message } from 'ant-design-vue'
 import { nodeGroupApi } from '@/api/nodeGroup'
 import { nodeTypeApi, edgeTypeApi } from '@/api/types'
@@ -43,6 +43,7 @@ interface StrategyRow {
   fieldKey: string
   fieldLabel: string
   fieldType: string
+  required: boolean
   strategy: 'fixed' | 'random' | 'increment' | 'range'
   fixedValue: string
   pool: string[]
@@ -54,6 +55,8 @@ interface StrategyRow {
   poolInput: string
 }
 const strategyRows = ref<StrategyRow[]>([])
+const step2FieldErrors = ref<Record<string, string>>({})
+const step2ContentRef = ref<HTMLElement>()
 const step2Fields = ref<NodeTypeFieldItem[]>([])
 
 // Step 3 — Edge strategies
@@ -176,7 +179,7 @@ watch(
       }
     } else {
       // Reset for create mode
-      step1.value = { nodeTypeId: '', groupName: '', nodeCount: 100, nameTemplate: 'SW-{i:05d}', nameWidth: 5 }
+      step1.value = { nodeTypeId: '', groupName: '', nodeCount: 100, nameTemplate: '{group}-{i:05d}', nameWidth: 5 }
       strategyRows.value = []
       edgeRules.value = []
     }
@@ -188,12 +191,13 @@ watch(selectedNodeTypeId, async (ntId) => {
   if (!ntId) {
     step1.value.nameTemplate = 'SW-{i:05d}'
     strategyRows.value = []
+    step2FieldErrors.value = {}
     return
   }
   const nt = nodeTypes.value.find((t) => t.id === ntId)
   if (nt) {
-    const code = nt.code || nt.name
-    step1.value.nameTemplate = `${code}-{i:0${step1.value.nameWidth}d}`
+    step1.value.groupName = nt.name
+    step1.value.nameTemplate = `{group}-{i:0${step1.value.nameWidth}d}`
   }
   await loadFieldsForType(ntId)
 })
@@ -219,6 +223,7 @@ async function loadFieldsForType(nodeTypeId: string) {
       fieldKey: f.fieldKey,
       fieldLabel: f.fieldLabel,
       fieldType: f.fieldType,
+      required: f.required,
       strategy: 'fixed' as const,
       fixedValue: f.defaultValue ?? '',
       pool: [],
@@ -236,6 +241,7 @@ async function loadFieldsForType(nodeTypeId: string) {
 // Step 2 helpers
 function onStrategyChange(row: StrategyRow, val: string) {
   row.strategy = val as StrategyRow['strategy']
+  clearStep2Error(row.fieldKey)
 }
 
 function addPoolValue(row: StrategyRow) {
@@ -291,7 +297,51 @@ function onEdgeModeChange(rule: EdgeRule, mode: string) {
 }
 
 // Navigation
+function step2ValidateAndScroll(): boolean {
+  const newErrors: Record<string, string> = {}
+  for (const row of strategyRows.value) {
+    if (!row.required) continue
+    let hasError = false
+    let errMsg = ''
+    if (row.strategy === 'fixed' && !row.fixedValue.trim()) {
+      hasError = true
+      errMsg = '固定值不能为空'
+    } else if (row.strategy === 'random' && row.pool.length === 0) {
+      hasError = true
+      errMsg = '随机选取至少需要一个值'
+    } else if (row.strategy === 'increment' && (!row.base.trim() || !row.step.trim())) {
+      hasError = true
+      errMsg = '起始值和步长不能为空'
+    }
+    if (hasError) {
+      newErrors[row.fieldKey] = errMsg
+    }
+  }
+
+  if (Object.keys(newErrors).length > 0) {
+    step2FieldErrors.value = newErrors
+    nextTick(() => {
+      const el = step2ContentRef.value?.querySelector('.step2-field-error') as HTMLElement
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      el?.focus()
+    })
+    return false
+  }
+
+  step2FieldErrors.value = {}
+  return true
+}
+
+function clearStep2Error(fieldKey: string) {
+  if (step2FieldErrors.value[fieldKey]) {
+    delete step2FieldErrors.value[fieldKey]
+  }
+}
+
 function nextStep() {
+  if (currentStep.value === 1) {
+    if (!step2ValidateAndScroll()) return
+  }
   if (currentStep.value < 2) currentStep.value++
 }
 
@@ -308,7 +358,14 @@ async function handleSubmit() {
       groupName: step1.value.groupName.trim(),
       nodeCount: step1.value.nodeCount,
       nameTemplate: step1.value.nameTemplate,
-      attrStrategies: strategyRows.value.map((r) => ({
+      attrStrategies: strategyRows.value
+        .filter((r) => {
+          if (r.strategy === 'fixed') return !!r.fixedValue.trim()
+          if (r.strategy === 'random') return r.pool.length > 0
+          if (r.strategy === 'increment') return !!r.base.trim() && !!r.step.trim()
+          return true // range always has valid defaults
+        })
+        .map((r) => ({
         fieldKey: r.fieldKey,
         strategy: r.strategy,
         fixedValue: r.strategy === 'fixed' ? r.fixedValue : null,
@@ -450,21 +507,27 @@ function handleCancel() {
       </div>
 
       <!-- Step 2 — Attr strategies -->
-      <div v-show="currentStep === 1" class="step-content">
+      <div v-show="currentStep === 1" ref="step2ContentRef" class="step-content">
         <div v-if="strategyRows.length === 0" class="step-empty">
           该节点类型无自定义字段，可跳过此步骤。
         </div>
         <div v-else class="strategy-list">
-          <div v-for="row in strategyRows" :key="row.fieldKey" class="strategy-row">
+          <div
+            v-for="row in strategyRows"
+            :key="row.fieldKey"
+            class="strategy-row"
+            :class="{ 'step2-field-error': step2FieldErrors[row.fieldKey] }"
+          >
             <div class="strategy-header">
               <span class="strategy-field-label">{{ row.fieldLabel }}</span>
+              <span v-if="row.required" class="field-required-mark">*</span>
               <span class="strategy-field-key">({{ row.fieldKey }})</span>
             </div>
 
             <div class="strategy-controls">
               <Select
                 :value="row.strategy"
-                @change="(v: string) => onStrategyChange(row, v)"
+                @change="(v: string) => { onStrategyChange(row, v); clearStep2Error(row.fieldKey) }"
                 style="width: 130px"
               >
                 <Select.Option value="fixed">固定值</Select.Option>
@@ -478,6 +541,7 @@ function handleCancel() {
                 <Input
                   v-if="row.strategy === 'fixed'"
                   v-model:value="row.fixedValue"
+                  @input="clearStep2Error(row.fieldKey)"
                   placeholder="固定值"
                   style="width: 160px"
                 />
@@ -498,7 +562,7 @@ function handleCancel() {
                       placeholder="输入后回车添加"
                       style="width: 120px"
                       size="small"
-                      @press-enter="addPoolValue(row)"
+                      @press-enter="addPoolValue(row); clearStep2Error(row.fieldKey)"
                     />
                   </div>
                 </div>
@@ -507,12 +571,14 @@ function handleCancel() {
                 <div v-if="row.strategy === 'increment'" class="increment-params">
                   <Input
                     v-model:value="row.base"
+                    @input="clearStep2Error(row.fieldKey)"
                     placeholder="起始值"
                     style="width: 100px"
                   />
                   <span class="params-sep">+</span>
                   <Input
                     v-model:value="row.step"
+                    @input="clearStep2Error(row.fieldKey)"
                     placeholder="步长"
                     style="width: 80px"
                   />
@@ -536,6 +602,12 @@ function handleCancel() {
                   />
                 </div>
               </div>
+            </div>
+            <div
+              v-if="step2FieldErrors[row.fieldKey]"
+              class="strategy-error-msg"
+            >
+              {{ step2FieldErrors[row.fieldKey] }}
             </div>
           </div>
         </div>
@@ -784,6 +856,23 @@ function handleCancel() {
   padding: 10px 12px;
   border: 1px solid #f0f0f0;
   border-radius: 4px;
+}
+
+.strategy-row.step2-field-error {
+  border-color: #ff4d4f;
+  background: #fff2f0;
+}
+
+.field-required-mark {
+  color: #ff4d4f;
+  font-weight: bold;
+  margin-right: 2px;
+}
+
+.strategy-error-msg {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #ff4d4f;
 }
 
 .strategy-header {

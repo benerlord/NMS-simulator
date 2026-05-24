@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, nextTick } from 'vue'
 import { Modal, Form, Input, InputNumber, Select, Switch } from 'ant-design-vue'
 import type { NodeTypeFieldItem } from '@/api/types'
 import { nodeApi } from '@/api/node'
@@ -23,6 +23,7 @@ const creating = ref(false)
 const fieldErrors = ref<Record<string, string>>({})
 const nodeName = ref('')
 const nodeNameError = ref('')
+const formContentRef = ref<HTMLElement>()
 
 watch(
   () => props.visible,
@@ -66,10 +67,20 @@ function setFieldValue(key: string, value: string) {
   }
 }
 
+function scrollToFirstError() {
+  const el = formContentRef.value?.querySelector('.ant-form-item-has-error') as HTMLElement
+  if (!el) return
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  const input = el.querySelector('input:not([type="hidden"]), .ant-select-selector, .ant-input-number-input') as HTMLElement
+  input?.focus()
+}
+
 async function handleCreate() {
   // 校验 name
   if (!nodeName.value.trim()) {
     nodeNameError.value = '节点名称不能为空'
+    await nextTick()
+    scrollToFirstError()
     return
   }
   nodeNameError.value = ''
@@ -84,6 +95,8 @@ async function handleCreate() {
 
   if (Object.keys(newErrors).length > 0) {
     fieldErrors.value = newErrors
+    await nextTick()
+    scrollToFirstError()
     return
   }
 
@@ -122,9 +135,10 @@ async function handleCreate() {
     ok-text="创建"
     :styles="{ body: { maxHeight: 'calc(100vh - 200px)', overflowY: 'auto' } }"
   >
-    <div class="node-type-name">{{ nodeTypeName }}</div>
+    <div ref="formContentRef">
+      <div class="node-type-name">{{ nodeTypeName }}</div>
 
-    <Form layout="vertical" class="attrs-form">
+      <Form layout="vertical" class="attrs-form">
       <Form.Item
         label="节点名称"
         required
@@ -182,7 +196,8 @@ async function handleCreate() {
           />
         </template>
       </Form.Item>
-    </Form>
+      </Form>
+    </div>
   </Modal>
 </template>
 

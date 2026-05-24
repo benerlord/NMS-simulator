@@ -247,16 +247,35 @@ def _safe_sheet_name(code: str) -> str:
     return name
 
 
+def _build_header_map(ws) -> dict[str, int]:
+    """Read row 1 and map header name -> column index. Returns empty dict if no header."""
+    row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), None)
+    if not row:
+        return {}
+    return {str(v).strip(): i for i, v in enumerate(row) if v is not None and str(v).strip()}
+
+
+def _col(headers: dict[str, int], name: str, row: tuple) -> Optional[str]:
+    """Get a cell value by header name, returning None if the column is missing."""
+    idx = headers.get(name)
+    if idx is None or idx >= len(row):
+        return None
+    val = row[idx]
+    if val is None:
+        return None
+    return str(val).strip() or None
+
+
 def _build_node_types_excel(items: list[dict]) -> BytesIO:
     wb = Workbook()
 
     ws1 = wb.active
     ws1.title = "类型汇总"
-    ws1.append(["ID", "编码", "名称", "分类", "图标", "颜色", "形状",
+    ws1.append(["编码", "名称", "分类", "图标", "颜色", "形状",
                  "渲染模式", "DN模板", "描述", "创建时间", "更新时间"])
     for item in items:
         ws1.append([
-            item.get("id"), item.get("code"), item.get("name"),
+            item.get("code"), item.get("name"),
             item.get("category"), item.get("icon"), item.get("color"),
             item.get("shape"), item.get("renderMode"), item.get("dnTemplate"),
             item.get("description"), item.get("createdAt"), item.get("updatedAt"),
@@ -355,10 +374,13 @@ async def preview_node_types_import(file: UploadFile = File(...)):
     errors: list[str] = []
 
     with connect() as conn:
+        headers = _build_header_map(ws)
         for row in ws.iter_rows(min_row=2, values_only=True):
-            code = row[1] if len(row) > 1 else None
-            name = row[2] if len(row) > 2 else None
-            category = row[3] if len(row) > 3 else None
+            if all(v is None or v == '' for v in row):
+                break
+            code = _col(headers, "编码", row)
+            name = _col(headers, "名称", row)
+            category = _col(headers, "分类", row)
 
             if not code or not name or not category:
                 errors.append(f"编码={code or '(空)'} 缺少必填字段（编码/名称/分类），跳过")
@@ -402,21 +424,24 @@ async def import_node_types(file: UploadFile = File(...)):
     result = TypeImportResult()
 
     with transaction() as conn:
+        headers = _build_header_map(ws)
         for row in ws.iter_rows(min_row=2, values_only=True):
-            code = row[1] if len(row) > 1 else None
-            name = row[2] if len(row) > 2 else None
-            category = row[3] if len(row) > 3 else None
+            if all(v is None or v == '' for v in row):
+                break
+            code = _col(headers, "编码", row)
+            name = _col(headers, "名称", row)
+            category = _col(headers, "分类", row)
 
             if not code or not name or not category:
                 result.errors.append(f"编码={code or '(空)'} 缺少必填字段（编码/名称/分类），跳过")
                 continue
 
-            icon = row[4] if len(row) > 4 else None
-            color = row[5] if len(row) > 5 else None
-            shape = row[6] if len(row) > 6 else None
-            render_mode = (row[7] if len(row) > 7 else None) or "none"
-            dn_template = row[8] if len(row) > 8 else None
-            description = row[9] if len(row) > 9 else None
+            icon = _col(headers, "图标", row)
+            color = _col(headers, "颜色", row)
+            shape = _col(headers, "形状", row)
+            render_mode = _col(headers, "渲染模式", row) or "none"
+            dn_template = _col(headers, "DN模板", row)
+            description = _col(headers, "描述", row)
 
             existing = conn.execute(
                 "SELECT id FROM node_types WHERE code = ?", (code,)
@@ -451,18 +476,28 @@ async def import_node_types(file: UploadFile = File(...)):
                     "DELETE FROM node_type_fields WHERE node_type_id = ?",
                     (type_id,),
                 )
+                fheaders = _build_header_map(wb[sheet_name])
                 for frow in wb[sheet_name].iter_rows(min_row=2, values_only=True):
-                    if not frow or not frow[0] or not frow[1] or not frow[2]:
+                    if all(v is None or v == '' for v in frow):
+                        break
+                    fkey = _col(fheaders, "字段标识", frow)
+                    flabel = _col(fheaders, "显示名称", frow)
+                    ftype_raw = _col(fheaders, "字段类型", frow)
+                    if not fkey or not flabel or not ftype_raw:
                         continue
-                    fkey = frow[0]
-                    flabel = frow[1]
-                    ftype = frow[2]
-                    maxlen = frow[3] if len(frow) > 3 else None
-                    defval = frow[4] if len(frow) > 4 else None
-                    opts = frow[5] if len(frow) > 5 else None
-                    req_raw = str(frow[6]).strip() if len(frow) > 6 and frow[6] else ""
+                    ftype = ftype_raw.strip().lower()
+                    if ftype not in ('text', 'number', 'select', 'boolean'):
+                        result.errors.append(
+                            f"[{code}] 字段 {fkey} 类型 '{ftype_raw}' 无效，仅支持 text/number/select/boolean，跳过"
+                        )
+                        continue
+                    maxlen = _col(fheaders, "最大长度", frow)
+                    defval = _col(fheaders, "默认值", frow)
+                    opts = _col(fheaders, "选项", frow)
+                    req_raw = _col(fheaders, "必填", frow) or ""
                     req = 1 if req_raw == "是" else 0
-                    sort = frow[7] if len(frow) > 7 and frow[7] else 0
+                    sort_raw = _col(fheaders, "排序", frow)
+                    sort = int(sort_raw) if sort_raw and sort_raw.isdigit() else 0
 
                     conn.execute(
                         """INSERT INTO node_type_fields
