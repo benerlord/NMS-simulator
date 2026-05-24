@@ -248,7 +248,7 @@ function formatDate(iso: string): string {
     >
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'name'">
-          <a @click="onEditItem(record as TopologyListItem)">{{ (record as TopologyListItem).name }}</a>
+          <a @click="onEnterCanvas((record as TopologyListItem).id)">{{ (record as TopologyListItem).name }}</a>
         </template>
 
         <template v-else-if="column.key === 'description'">

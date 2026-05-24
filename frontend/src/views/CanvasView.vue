@@ -469,6 +469,16 @@ function handleAttrsUpdate(nodeId: string, attrs: Record<string, string | null>)
   }
 }
 
+function handleNodeRename(nodeId: string, newName: string) {
+  selectedNodeName.value = newName
+  const g = graph.value as Graph
+  const cell = g.getCellById(nodeId)
+  if (cell && cell.isNode()) {
+    cell.attr('label/text', newName)
+    cell.setData({ ...cell.getData(), name: newName })
+  }
+}
+
 async function handleEdgeDblClick(edgeId: string) {
   const g = graph.value as Graph
   const cell = g.getCellById(edgeId)
@@ -1065,6 +1075,7 @@ onBeforeUnmount(() => {
           @close="handleAttrsPanelClose"
           @update="handleAttrsUpdate"
           @delete="confirmDeleteNode"
+          @rename="handleNodeRename"
         />
 
         <EdgeAttrsPanel

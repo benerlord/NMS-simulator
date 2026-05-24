@@ -17,12 +17,20 @@ const emit = defineEmits<{
   (e: 'close'): void
   (e: 'update', nodeId: string, attrs: Record<string, string | null>): void
   (e: 'delete', nodeId: string, nodeName: string): void
+  (e: 'rename', nodeId: string, newName: string): void
 }>()
 
 const fields = ref<NodeTypeFieldItem[]>([])
 const formData = ref<Record<string, string>>({})
 const loading = ref(false)
 const saving = ref(false)
+const editingName = ref('')
+
+watch(
+  () => props.nodeName,
+  (v) => { if (v) editingName.value = v },
+  { immediate: true },
+)
 
 watch(
   () => props.nodeId,
@@ -87,6 +95,12 @@ async function handleSave() {
     }
     await nodeApi.setAttrs(props.nodeId, attrs)
     emit('update', props.nodeId, attrs)
+
+    const trimmedName = editingName.value.trim()
+    if (trimmedName && trimmedName !== props.nodeName) {
+      await nodeApi.update(props.nodeId, { name: trimmedName })
+      emit('rename', props.nodeId, trimmedName)
+    }
   } catch {
     // ignore
   } finally {
@@ -114,7 +128,14 @@ function setFieldValue(key: string, value: string) {
       <div class="panel-content">
         <Spin v-if="loading" tip="加载中..." />
         <template v-else>
-          <div class="node-name">{{ nodeName }}</div>
+          <div class="node-name-row">
+            <span class="node-name-label">节点名称</span>
+            <Input
+              v-model:value="editingName"
+              :maxlength="100"
+              placeholder="请输入节点名称"
+            />
+          </div>
 
           <Form layout="vertical" class="attrs-form">
             <Form.Item
@@ -208,12 +229,17 @@ function setFieldValue(key: string, value: string) {
   padding: 16px;
 }
 
-.node-name {
-  font-size: 16px;
-  font-weight: 500;
+.node-name-row {
   margin-bottom: 16px;
   padding-bottom: 8px;
   border-bottom: 1px solid #f0f0f0;
+}
+
+.node-name-label {
+  display: block;
+  font-size: 12px;
+  color: #999;
+  margin-bottom: 4px;
 }
 
 .attrs-form {

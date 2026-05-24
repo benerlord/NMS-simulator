@@ -49,6 +49,11 @@ watch(
   { immediate: true }
 )
 
+function onNameFocus(e: Event) {
+  const input = e.target as HTMLInputElement
+  input.select()
+}
+
 function getFieldValue(key: string): string {
   return formData.value[key] || ''
 }
@@ -128,7 +133,8 @@ async function handleCreate() {
       >
         <Input
           v-model:value="nodeName"
-          placeholder="请输入节点名称"
+          placeholder="请输入节点名称，如 core-switch-01"
+          @focus="onNameFocus"
         />
       </Form.Item>
 
