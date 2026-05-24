@@ -226,6 +226,8 @@ InterfaceTest/
 - ✅ 统一查询视图：topology_nodes + topology_edges
 - ✅ 类型字段文本最大长度：node_type_fields / edge_type_fields 新增 max_length 列，类型管理可配置；画布上编辑节点/边属性时前后端双重校验（前端 `:maxlength` + `:showCount` 字符计数 + 后端 `set_node_attrs` / `set_edge_attrs` 长度校验）
 - ✅ 画布属性面板按钮固定底部：NodeAttrsPanel / EdgeAttrsPanel 的保存删除按钮从滚动区域内移到 flex 布局固定底部，NodeAttrsModal 的 Modal body 添加 max-height + overflow-y 限制
+- ✅ 类型管理导出 Excel：节点类型批量导出从 JSON 改为 .xlsx 多 Sheet（类型汇总 + 每个类型独立 Sheet），新增 `openpyxl` 依赖，前端改为 blob 下载
+- ✅ 类型管理导入 Excel：新增 POST /node-types/import + /import/preview 端点，读取与导出同格式 xlsx，以 code 匹配（新建/覆盖），**覆盖前弹窗二次确认**，前端文件选择 + 预览 + 导入提示
 
 ### 待开发
 - 编辑组定义打开 GroupCreateModal（目前右键"编辑组定义"已 emit 事件但 CanvasView 尚未接入 editGroupId）
