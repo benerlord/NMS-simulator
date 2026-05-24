@@ -55,7 +55,7 @@ InterfaceTest/
 │       │   ├── routes.py                  # GET /health
 │       │   ├── topology.py                # 拓扑 CRUD + canvas + graph + import/export
 │       │   ├── node.py / edge.py          # 节点/边 CRUD + position + attrs
-│       │   ├── node_type.py               # 节点类型 + 边类型 CRUD + fields
+│       │   ├── node_type.py               # 节点类型 + 边类型 CRUD + fields + Excel 导入导出（表头匹配 + 字段校验）
 │       │   ├── api_config.py              # API 配置 CRUD + test
 │       │   ├── sql_helper.py              # SQL 视图 / 预览 / 执行
 │       │   ├── token.py                   # Token 管理
@@ -72,7 +72,7 @@ InterfaceTest/
 │       ├── router/index.ts                # 6 路由，menuItems 导出
 │       ├── layouts/AppLayout.vue          # 侧边栏 + 顶栏布局
 │       ├── api/                           # Axios SDK（http.ts + 各域模块）
-│       │   ├── http.ts                    # axios 实例 + camelize/snakeize 拦截器
+│       │   ├── http.ts                    # axios 实例 + camelize/snakeize 拦截器 + FastAPI detail 错误提取
 │       │   ├── case.ts                    # camelizeKeys / snakeizeKeys
 │       │   ├── nodeGroup.ts              # 节点组 API + TS 接口
 │       │   └── types.ts, topology.ts, node.ts, edge.ts, api_config.ts, sql.ts, token.ts, settings.ts
@@ -203,6 +203,9 @@ InterfaceTest/
 - **SQLite 版本限制** — 当前 3.37.2，不支持 `->>` 运算符，使用 `json_extract()` 替代
 - **WebSocket** — 路径 `/admin/ws`，前端 `WsClient` 单例（自动重连 + 30s 心跳），已订阅 `topology.saved` 和 `group.materialize.progress`
 - **热重载** — `mock_path_prefix` 变更触发 `RouteRegistry.reload()`，无需重启进程
+- **Excel 导入按表头名匹配** — `_build_header_map(ws)` 读取第 1 行构建 `{表头名: 列索引}` 字典，`_col(headers, name, row)` 按名称取值。列顺序可任意调换，只要表头名一致即可
+- **Python 3.9 类型注解** — 不可使用 `str | None`（PEP 604，需 3.10+），必须用 `Optional[str]`
+- **必填校验 + 自动滚动模式** — 校验失败后设置 `fieldErrors`，`await nextTick()` 等待 DOM 更新，`querySelector('.ant-form-item-has-error')` 查找报错元素，`scrollIntoView({ behavior: 'smooth', block: 'center' })` 滚动 + `focus()` 聚焦输入框
 
 ---
 
@@ -226,8 +229,20 @@ InterfaceTest/
 - ✅ 统一查询视图：topology_nodes + topology_edges
 - ✅ 类型字段文本最大长度：node_type_fields / edge_type_fields 新增 max_length 列，类型管理可配置；画布上编辑节点/边属性时前后端双重校验（前端 `:maxlength` + `:showCount` 字符计数 + 后端 `set_node_attrs` / `set_edge_attrs` 长度校验）
 - ✅ 画布属性面板按钮固定底部：NodeAttrsPanel / EdgeAttrsPanel 的保存删除按钮从滚动区域内移到 flex 布局固定底部，NodeAttrsModal 的 Modal body 添加 max-height + overflow-y 限制
-- ✅ 类型管理导出 Excel：节点类型批量导出从 JSON 改为 .xlsx 多 Sheet（类型汇总 + 每个类型独立 Sheet），新增 `openpyxl` 依赖，前端改为 blob 下载
+- ✅ 类型管理导出 Excel：节点类型批量导出从 JSON 改为 .xlsx 多 Sheet（类型汇总 + 每个类型独立 Sheet），新增 `openpyxl` 依赖，前端改为 blob 下载；导出不含 ID（内部字段）
 - ✅ 类型管理导入 Excel：新增 POST /node-types/import + /import/preview 端点，读取与导出同格式 xlsx，以 code 匹配（新建/覆盖），**覆盖前弹窗二次确认**，前端文件选择 + 预览 + 导入提示
+- ✅ 类型管理导入兼容性优化（commit c9323dd）：
+  - 导入按表头名匹配列位置（`_build_header_map` + `_col`），不依赖固定列顺序
+  - 遇空行自动结束当前 Sheet 解析（`all(v is None or v == '' for v in row)` → break）
+  - 字段类型白名单校验 + 规范化（`str().strip().lower()`），非法值给出明确错误而非 500
+  - HTTP 400 错误信息从 FastAPI `detail` 字段提取（前端 `http.ts` 错误拦截器兼容）
+- ✅ 节点名称系统内置（commit 05e5c68）：`name` 是所有节点类型的系统属性，映射到 `nodes.name` 列。创建节点时自动生成默认名称，编辑面板可内联修改名称，画布标签实时同步
+- ✅ 拓扑管理点击拓扑名称进入画布（非编辑弹窗）
+- ✅ 节点组创建体验优化（commit c9323dd）：
+  - 选择节点类型后组名称自动填充，命名模板使用 `{group}` 占位符联动
+  - 属性策略步骤：必填字段未配置时阻止跳转 + 自动滚动聚焦到报错行
+  - 提交时自动过滤未配置的非必填字段策略（避免后端 422）
+- ✅ 画布创建节点必填校验：点击"创建"时自动滚动 + 聚焦第一个未填写的必填字段（`NodeAttrsModal.vue`）
 
 ### 待开发
 - 编辑组定义打开 GroupCreateModal（目前右键"编辑组定义"已 emit 事件但 CanvasView 尚未接入 editGroupId）
