@@ -1,7 +1,11 @@
+import re
 import uuid
+from io import BytesIO
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, UploadFile, File
+from fastapi.responses import StreamingResponse
+from openpyxl import Workbook, load_workbook
 
 from app.db.connection import connect, transaction
 from app.admin.schemas.node_type import (
@@ -15,6 +19,9 @@ from app.admin.schemas.node_type import (
     NodeTypeBatchDelete,
     EdgeTypeBatchDelete,
     TypeExportRequest,
+    TypeImportResult,
+    TypeImportPreview,
+    TypeImportPreviewItem,
     EdgeTypeCreate,
     EdgeTypeUpdate,
     EdgeTypeDetail,
@@ -230,8 +237,53 @@ def batch_delete_node_types(data: NodeTypeBatchDelete) -> dict:
     return {"code": 0, "data": {"deletedCount": deleted_count, "skipped": skipped}, "message": "ok"}
 
 
+_SHEET_INVALID_CHARS = re.compile(r'[\\\*/\[\]\?:]')
+
+
+def _safe_sheet_name(code: str) -> str:
+    name = _SHEET_INVALID_CHARS.sub('_', code)
+    if len(name) > 31:
+        name = name[:28] + "..."
+    return name
+
+
+def _build_node_types_excel(items: list[dict]) -> BytesIO:
+    wb = Workbook()
+
+    ws1 = wb.active
+    ws1.title = "类型汇总"
+    ws1.append(["ID", "编码", "名称", "分类", "图标", "颜色", "形状",
+                 "渲染模式", "DN模板", "描述", "创建时间", "更新时间"])
+    for item in items:
+        ws1.append([
+            item.get("id"), item.get("code"), item.get("name"),
+            item.get("category"), item.get("icon"), item.get("color"),
+            item.get("shape"), item.get("renderMode"), item.get("dnTemplate"),
+            item.get("description"), item.get("createdAt"), item.get("updatedAt"),
+        ])
+
+    for item in items:
+        fields = item.get("fields") or []
+        sheet_name = _safe_sheet_name(item.get("code", item.get("id", "unknown")))
+        ws = wb.create_sheet(title=sheet_name)
+        ws.append(["字段标识", "显示名称", "字段类型", "最大长度",
+                    "默认值", "选项", "必填", "排序"])
+        for f in fields:
+            ws.append([
+                f.get("fieldKey"), f.get("fieldLabel"),
+                f.get("fieldType"), f.get("maxLength"), f.get("defaultValue"),
+                f.get("options"), "是" if f.get("required") else "否",
+                f.get("sortOrder"),
+            ])
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output
+
+
 @router.post("/node-types/export")
-def export_node_types(data: TypeExportRequest) -> dict:
+def export_node_types(data: TypeExportRequest):
     with connect() as conn:
         if data.ids:
             placeholders = ",".join("?" for _ in data.ids)
@@ -261,7 +313,172 @@ def export_node_types(data: TypeExportRequest) -> dict:
                 fields=_get_node_type_fields(conn, r["id"]),
             )
             items.append(item.model_dump(mode="json", by_alias=True))
-        return {"code": 0, "data": {"items": items}, "message": "ok"}
+
+    excel = _build_node_types_excel(items)
+    return StreamingResponse(
+        excel,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=node-types-export.xlsx"},
+    )
+
+
+def _load_import_workbook(contents: bytes) -> Workbook:
+    try:
+        wb = load_workbook(filename=BytesIO(contents))
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": 40211, "message": "文件无法解析，请确认是有效的 xlsx 文件"},
+        )
+    if "类型汇总" not in wb.sheetnames:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": 40212, "message": "缺少「类型汇总」Sheet"},
+        )
+    return wb
+
+
+@router.post("/node-types/import/preview")
+async def preview_node_types_import(file: UploadFile = File(...)):
+    if not file.filename or not file.filename.endswith('.xlsx'):
+        raise HTTPException(
+            status_code=400,
+            detail={"code": 40210, "message": "仅支持 .xlsx 文件"},
+        )
+
+    contents = await file.read()
+    wb = _load_import_workbook(contents)
+    ws = wb["类型汇总"]
+
+    to_create: list[dict] = []
+    to_update: list[dict] = []
+    errors: list[str] = []
+
+    with connect() as conn:
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            code = row[1] if len(row) > 1 else None
+            name = row[2] if len(row) > 2 else None
+            category = row[3] if len(row) > 3 else None
+
+            if not code or not name or not category:
+                errors.append(f"编码={code or '(空)'} 缺少必填字段（编码/名称/分类），跳过")
+                continue
+
+            existing = conn.execute(
+                "SELECT id, name FROM node_types WHERE code = ?", (code,)
+            ).fetchone()
+
+            if existing:
+                to_update.append({
+                    "code": code,
+                    "name": name,
+                    "old_name": existing["name"],
+                })
+            else:
+                to_create.append({"code": code, "name": name})
+
+    return {
+        "code": 0,
+        "data": {
+            "toCreate": to_create,
+            "toUpdate": to_update,
+            "errors": errors,
+        },
+        "message": "ok",
+    }
+
+
+@router.post("/node-types/import")
+async def import_node_types(file: UploadFile = File(...)):
+    if not file.filename or not file.filename.endswith('.xlsx'):
+        raise HTTPException(
+            status_code=400,
+            detail={"code": 40210, "message": "仅支持 .xlsx 文件"},
+        )
+
+    contents = await file.read()
+    wb = _load_import_workbook(contents)
+    ws = wb["类型汇总"]
+    result = TypeImportResult()
+
+    with transaction() as conn:
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            code = row[1] if len(row) > 1 else None
+            name = row[2] if len(row) > 2 else None
+            category = row[3] if len(row) > 3 else None
+
+            if not code or not name or not category:
+                result.errors.append(f"编码={code or '(空)'} 缺少必填字段（编码/名称/分类），跳过")
+                continue
+
+            icon = row[4] if len(row) > 4 else None
+            color = row[5] if len(row) > 5 else None
+            shape = row[6] if len(row) > 6 else None
+            render_mode = (row[7] if len(row) > 7 else None) or "none"
+            dn_template = row[8] if len(row) > 8 else None
+            description = row[9] if len(row) > 9 else None
+
+            existing = conn.execute(
+                "SELECT id FROM node_types WHERE code = ?", (code,)
+            ).fetchone()
+
+            if existing:
+                type_id = existing["id"]
+                conn.execute(
+                    """UPDATE node_types SET name=?, category=?, icon=?, color=?,
+                       shape=?, render_mode=?, dn_template=?, description=?,
+                       updated_at=datetime('now')
+                       WHERE id=?""",
+                    (name, category, icon, color, shape,
+                     render_mode, dn_template, description, type_id),
+                )
+                result.updated += 1
+            else:
+                type_id = _new_id()
+                conn.execute(
+                    """INSERT INTO node_types
+                       (id, code, name, category, icon, color, shape,
+                        render_mode, dn_template, description)
+                       VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                    (type_id, code, name, category, icon, color, shape,
+                     render_mode, dn_template, description),
+                )
+                result.created += 1
+
+            sheet_name = _safe_sheet_name(code)
+            if sheet_name in wb.sheetnames:
+                conn.execute(
+                    "DELETE FROM node_type_fields WHERE node_type_id = ?",
+                    (type_id,),
+                )
+                for frow in wb[sheet_name].iter_rows(min_row=2, values_only=True):
+                    if not frow or not frow[0] or not frow[1] or not frow[2]:
+                        continue
+                    fkey = frow[0]
+                    flabel = frow[1]
+                    ftype = frow[2]
+                    maxlen = frow[3] if len(frow) > 3 else None
+                    defval = frow[4] if len(frow) > 4 else None
+                    opts = frow[5] if len(frow) > 5 else None
+                    req_raw = str(frow[6]).strip() if len(frow) > 6 and frow[6] else ""
+                    req = 1 if req_raw == "是" else 0
+                    sort = frow[7] if len(frow) > 7 and frow[7] else 0
+
+                    conn.execute(
+                        """INSERT INTO node_type_fields
+                           (node_type_id, field_key, field_label, field_type,
+                            max_length, default_value, options, required, sort_order)
+                           VALUES (?,?,?,?,?,?,?,?,?)""",
+                        (type_id, fkey, flabel, ftype,
+                         maxlen, defval, opts, req, sort),
+                    )
+                    result.total_fields += 1
+
+    return {
+        "code": 0,
+        "data": result.model_dump(mode="json", by_alias=True),
+        "message": "ok",
+    }
 
 
 @router.delete("/node-types/{type_id}")

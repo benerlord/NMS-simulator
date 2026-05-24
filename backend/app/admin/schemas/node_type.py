@@ -115,6 +115,25 @@ class TypeExportRequest(CamelModel):
     ids: Optional[list[str]] = Field(default=None)
 
 
+class TypeImportResult(CamelModel):
+    created: int = 0
+    updated: int = 0
+    total_fields: int = 0
+    errors: list[str] = []
+
+
+class TypeImportPreviewItem(CamelModel):
+    code: str
+    name: str
+    old_name: Optional[str] = None
+
+
+class TypeImportPreview(CamelModel):
+    to_create: list[TypeImportPreviewItem] = []
+    to_update: list[TypeImportPreviewItem] = []
+    errors: list[str] = []
+
+
 # --- edge_types ---
 
 class EdgeTypeCreate(CamelModel):

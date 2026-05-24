@@ -1,3 +1,4 @@
+import http from './http'
 import { apiGet, apiPost, apiPut, apiDelete } from './http'
 
 // ============ Node Types ============
@@ -158,6 +159,25 @@ export interface EdgeTypeFieldUpdate {
   sortOrder?: number | null
 }
 
+export interface TypeImportPreviewItem {
+  code: string
+  name: string
+  oldName?: string | null
+}
+
+export interface TypeImportPreview {
+  toCreate: TypeImportPreviewItem[]
+  toUpdate: TypeImportPreviewItem[]
+  errors: string[]
+}
+
+export interface TypeImportResult {
+  created: number
+  updated: number
+  totalFields: number
+  errors: string[]
+}
+
 export interface BatchDeleteResult {
   deletedCount: number
   skipped: { id: string; reason: string }[]
@@ -168,6 +188,22 @@ export interface BatchDeleteResult {
 export const nodeTypeApi = {
   list: (): Promise<{ items: NodeTypeDetail[]; total: number }> =>
     apiGet('/node-types'),
+
+  importPreview: (file: File): Promise<TypeImportPreview> => {
+    const form = new FormData()
+    form.append('file', file)
+    return http.post('/node-types/import/preview', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then(r => r.data.data)
+  },
+
+  import: (file: File): Promise<TypeImportResult> => {
+    const form = new FormData()
+    form.append('file', file)
+    return http.post('/node-types/import', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then(r => r.data.data)
+  },
 
   get: (id: string): Promise<NodeTypeDetail> =>
     apiGet(`/node-types/${id}`),
@@ -193,8 +229,8 @@ export const nodeTypeApi = {
   batchDelete: (ids: string[]): Promise<BatchDeleteResult> =>
     apiPost('/node-types/batch-delete', { ids }),
 
-  export: (ids?: string[]): Promise<{ items: NodeTypeDetail[] }> =>
-    apiPost('/node-types/export', { ids }),
+  export: (ids?: string[]): Promise<Blob> =>
+    http.post('/node-types/export', { ids }, { responseType: 'blob' }).then(r => r.data),
 }
 
 export const edgeTypeApi = {

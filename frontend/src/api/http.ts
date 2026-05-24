@@ -41,6 +41,9 @@ http.interceptors.request.use((config) => {
 
 http.interceptors.response.use(
   (resp: AxiosResponse<ApiEnvelope>) => {
+    if (resp.config.responseType === 'blob' || resp.config.responseType === 'arraybuffer') {
+      return resp
+    }
     const body = camelizeKeys<ApiEnvelope>(resp.data)
     if (body && typeof body.code === 'number' && body.code !== 0) {
       const err = new ApiError(body.code, body.message ?? 'request failed', body.details)

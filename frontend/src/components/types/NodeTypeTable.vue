@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, ExportOutlined } from '@ant-design/icons-vue'
-import { message } from 'ant-design-vue'
+import { ref, computed, h } from 'vue'
+import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, ExportOutlined, ImportOutlined } from '@ant-design/icons-vue'
+import { message, Modal } from 'ant-design-vue'
 import NodeTypeModal from './NodeTypeModal.vue'
 import NodeTypeFieldEditor from './NodeTypeFieldEditor.vue'
 import { useNodeTypes } from '@/composables/useTypes'
 import { nodeTypeApi } from '@/api/types'
-import { downloadJson, timestampFilename } from '@/utils/download'
-import type { NodeTypeDetail, NodeTypeCreate, NodeTypeUpdate, NodeTypeFieldCreate, NodeTypeFieldUpdate } from '@/api/types'
+import { downloadBlob, timestampExcelFilename } from '@/utils/download'
+import type { NodeTypeDetail, NodeTypeCreate, NodeTypeUpdate, NodeTypeFieldCreate, NodeTypeFieldUpdate, TypeImportPreview, TypeImportResult } from '@/api/types'
 
 const {
   nodeTypes,
@@ -91,6 +91,7 @@ async function handleDeleteField(typeId: string, fieldId: number) {
 // Expanded rows for showing fields
 const expandedRowKeys = ref<string[]>([])
 const selectedRowKeys = ref<string[]>([])
+const fileInputRef = ref<HTMLInputElement>()
 const searchText = ref('')
 const categoryFilter = ref<string[]>([])
 
@@ -119,9 +120,99 @@ const filteredNodeTypes = computed(() => {
 async function handleExport() {
   try {
     const ids = selectedRowKeys.value.length > 0 ? selectedRowKeys.value : undefined
-    const result = await nodeTypeApi.export(ids)
-    downloadJson(result.items, timestampFilename('node-types-export'))
-    message.success(`已导出 ${result.items.length} 个节点类型`)
+    const blob = await nodeTypeApi.export(ids)
+    downloadBlob(blob, timestampExcelFilename('node-types-export'))
+    message.success('导出成功')
+  } catch {}
+}
+
+const pendingImportFile = ref<File | null>(null)
+
+function handleImportClick() {
+  fileInputRef.value?.click()
+}
+
+async function handleFileChosen(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+
+  // 1. 预览导入结果
+  let preview: TypeImportPreview
+  try {
+    preview = await nodeTypeApi.importPreview(file)
+  } catch {
+    return
+  }
+
+  // 2. 构建预览 VNode 列表
+  const children: ReturnType<typeof h>[] = []
+
+  if (preview.toCreate.length) {
+    children.push(
+      h('div', { style: { fontWeight: 'bold', marginBottom: '4px' } },
+        `将新建（${preview.toCreate.length} 个）：`),
+      ...preview.toCreate.map(item =>
+        h('div', { style: { paddingLeft: '8px' } },
+          `• ${item.code}（${item.name || item.code}）`),
+      ),
+    )
+  }
+
+  if (preview.toUpdate.length) {
+    if (children.length) children.push(h('br'))
+    children.push(
+      h('div', { style: { fontWeight: 'bold', marginBottom: '4px' } },
+        `将覆盖（字段将被替换）（${preview.toUpdate.length} 个）：`),
+      ...preview.toUpdate.map(item => {
+        const nameChanged = item.oldName && item.oldName !== item.name
+        const text = nameChanged
+          ? `• ${item.code}（${item.oldName} → ${item.name}）`
+          : `• ${item.code}（${item.name || item.code}）`
+        return h('div', { style: { paddingLeft: '8px' } }, text)
+      }),
+    )
+  }
+
+  if (preview.errors.length) {
+    if (children.length) children.push(h('br'))
+    children.push(
+      h('div', { style: { color: '#faad14' } },
+        `⚠ 有 ${preview.errors.length} 行因缺少必填字段将被跳过。`),
+    )
+  }
+
+  // 3. 弹窗确认（如有覆盖）或直接导入
+  if (preview.toUpdate.length > 0) {
+    pendingImportFile.value = file
+    Modal.confirm({
+      title: '确认导入',
+      content: h('div', { style: { lineHeight: '1.8' } }, children),
+      okText: '确认导入',
+      cancelText: '取消',
+      width: 480,
+      onOk: () => doImport(file),
+    })
+  } else {
+    // 全部新建，直接导入
+    await doImport(file)
+  }
+}
+
+async function doImport(file: File) {
+  pendingImportFile.value = null
+  try {
+    const result = await nodeTypeApi.import(file)
+    const parts: string[] = []
+    if (result.created) parts.push(`新建 ${result.created} 个`)
+    if (result.updated) parts.push(`更新 ${result.updated} 个`)
+    parts.push(`导入 ${result.totalFields} 个字段`)
+    message.success(parts.join('，'))
+    if (result.errors.length) {
+      message.warning(result.errors.join('；'))
+    }
+    fetchNodeTypes()
   } catch {}
 }
 
@@ -178,6 +269,17 @@ fetchNodeTypes()
           <template #icon><ExportOutlined /></template>
           批量导出
         </a-button>
+        <a-button @click="handleImportClick">
+          <template #icon><ImportOutlined /></template>
+          导入
+        </a-button>
+        <input
+          ref="fileInputRef"
+          type="file"
+          accept=".xlsx"
+          style="display: none"
+          @change="handleFileChosen"
+        />
         <a-button type="primary" @click="openCreate">
           <template #icon><PlusOutlined /></template>
           新建节点类型
