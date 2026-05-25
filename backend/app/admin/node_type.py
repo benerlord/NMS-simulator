@@ -231,6 +231,12 @@ def batch_delete_node_types(data: NodeTypeBatchDelete) -> dict:
             if in_use:
                 skipped.append({"id": type_id, "reason": "该类型已被节点使用，无法删除"})
                 continue
+            in_use = conn.execute(
+                "SELECT id FROM node_groups WHERE node_type_id = ? LIMIT 1", (type_id,)
+            ).fetchone()
+            if in_use:
+                skipped.append({"id": type_id, "reason": "该类型已被节点组使用，无法删除"})
+                continue
             conn.execute("DELETE FROM node_type_fields WHERE node_type_id = ?", (type_id,))
             conn.execute("DELETE FROM node_types WHERE id = ?", (type_id,))
             deleted_count += 1
@@ -477,6 +483,7 @@ async def import_node_types(file: UploadFile = File(...)):
                     (type_id,),
                 )
                 fheaders = _build_header_map(wb[sheet_name])
+                seen_fields: set[str] = set()
                 for frow in wb[sheet_name].iter_rows(min_row=2, values_only=True):
                     if all(v is None or v == '' for v in frow):
                         break
@@ -485,6 +492,12 @@ async def import_node_types(file: UploadFile = File(...)):
                     ftype_raw = _col(fheaders, "字段类型", frow)
                     if not fkey or not flabel or not ftype_raw:
                         continue
+                    if fkey in seen_fields:
+                        result.errors.append(
+                            f"[{code}] 字段标识 {fkey} 重复，跳过"
+                        )
+                        continue
+                    seen_fields.add(fkey)
                     ftype = ftype_raw.strip().lower()
                     if ftype not in ('text', 'number', 'select', 'boolean'):
                         result.errors.append(
@@ -529,6 +542,11 @@ def delete_node_type(type_id: str) -> dict:
         ).fetchone()
         if in_use:
             raise HTTPException(status_code=409, detail={"code": 40201, "message": "该类型已被节点使用，无法删除"})
+        in_use = conn.execute(
+            "SELECT id FROM node_groups WHERE node_type_id = ? LIMIT 1", (type_id,)
+        ).fetchone()
+        if in_use:
+            raise HTTPException(status_code=409, detail={"code": 40201, "message": "该类型已被节点组使用，无法删除"})
         conn.execute("DELETE FROM node_types WHERE id = ?", (type_id,))
     return {"code": 0, "data": {"id": type_id}, "message": "ok"}
 
