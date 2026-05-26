@@ -13,6 +13,8 @@ from app.admin.schemas.node_type import (
     NodeTypeUpdate,
     NodeTypeDetail,
     NodeTypeItem,
+    NodeTypeDomainsUpdate,
+    NodeTypeBatchDomainsUpdate,
     NodeTypeFieldItem,
     NodeTypeFieldCreate,
     NodeTypeFieldUpdate,
@@ -124,13 +126,35 @@ def _get_edge_type_fields(conn, edge_type_id: str) -> list[EdgeTypeFieldItem]:
 # ============== node_types ==============
 
 @router.get("/node-types")
-def list_node_types() -> dict:
+def list_node_types(domain_id: str = Query(None, description="按域过滤，NULL=返回全部")) -> dict:
     with connect() as conn:
-        rows = conn.execute(
-            "SELECT * FROM node_types ORDER BY category, name"
-        ).fetchall()
+        if domain_id:
+            has_bindings = conn.execute(
+                "SELECT COUNT(*) AS cnt FROM domain_node_types WHERE domain_id = ?",
+                (domain_id,),
+            ).fetchone()["cnt"] > 0
+            if has_bindings:
+                rows = conn.execute("""
+                    SELECT nt.* FROM node_types nt
+                    INNER JOIN domain_node_types dnt ON dnt.node_type_id = nt.id
+                    WHERE dnt.domain_id = ?
+                    ORDER BY nt.category, nt.name
+                """, (domain_id,)).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM node_types ORDER BY category, name"
+                ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM node_types ORDER BY category, name"
+            ).fetchall()
         items = []
         for r in rows:
+            dom_rows = conn.execute("""
+                SELECT d.id, d.name FROM domains d
+                INNER JOIN domain_node_types dnt ON dnt.domain_id = d.id
+                WHERE dnt.node_type_id = ?
+            """, (r["id"],)).fetchall()
             item = NodeTypeDetail(
                 id=r["id"],
                 code=r["code"],
@@ -142,6 +166,8 @@ def list_node_types() -> dict:
                 render_mode=r["render_mode"],
                 dn_template=r["dn_template"],
                 description=r["description"],
+                domain_ids=[dr["id"] for dr in dom_rows],
+                domain_names=[dr["name"] for dr in dom_rows],
                 created_at=r["created_at"],
                 updated_at=r["updated_at"],
                 fields=_get_node_type_fields(conn, r["id"]),
@@ -191,6 +217,50 @@ def create_node_type(data: NodeTypeCreate) -> dict:
             (type_id, data.code, data.name, data.category, data.icon, data.color,
              data.shape, data.render_mode, data.dn_template, data.description),
         )
+    return {"code": 0, "data": {"id": type_id}, "message": "ok"}
+
+
+# ============== node_type <-> domain 关联 ==============
+
+@router.put("/node-types/domains")
+def batch_update_node_type_domains(data: NodeTypeBatchDomainsUpdate) -> dict:
+    with transaction() as conn:
+        for type_id in data.node_type_ids:
+            existing = conn.execute(
+                "SELECT id FROM node_types WHERE id = ?", (type_id,)
+            ).fetchone()
+            if not existing:
+                continue
+            conn.execute("DELETE FROM domain_node_types WHERE node_type_id = ?", (type_id,))
+            for dom_id in data.domain_ids:
+                conn.execute(
+                    "INSERT OR IGNORE INTO domain_node_types (domain_id, node_type_id) VALUES (?, ?)",
+                    (dom_id, type_id),
+                )
+    return {
+        "code": 0,
+        "data": {"nodeTypeIds": data.node_type_ids, "domainIds": data.domain_ids},
+        "message": "ok",
+    }
+
+
+@router.put("/node-types/{type_id}/domains")
+def update_node_type_domains(type_id: str, data: NodeTypeDomainsUpdate) -> dict:
+    with transaction() as conn:
+        existing = conn.execute(
+            "SELECT id FROM node_types WHERE id = ?", (type_id,)
+        ).fetchone()
+        if not existing:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": 40201, "message": "类型不存在"},
+            )
+        conn.execute("DELETE FROM domain_node_types WHERE node_type_id = ?", (type_id,))
+        for dom_id in data.domain_ids:
+            conn.execute(
+                "INSERT OR IGNORE INTO domain_node_types (domain_id, node_type_id) VALUES (?, ?)",
+                (dom_id, type_id),
+            )
     return {"code": 0, "data": {"id": type_id}, "message": "ok"}
 
 

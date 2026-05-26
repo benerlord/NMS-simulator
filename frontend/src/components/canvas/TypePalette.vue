@@ -1,12 +1,47 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { AutoComplete } from 'ant-design-vue'
+import { apiGet } from '@/api/http'
 import { useNodeTypes } from '@/composables/useTypes'
+import type { TopologyDetail } from '@/api/topology'
 import type { NodeTypeDetail } from '@/api/types'
+
+interface Props {
+  topologyId?: string | null
+}
+
+const props = defineProps<Props>()
 
 const { nodeTypes, nodeTypesLoading, fetchNodeTypes } = useNodeTypes()
 
-onMounted(() => {
-  fetchNodeTypes()
+const domainId = ref<string | null>(null)
+const searchText = ref('')
+
+async function loadDomainId(topoId: string) {
+  try {
+    const detail = await apiGet<TopologyDetail>(`/topologies/${topoId}`)
+    domainId.value = detail.domainId ?? null
+  } catch {
+    domainId.value = null
+  }
+}
+
+async function loadTypes() {
+  fetchNodeTypes(domainId.value ? { domainId: domainId.value } : undefined)
+}
+
+onMounted(async () => {
+  if (props.topologyId) await loadDomainId(props.topologyId)
+  loadTypes()
+})
+
+watch(() => props.topologyId, async (newId) => {
+  if (newId) {
+    await loadDomainId(newId)
+  } else {
+    domainId.value = null
+  }
+  loadTypes()
 })
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -18,6 +53,53 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 function getCategoryLabel(category: string): string {
   return CATEGORY_LABELS[category] ?? category
+}
+
+const groupedTypes = computed(() => {
+  const acc: Record<string, NodeTypeDetail[]> = {}
+  for (const nt of nodeTypes.value) {
+    if (!acc[nt.category]) acc[nt.category] = []
+    acc[nt.category].push(nt)
+  }
+  return acc
+})
+
+const searchOptions = computed(() => {
+  if (!searchText.value.trim()) return []
+  const kw = searchText.value.toLowerCase()
+  return nodeTypes.value
+    .filter(nt =>
+      nt.name.toLowerCase().includes(kw) ||
+      nt.code.toLowerCase().includes(kw) ||
+      nt.category.toLowerCase().includes(kw)
+    )
+    .slice(0, 10)
+    .map(nt => ({
+      value: nt.id,
+      label: `${nt.name} — ${nt.code}`,
+    }))
+})
+
+function onSearchSelect(id: unknown) {
+  searchText.value = ''
+  nextTick(() => {
+    const el = document.getElementById(`type-item-${id}`)
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      el.classList.add('highlight-flash')
+      setTimeout(() => el.classList.remove('highlight-flash'), 1200)
+    }
+  })
+}
+
+const collapsedCategories = ref(new Set<string>())
+
+function toggleCategory(category: string) {
+  if (collapsedCategories.value.has(category)) {
+    collapsedCategories.value.delete(category)
+  } else {
+    collapsedCategories.value.add(category)
+  }
 }
 
 function onDragStart(event: DragEvent, nodeType: NodeTypeDetail) {
@@ -34,28 +116,48 @@ function onDragStart(event: DragEvent, nodeType: NodeTypeDetail) {
       <span class="palette-title">节点类型</span>
     </div>
 
+    <div class="palette-search">
+      <AutoComplete
+        v-model:value="searchText"
+        :options="searchOptions"
+        placeholder="搜索..."
+        :style="{ width: '100%' }"
+        :dropdown-style="{ minWidth: '220px' }"
+        @select="onSearchSelect"
+        allow-clear
+      />
+    </div>
+
     <a-spin v-if="nodeTypesLoading" />
 
     <div v-else class="palette-content">
+      <template v-if="nodeTypes.length === 0">
+        <div class="palette-empty">暂无可用节点类型</div>
+      </template>
       <div
-        v-for="(types, category) in nodeTypes.reduce((acc, nt) => {
-          if (!acc[nt.category]) acc[nt.category] = []
-          acc[nt.category].push(nt)
-          return acc
-        }, {} as Record<string, NodeTypeDetail[]>)"
+        v-for="(types, category) in groupedTypes"
         :key="category"
         class="category-group"
       >
-        <div class="category-label">{{ getCategoryLabel(category) }}</div>
+        <div class="category-label" @click="toggleCategory(category)">
+          <span class="category-arrow">{{ collapsedCategories.has(category) ? '▶' : '▼' }}</span>
+          {{ getCategoryLabel(category) }} ({{ types.length }})
+        </div>
         <div
-          v-for="nt in types"
-          :key="nt.id"
-          class="node-type-item"
-          draggable="true"
-          @dragstart="onDragStart($event, nt)"
+          v-show="!collapsedCategories.has(category)"
+          class="category-body"
         >
-          <span class="node-type-name">{{ nt.name }}</span>
-          <span class="node-type-code">{{ nt.code }}</span>
+          <div
+            v-for="nt in types"
+            :key="nt.id"
+            :id="`type-item-${nt.id}`"
+            class="node-type-item"
+            draggable="true"
+            @dragstart="onDragStart($event, nt)"
+          >
+            <span class="node-type-name">{{ nt.name }}</span>
+            <span class="node-type-code">{{ nt.code }}</span>
+          </div>
         </div>
       </div>
     </div>
@@ -83,6 +185,18 @@ function onDragStart(event: DragEvent, nodeType: NodeTypeDetail) {
   color: rgba(0, 0, 0, 0.85);
 }
 
+.palette-search {
+  padding: 8px 12px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.palette-empty {
+  text-align: center;
+  color: rgba(0, 0, 0, 0.35);
+  padding: 32px 8px;
+  font-size: 13px;
+}
+
 .palette-content {
   flex: 1;
   overflow-y: auto;
@@ -97,6 +211,26 @@ function onDragStart(event: DragEvent, nodeType: NodeTypeDetail) {
   font-size: 12px;
   color: rgba(0, 0, 0, 0.45);
   padding: 4px 8px;
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+}
+
+.category-label:hover {
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.category-arrow {
+  display: inline-block;
+  width: 14px;
+  font-size: 10px;
+  margin-right: 2px;
+}
+
+.category-body {
+  max-height: 240px;
+  overflow-y: auto;
 }
 
 .node-type-item {
@@ -119,6 +253,12 @@ function onDragStart(event: DragEvent, nodeType: NodeTypeDetail) {
 
 .node-type-item:active {
   cursor: grabbing;
+}
+
+.node-type-item.highlight-flash {
+  background: #fff7e6;
+  border-color: #fa8c16;
+  box-shadow: 0 0 8px rgba(250, 140, 22, 0.3);
 }
 
 .node-type-name {

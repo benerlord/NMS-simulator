@@ -27,6 +27,8 @@ export interface NodeTypeItem {
   renderMode: string
   dnTemplate: string | null
   description: string | null
+  domainIds: string[]
+  domainNames: string[]
   createdAt: string
   updatedAt: string
 }
@@ -186,8 +188,8 @@ export interface BatchDeleteResult {
 // ============ API Functions ============
 
 export const nodeTypeApi = {
-  list: (): Promise<{ items: NodeTypeDetail[]; total: number }> =>
-    apiGet('/node-types'),
+  list: (params?: { domainId?: string }): Promise<{ items: NodeTypeDetail[]; total: number }> =>
+    apiGet('/node-types', params as Record<string, unknown>),
 
   importPreview: (file: File): Promise<TypeImportPreview> => {
     const form = new FormData()
@@ -228,6 +230,12 @@ export const nodeTypeApi = {
 
   batchDelete: (ids: string[]): Promise<BatchDeleteResult> =>
     apiPost('/node-types/batch-delete', { ids }),
+
+  updateDomains: (typeId: string, domainIds: string[]): Promise<{ id: string }> =>
+    apiPut(`/node-types/${typeId}/domains`, { domainIds }),
+
+  batchUpdateDomains: (nodeTypeIds: string[], domainIds: string[]): Promise<{ nodeTypeIds: string[]; domainIds: string[] }> =>
+    apiPut('/node-types/domains', { nodeTypeIds, domainIds }),
 
   export: (ids?: string[]): Promise<Blob> =>
     http.post('/node-types/export', { ids }, { responseType: 'blob' }).then(r => r.data),

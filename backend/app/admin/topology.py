@@ -41,6 +41,8 @@ def _row_to_list_item(row) -> TopologyListItem:
         id=row["id"],
         name=row["name"],
         description=row["description"],
+        domain_id=row["domain_id"] if "domain_id" in row.keys() else None,
+        domain_name=row["domain_name"] if "domain_name" in row.keys() else None,
         version=row["version"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
@@ -52,6 +54,8 @@ def _row_to_detail(row, stats: TopologyStats) -> TopologyDetail:
         id=row["id"],
         name=row["name"],
         description=row["description"],
+        domain_id=row["domain_id"] if "domain_id" in row.keys() else None,
+        domain_name=row["domain_name"] if "domain_name" in row.keys() else None,
         version=row["version"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
@@ -138,7 +142,10 @@ def list_topologies(
         ).fetchone()[0]
         rows = conn.execute(
             f"""
-            SELECT * FROM topologies {where}
+            SELECT t.*, d.name AS domain_name
+            FROM topologies t
+            LEFT JOIN domains d ON d.id = t.domain_id
+            {where}
             ORDER BY {order_field} {order_dir}
             LIMIT ? OFFSET ?
             """,
@@ -160,9 +167,12 @@ def list_topologies(
 @router.get("/topologies/{id}", response_model=DetailResponse)
 def get_topology(id: str) -> dict:
     with connect() as conn:
-        row = conn.execute(
-            "SELECT * FROM topologies WHERE id = ?", (id,)
-        ).fetchone()
+        row = conn.execute("""
+            SELECT t.*, d.name AS domain_name
+            FROM topologies t
+            LEFT JOIN domains d ON d.id = t.domain_id
+            WHERE t.id = ?
+        """, (id,)).fetchone()
         if not row:
             raise HTTPException(
                 status_code=404,
@@ -189,10 +199,10 @@ def create_topology(body: TopologyCreate) -> dict:
             )
         conn.execute(
             """
-            INSERT INTO topologies (id, name, description, version, created_at, updated_at)
-            VALUES (?, ?, ?, 1, ?, ?)
+            INSERT INTO topologies (id, name, description, domain_id, version, created_at, updated_at)
+            VALUES (?, ?, ?, ?, 1, ?, ?)
             """,
-            (topo_id, body.name, body.description or "", now, now),
+            (topo_id, body.name, body.description or "", body.domain_id, now, now),
         )
         row = conn.execute(
             "SELECT * FROM topologies WHERE id = ?", (topo_id,)
@@ -221,6 +231,9 @@ def update_topology(id: str, body: TopologyUpdate) -> dict:
     if body.description is not None:
         updates.append("description = ?")
         params.append(body.description)
+    if "domain_id" in body.model_fields_set:
+        updates.append("domain_id = ?")
+        params.append(body.domain_id)
     if not updates:
         raise HTTPException(
             status_code=400,

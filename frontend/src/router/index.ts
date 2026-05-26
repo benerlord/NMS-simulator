@@ -39,6 +39,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'Token' },
       },
       {
+        path: 'domains',
+        name: 'domains',
+        component: () => import('@/views/DomainsView.vue'),
+        meta: { title: '网管/设备管理' },
+      },
+      {
         path: 'settings',
         name: 'settings',
         component: () => import('@/views/SettingsView.vue'),
@@ -52,6 +58,7 @@ export const menuItems = [
   { key: 'topologies', path: '/topologies', label: '拓扑',      icon: 'ApartmentOutlined' },
   { key: 'types',     path: '/types',       label: '类型管理',  icon: 'AppstoreOutlined' },
   { key: 'apis',      path: '/apis',        label: '接口',      icon: 'ApiOutlined' },
+  { key: 'domains',   path: '/domains',     label: '网管/设备管理', icon: 'ClusterOutlined' },
   { key: 'tokens',    path: '/tokens',      label: 'Token',     icon: 'KeyOutlined' },
   { key: 'settings',  path: '/settings',    label: '系统设置',  icon: 'SettingOutlined' },
 ] as const

@@ -205,6 +205,25 @@ CREATE TABLE IF NOT EXISTS node_groups (
   FOREIGN KEY (node_type_id) REFERENCES node_types(id)
 );
 CREATE INDEX IF NOT EXISTS idx_node_groups_topo ON node_groups(topology_id);
+
+CREATE TABLE IF NOT EXISTS domains (
+  id              TEXT PRIMARY KEY,
+  name            TEXT NOT NULL UNIQUE,
+  description     TEXT,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS domain_node_types (
+  domain_id       TEXT NOT NULL,
+  node_type_id    TEXT NOT NULL,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (domain_id, node_type_id),
+  FOREIGN KEY (domain_id) REFERENCES domains(id) ON DELETE CASCADE,
+  FOREIGN KEY (node_type_id) REFERENCES node_types(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_dnt_domain ON domain_node_types(domain_id);
+CREATE INDEX IF NOT EXISTS idx_dnt_type   ON domain_node_types(node_type_id);
 """
 
 
@@ -235,3 +254,9 @@ def run_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE edge_type_fields ADD COLUMN max_length INTEGER")
     except sqlite3.OperationalError:
         pass
+    # 域作用域：topologies 新增 domain_id 列（NULL = 全局，无域限制）
+    try:
+        conn.execute("ALTER TABLE topologies ADD COLUMN domain_id TEXT")
+    except sqlite3.OperationalError:
+        pass
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_topologies_domain ON topologies(domain_id)")

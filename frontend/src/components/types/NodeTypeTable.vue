@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, computed, h } from 'vue'
-import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, ExportOutlined, ImportOutlined } from '@ant-design/icons-vue'
-import { message, Modal } from 'ant-design-vue'
+import { ref, computed, h, onMounted } from 'vue'
+import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, ExportOutlined, ImportOutlined, DownOutlined } from '@ant-design/icons-vue'
+import { message, Modal, Dropdown, Menu, MenuItem, Tag, Select } from 'ant-design-vue'
 import NodeTypeModal from './NodeTypeModal.vue'
 import NodeTypeFieldEditor from './NodeTypeFieldEditor.vue'
 import { useNodeTypes } from '@/composables/useTypes'
 import { nodeTypeApi } from '@/api/types'
+import { domainApi, type DomainItem } from '@/api/domain'
 import { downloadBlob, timestampExcelFilename } from '@/utils/download'
 import type { NodeTypeDetail, NodeTypeCreate, NodeTypeUpdate, NodeTypeFieldCreate, NodeTypeFieldUpdate, TypeImportPreview, TypeImportResult } from '@/api/types'
 
@@ -230,7 +231,67 @@ async function handleBatchDelete() {
   } catch {}
 }
 
+const domains = ref<DomainItem[]>([])
+const domainModalVisible = ref(false)
+const domainIdsForBatch = ref<string[]>([])
+
+const hasAssociatedTypes = computed(() =>
+  filteredNodeTypes.value
+    .filter(nt => selectedRowKeys.value.includes(nt.id))
+    .some(nt => nt.domainIds.length > 0)
+)
+
+async function loadDomains() {
+  try {
+    const res = await domainApi.list()
+    domains.value = res.items
+  } catch {}
+}
+
+function handleBatchMenuClick({ key }: { key: string }) {
+  switch (key) {
+    case 'associate-domain':
+      domainIdsForBatch.value = []
+      domainModalVisible.value = true
+      break
+    case 'unbind-domain':
+      Modal.confirm({
+        title: `确认解除 ${selectedRowKeys.value.length} 个节点类型的网管/设备关联？`,
+        content: '解除后这些类型将变为全局可用',
+        okText: '确定',
+        cancelText: '取消',
+        onOk: async () => {
+          await nodeTypeApi.batchUpdateDomains(selectedRowKeys.value, [])
+          message.success('已解除关联')
+          selectedRowKeys.value = []
+          fetchNodeTypes()
+        },
+      })
+      break
+    case 'batch-delete':
+      handleBatchDelete()
+      break
+  }
+}
+
+async function handleBatchAssociateDomains() {
+  await nodeTypeApi.batchUpdateDomains(selectedRowKeys.value, domainIdsForBatch.value)
+  message.success(`已关联 ${selectedRowKeys.value.length} 个类型`)
+  domainModalVisible.value = false
+  selectedRowKeys.value = []
+  fetchNodeTypes()
+}
+
+async function removeDomain(typeId: string, domainId: string) {
+  const nt = nodeTypes.value.find(t => t.id === typeId)
+  if (!nt) return
+  const newDomains = nt.domainIds.filter(id => id !== domainId)
+  await nodeTypeApi.updateDomains(typeId, newDomains)
+  fetchNodeTypes()
+}
+
 fetchNodeTypes()
+loadDomains()
 </script>
 
 <template>
@@ -253,18 +314,20 @@ fetchNodeTypes()
           allow-clear
           style="width: 160px"
         />
-        <a-popconfirm
-          :title="`确定删除选中的 ${selectedRowKeys.length} 个节点类型？`"
-          :disabled="selectedRowKeys.length === 0"
-          ok-text="确定"
-          cancel-text="取消"
-          @confirm="handleBatchDelete"
-        >
-          <a-button :disabled="selectedRowKeys.length === 0" danger>
-            <template #icon><DeleteOutlined /></template>
-            批量删除
+        <a-dropdown v-if="selectedRowKeys.length > 0">
+          <a-button>
+            批量操作（{{ selectedRowKeys.length }}）
+            <DownOutlined />
           </a-button>
-        </a-popconfirm>
+          <template #overlay>
+            <Menu @click="handleBatchMenuClick">
+              <MenuItem key="associate-domain">🔗 关联网管/设备</MenuItem>
+              <MenuItem key="unbind-domain" :disabled="!hasAssociatedTypes">✂ 解除关联</MenuItem>
+              <Menu.Divider />
+              <MenuItem key="batch-delete" danger>🗑 批量删除</MenuItem>
+            </Menu>
+          </template>
+        </a-dropdown>
         <a-button @click="handleExport">
           <template #icon><ExportOutlined /></template>
           批量导出
@@ -316,6 +379,22 @@ fetchNodeTypes()
         </template>
       </a-table-column>
       <a-table-column title="渲染模式" dataIndex="renderMode" width="100" />
+      <a-table-column title="所属网管/设备" key="domains" width="200">
+        <template #default="{ record }">
+          <template v-if="record.domainNames?.length">
+            <Tag
+              v-for="(name, idx) in record.domainNames"
+              :key="name"
+              color="blue"
+              closable
+              @close="removeDomain(record.id, record.domainIds[idx])"
+            >
+              {{ name }}
+            </Tag>
+          </template>
+          <span v-else class="placeholder">-</span>
+        </template>
+      </a-table-column>
       <a-table-column title="字段数" dataIndex="fields" width="80">
         <template #default="{ text }">
           {{ text?.length ?? 0 }}
@@ -359,6 +438,29 @@ fetchNodeTypes()
       @create="handleCreate"
       @update="handleUpdate"
     />
+
+    <Modal
+      v-model:open="domainModalVisible"
+      title="关联网管/设备"
+      ok-text="确定"
+      cancel-text="取消"
+      @ok="handleBatchAssociateDomains"
+    >
+      <Select
+        v-model:value="domainIdsForBatch"
+        mode="multiple"
+        placeholder="选择网管/设备（可多选）"
+        style="width: 100%"
+      >
+        <Select.Option
+          v-for="d in domains"
+          :key="d.id"
+          :value="d.id"
+        >
+          {{ d.name }}
+        </Select.Option>
+      </Select>
+    </Modal>
   </div>
 </template>
 

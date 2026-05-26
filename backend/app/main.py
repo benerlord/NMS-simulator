@@ -13,6 +13,7 @@ from app.admin.sql_helper import router as sql_helper_router
 from app.admin.token import router as token_router
 from app.admin.settings import router as settings_router
 from app.admin.node_group import router as node_group_router
+from app.admin.domain import router as domain_router
 from app.core.config import settings
 from app.core.ws_hub import router as ws_router
 from app.db.connection import init_db
@@ -47,6 +48,7 @@ app.include_router(sql_helper_router)
 app.include_router(token_router)
 app.include_router(settings_router)
 app.include_router(node_group_router)
+app.include_router(domain_router)
 app.include_router(ws_router)
 
 
