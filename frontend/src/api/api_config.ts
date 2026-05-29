@@ -54,6 +54,9 @@ export interface ApiConfigItem {
   path: string
   enabled: boolean
   groupName: string | null
+  domainId: string | null
+  domainName: string | null
+  category: string | null
   dataSource: DataSource
   topologyId: string | null
   createdAt: string
@@ -71,6 +74,8 @@ export interface ApiConfigCreate {
   path: string
   enabled?: boolean
   groupName?: string | null
+  domainId?: string | null
+  category?: string | null
   dataSource: DataSource
   topologyId?: string | null
   sqlText?: string | null
@@ -82,6 +87,8 @@ export interface ApiConfigUpdate {
   method?: HttpMethod
   path?: string
   groupName?: string | null
+  domainId?: string | null
+  category?: string | null
   dataSource?: DataSource
   sqlText?: string | null
   config?: Record<string, unknown>
@@ -89,6 +96,7 @@ export interface ApiConfigUpdate {
 
 export interface ApiConfigListParams {
   groupName?: string | null
+  domainId?: string | null
   enabled?: boolean | null
   topologyId?: string | null
   method?: HttpMethod | null

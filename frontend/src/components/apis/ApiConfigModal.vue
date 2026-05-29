@@ -26,6 +26,7 @@ import {
   type QuerySpec,
   type TopologySwitchPreview,
 } from '@/api/api_config'
+import { domainApi, type DomainItem } from '@/api/domain'
 import type { TopologyListItem, PageResult } from '@/api/topology'
 import SqlEditor from './SqlEditor.vue'
 import SqlViewPanel from './SqlViewPanel.vue'
@@ -39,6 +40,7 @@ import AuthConfigPanel from './AuthConfigPanel.vue'
 interface Props {
   open: boolean
   apiId?: string | null
+  presetDomainId?: string | null
 }
 
 const props = defineProps<Props>()
@@ -50,6 +52,7 @@ const emit = defineEmits<{
 
 const loading = ref(false)
 const detailLoading = ref(false)
+const domains = ref<DomainItem[]>([])
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const formRef = ref<{ validateFields?: () => Promise<void> } | null>(null)
 const sqlEditorRef = ref<{
@@ -66,6 +69,8 @@ interface FormState {
   method: HttpMethod
   path: string
   groupName: string
+  domainId: string | null
+  category: string
   dataSource: DataSource
   topologyId: string | undefined
   sqlText: string
@@ -99,6 +104,8 @@ function emptyForm(): FormState {
     method: 'GET',
     path: '',
     groupName: '',
+    domainId: null,
+    category: '',
     dataSource: 'static',
     topologyId: undefined,
     sqlText: '',
@@ -157,6 +164,13 @@ async function loadTopologies() {
   }
 }
 
+async function loadDomains() {
+  try {
+    const res = await domainApi.list()
+    domains.value = res.items
+  } catch {}
+}
+
 async function loadDetail(id: string) {
   detailLoading.value = true
   try {
@@ -197,6 +211,8 @@ async function loadDetail(id: string) {
       method: detail.method,
       path: detail.path,
       groupName: detail.groupName ?? '',
+      domainId: detail.domainId ?? null,
+      category: detail.category ?? '',
       dataSource: detail.dataSource,
       topologyId: detail.topologyId ?? undefined,
       sqlText: detail.sqlText ?? '',
@@ -237,6 +253,7 @@ watch(
   (open) => {
     if (!open) return
     loadTopologies()
+    loadDomains()
     if (props.apiId) {
       loadDetail(props.apiId)
     } else {
@@ -512,6 +529,8 @@ async function handleSubmit() {
         name: formState.value.name.trim(),
         path: formState.value.path.trim(),
         groupName: formState.value.groupName.trim() || null,
+        domainId: formState.value.domainId,
+        category: formState.value.category || null,
         dataSource: formState.value.dataSource,
         sqlText,
         config,
@@ -525,6 +544,8 @@ async function handleSubmit() {
         enabled: formState.value.enabled,
         dataSource: formState.value.dataSource,
         groupName: formState.value.groupName.trim() || null,
+        domainId: props.presetDomainId ?? null,
+        category: formState.value.category || null,
         topologyId: formState.value.topologyId || null,
         sqlText,
         config,
@@ -602,6 +623,48 @@ async function handleSubmit() {
             <Input v-model:value="formState.groupName" placeholder="可选，例：设备管理" />
           </Form.Item>
 
+          <Form.Item
+            v-if="isEdit"
+            label="所属网管/设备"
+            name="domainId"
+            class="form-col-half"
+          >
+            <Select
+              v-model:value="formState.domainId"
+              placeholder="选择网管/设备"
+              allow-clear
+              show-search
+              option-filter-prop="label"
+            >
+              <Select.Option
+                v-for="d in domains"
+                :key="d.id"
+                :value="d.id"
+                :label="d.name"
+              >
+                {{ d.name }}
+              </Select.Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item label="分类" name="category" class="form-col-half">
+            <Select
+              v-model:value="formState.category"
+              placeholder="选择分类"
+              allow-clear
+              show-search
+            >
+              <Select.Option value="设备查询">设备查询</Select.Option>
+              <Select.Option value="告警管理">告警管理</Select.Option>
+              <Select.Option value="性能统计">性能统计</Select.Option>
+              <Select.Option value="配置管理">配置管理</Select.Option>
+              <Select.Option value="拓扑查询">拓扑查询</Select.Option>
+              <Select.Option value="其他">其他</Select.Option>
+            </Select>
+          </Form.Item>
+        </div>
+
+        <div class="form-row">
           <Form.Item
             label="数据源"
             name="dataSource"

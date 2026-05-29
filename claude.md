@@ -206,6 +206,7 @@ InterfaceTest/
 - **Excel 导入按表头名匹配** — `_build_header_map(ws)` 读取第 1 行构建 `{表头名: 列索引}` 字典，`_col(headers, name, row)` 按名称取值。列顺序可任意调换，只要表头名一致即可
 - **Python 3.9 类型注解** — 不可使用 `str | None`（PEP 604，需 3.10+），必须用 `Optional[str]`
 - **必填校验 + 自动滚动模式** — 校验失败后设置 `fieldErrors`，`await nextTick()` 等待 DOM 更新，`querySelector('.ant-form-item-has-error')` 查找报错元素，`scrollIntoView({ behavior: 'smooth', block: 'center' })` 滚动 + `focus()` 聚焦输入框
+- **网管/设备作用域（Domain）** — `domains` 表代表网管环境，`topologies.domain_id` 绑定拓扑，`domain_node_types` M2M 绑定节点类型。白名单模式：域有绑定时只展示绑定类型，无绑定则默认全部可用。前端菜单/页面显示为"网管/设备"而非"域"，代码层面使用 `domain` 命名
 
 ---
 
@@ -243,7 +244,16 @@ InterfaceTest/
   - 属性策略步骤：必填字段未配置时阻止跳转 + 自动滚动聚焦到报错行
   - 提交时自动过滤未配置的非必填字段策略（避免后端 422）
 - ✅ 画布创建节点必填校验：点击"创建"时自动滚动 + 聚焦第一个未填写的必填字段（`NodeAttrsModal.vue`）
+- ✅ 网管/设备作用域 + 画布面板搜索/折叠优化（commit a9ebb14）：
+  - 新增 domains / domain_node_types 表 + topologies.domain_id 列，网管/设备 CRUD API
+  - 节点类型与网管/设备批量/单个关联 API，list_node_types 支持 domain_id 过滤
+  - 拓扑绑定网管/设备，画布面板仅展示当前拓扑所属网管/设备的节点类型
+  - TypePalette AutoComplete 搜索 + 分类标题折叠 + 单分类内容区独立滚动（max-height: 240px）
+  - NodeTypeTable 批量操作合并为 Dropdown（关联网管/设备 / 解除关联 / 批量删除）+ 所属网管/设备 Tag 列
+  - TopologyModal 新增所属网管/设备选择器
+  - 左侧面板 overflow 约束防止画布被推动滚动
 
 ### 待开发
 - 编辑组定义打开 GroupCreateModal（目前右键"编辑组定义"已 emit 事件但 CanvasView 尚未接入 editGroupId）
 - 大规模节点组性能测试（10 万+ 虚拟节点 CTE 查询耗时）
+- 接口管理优化：导出/导入、SQL 列名格式统一、接口分类（网管/设备 + 类型）、多端口实例（设计/开发方案已编写）

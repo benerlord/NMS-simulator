@@ -260,3 +260,13 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     except sqlite3.OperationalError:
         pass
     conn.execute("CREATE INDEX IF NOT EXISTS idx_topologies_domain ON topologies(domain_id)")
+    # 接口分类：api_configs 新增 domain_id 和 category 列
+    try:
+        conn.execute("ALTER TABLE api_configs ADD COLUMN domain_id TEXT")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute("ALTER TABLE api_configs ADD COLUMN category TEXT")
+    except sqlite3.OperationalError:
+        pass
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_apis_domain ON api_configs(domain_id)")

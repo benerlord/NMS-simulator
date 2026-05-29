@@ -5,6 +5,7 @@ import { message } from 'ant-design-vue'
 import ApiConfigTable from '@/components/apis/ApiConfigTable.vue'
 import ApiConfigModal from '@/components/apis/ApiConfigModal.vue'
 import { useApiConfigs } from '@/composables/useApiConfigs'
+import { domainApi, type DomainItem } from '@/api/domain'
 import type { ApiConfigCreate, ApiConfigUpdate } from '@/api/api_config'
 
 const {
@@ -24,18 +25,30 @@ const {
 
 const modalOpen = ref(false)
 const editingApiId = ref<string | null>(null)
+const presetDomainId = ref<string | null>(null)
+const domains = ref<DomainItem[]>([])
+
+async function fetchDomains() {
+  try {
+    const res = await domainApi.list()
+    domains.value = res.items
+  } catch {}
+}
 
 onMounted(() => {
   fetchApis()
+  fetchDomains()
 })
 
-function handleCreate() {
+function handleCreate(domainId?: string | null) {
   editingApiId.value = null
+  presetDomainId.value = domainId ?? null
   modalOpen.value = true
 }
 
 function handleEdit(id: string) {
   editingApiId.value = id
+  presetDomainId.value = null
   modalOpen.value = true
 }
 
@@ -80,6 +93,7 @@ async function handleDelete(id: string) {
   <a-card title="接口配置">
     <ApiConfigTable
       :items="items"
+      :domains="domains"
       :total="total"
       :page="page"
       :page-size="pageSize"
@@ -96,6 +110,7 @@ async function handleDelete(id: string) {
     <ApiConfigModal
       v-model:open="modalOpen"
       :api-id="editingApiId"
+      :preset-domain-id="presetDomainId"
       @create-submit="handleCreateSubmit"
       @update-submit="handleUpdateSubmit"
     />

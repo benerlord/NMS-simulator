@@ -50,6 +50,9 @@ def _row_to_item(row) -> ApiConfigItem:
         path=row["path"],
         enabled=bool(row["enabled"]),
         group_name=row["group_name"],
+        domain_id=row["domain_id"] if "domain_id" in row.keys() else None,
+        domain_name=row["domain_name"] if "domain_name" in row.keys() else None,
+        category=row["category"] if "category" in row.keys() else None,
         data_source=row["data_source"],
         topology_id=row["topology_id"],
         created_at=_parse_dt(row["created_at"]),
@@ -69,6 +72,9 @@ def _row_to_detail(row) -> ApiConfigDetail:
         path=row["path"],
         enabled=bool(row["enabled"]),
         group_name=row["group_name"],
+        domain_id=row["domain_id"] if "domain_id" in row.keys() else None,
+        domain_name=row["domain_name"] if "domain_name" in row.keys() else None,
+        category=row["category"] if "category" in row.keys() else None,
         data_source=row["data_source"],
         topology_id=row["topology_id"],
         sql_text=row["sql_text"],
@@ -113,6 +119,7 @@ def _ensure_api_exists(conn, api_id: str):
 @router.get("/apis", response_model=ApiConfigListResponse)
 def list_apis(
     group_name: Optional[str] = Query(None, alias="groupName"),
+    domain_id: Optional[str] = Query(None, alias="domainId"),
     enabled: Optional[bool] = Query(None),
     topology_id: Optional[str] = Query(None, alias="topologyId"),
     method: Optional[str] = Query(None),
@@ -123,19 +130,22 @@ def list_apis(
     conditions: list[str] = []
     params: list[Any] = []
     if group_name is not None:
-        conditions.append("group_name = ?")
+        conditions.append("a.group_name = ?")
         params.append(group_name)
+    if domain_id is not None:
+        conditions.append("a.domain_id = ?")
+        params.append(domain_id)
     if enabled is not None:
-        conditions.append("enabled = ?")
+        conditions.append("a.enabled = ?")
         params.append(1 if enabled else 0)
     if topology_id is not None:
-        conditions.append("topology_id = ?")
+        conditions.append("a.topology_id = ?")
         params.append(topology_id)
     if method is not None:
-        conditions.append("method = ?")
+        conditions.append("a.method = ?")
         params.append(method.upper())
     if path is not None:
-        conditions.append("path LIKE ?")
+        conditions.append("a.path LIKE ?")
         params.append(f"%{path}%")
 
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
@@ -143,12 +153,15 @@ def list_apis(
 
     with connect() as conn:
         total = conn.execute(
-            f"SELECT COUNT(*) FROM api_configs {where}", params
+            f"SELECT COUNT(*) FROM api_configs a {where}", params
         ).fetchone()[0]
         rows = conn.execute(
             f"""
-            SELECT * FROM api_configs {where}
-            ORDER BY updated_at DESC
+            SELECT a.*, d.name AS domain_name
+            FROM api_configs a
+            LEFT JOIN domains d ON d.id = a.domain_id
+            {where}
+            ORDER BY a.updated_at DESC
             LIMIT ? OFFSET ?
             """,
             params + [page_size, offset],
@@ -171,7 +184,17 @@ def list_apis(
 @router.get("/apis/{api_id}", response_model=ApiConfigDetailResponse)
 def get_api(api_id: str) -> dict:
     with connect() as conn:
-        row = _ensure_api_exists(conn, api_id)
+        row = conn.execute("""
+            SELECT a.*, d.name AS domain_name
+            FROM api_configs a
+            LEFT JOIN domains d ON d.id = a.domain_id
+            WHERE a.id = ?
+        """, (api_id,)).fetchone()
+        if not row:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": 40302, "message": "接口不存在", "details": {"apiId": api_id}},
+            )
         detail = _row_to_detail(row)
     return {"code": 0, "data": detail.model_dump(mode="json", by_alias=True), "message": "ok"}
 
@@ -223,9 +246,9 @@ def create_api(body: ApiConfigCreate) -> dict:
         conn.execute(
             """
             INSERT INTO api_configs
-              (id, name, method, path, enabled, group_name, data_source,
-               topology_id, sql_text, config, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              (id, name, method, path, enabled, group_name, domain_id, category,
+               data_source, topology_id, sql_text, config, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 api_id,
@@ -234,6 +257,8 @@ def create_api(body: ApiConfigCreate) -> dict:
                 body.path,
                 1 if body.enabled else 0,
                 body.group_name,
+                body.domain_id,
+                body.category,
                 body.data_source,
                 body.topology_id,
                 body.sql_text,
@@ -280,6 +305,12 @@ def update_api(api_id: str, body: ApiConfigUpdate) -> dict:
     if body.group_name is not None:
         updates.append("group_name = ?")
         params.append(body.group_name)
+    if body.domain_id is not None:
+        updates.append("domain_id = ?")
+        params.append(body.domain_id)
+    if body.category is not None:
+        updates.append("category = ?")
+        params.append(body.category)
     if body.data_source is not None:
         updates.append("data_source = ?")
         params.append(body.data_source)
