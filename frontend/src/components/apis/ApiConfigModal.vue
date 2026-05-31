@@ -472,8 +472,16 @@ const faultPanelHeader = computed(() => {
     : '异常注入（已启用，未配置参数）'
 })
 
+const sqlColumnNames = ref<string[]>([])
+
+function onSqlColumns(cols: string[]) {
+  sqlColumnNames.value = cols
+}
+
 const availableFieldNames = computed<string[]>(() => {
   const names = new Set<string>()
+  // SQL 列名（snake_case，来自数据库）
+  for (const col of sqlColumnNames.value) names.add(col)
   for (const q of formState.value.requestQuery) {
     const n = q.name.trim()
     if (n) names.add(n)
@@ -715,6 +723,7 @@ async function handleSubmit() {
                 :sql-text="formState.sqlText"
                 :params="formState.params"
                 @insert="handleInsertFromPanel"
+                @columns="onSqlColumns"
               />
             </div>
           </div>
@@ -749,6 +758,9 @@ async function handleSubmit() {
           <div v-else class="hint" v-pre>
             占位符：{{items}} / {{total}} / {{page}} 或 {{pageNo}} / {{pageSize}} / {{uuid}} / {{now}}。
             整串匹配（如 "data": "{{items}}"）注入原值保持数组/对象类型；子串匹配做文本替换。留空走默认模板。
+          </div>
+          <div v-if="sqlColumnNames.length > 0" class="hint hint-columns">
+            查询列名（snake_case）：{{ sqlColumnNames.map(c => `{{${c}}}`).join('、') }}
           </div>
         </Form.Item>
 
@@ -932,6 +944,10 @@ async function handleSubmit() {
   font-size: 12px;
   color: #8c8c8c;
   margin-top: 4px;
+}
+
+.hint-columns {
+  color: #1890ff;
 }
 
 .hint-error {

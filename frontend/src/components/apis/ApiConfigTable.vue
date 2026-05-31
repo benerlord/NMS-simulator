@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, h } from 'vue'
 import {
   Table,
   Space,
@@ -10,7 +10,10 @@ import {
   Select,
   Button,
 } from 'ant-design-vue'
-import { SearchOutlined, ReloadOutlined, PlusOutlined } from '@ant-design/icons-vue'
+import { SearchOutlined, ReloadOutlined, PlusOutlined, ExportOutlined, ImportOutlined } from '@ant-design/icons-vue'
+import { message, Modal } from 'ant-design-vue'
+import { apiConfigApi } from '@/api/api_config'
+import { downloadBlob, timestampExcelFilename } from '@/utils/download'
 import type { ApiConfigItem, HttpMethod } from '@/api/api_config'
 import type { DomainItem } from '@/api/domain'
 
@@ -29,7 +32,7 @@ const emit = defineEmits<{
   (e: 'pageChange', page: number, pageSize: number): void
   (
     e: 'filterChange',
-    filters: { method?: HttpMethod | null; enabled?: boolean | null; path?: string | null },
+    filters: { method?: HttpMethod | null; enabled?: boolean | null },
   ): void
   (e: 'toggleEnabled', id: string, value: boolean): void
   (e: 'delete', id: string): void
@@ -38,11 +41,12 @@ const emit = defineEmits<{
   (e: 'edit', id: string): void
 }>()
 
-const pathInput = ref('')
 const methodFilter = ref<HttpMethod | undefined>(undefined)
 const enabledFilter = ref<'true' | 'false' | undefined>(undefined)
 const collapsedGroups = ref(new Set<string>())
 const searchKeyword = ref('')
+const selectedApiIds = ref<Set<string>>(new Set())
+const fileInputRef = ref<HTMLInputElement>()
 
 function toggleGroup(key: string) {
   if (collapsedGroups.value.has(key)) {
@@ -109,12 +113,10 @@ function applyFilters() {
   emit('filterChange', {
     method: methodFilter.value ?? null,
     enabled: enabledVal,
-    path: pathInput.value || null,
   })
 }
 
 function resetFilters() {
-  pathInput.value = ''
   methodFilter.value = undefined
   enabledFilter.value = undefined
   applyFilters()
@@ -130,6 +132,148 @@ function onDelete(id: string) {
 
 function handleCreateInDomain(domainId: string | null) {
   emit('create', domainId)
+}
+
+async function handleExport() {
+  try {
+    const ids = selectedApiIds.value.size > 0 ? [...selectedApiIds.value] : undefined
+    const result = await apiConfigApi.export(ids ? { ids } : {})
+    const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' })
+    downloadBlob(blob, timestampExcelFilename('apis-export').replace('.xlsx', '.json'))
+    message.success(ids ? `已导出 ${ids.length} 个接口` : '导出成功')
+    selectedApiIds.value.clear()
+  } catch {}
+}
+
+async function handleExportDomain(domainId: string | null) {
+  try {
+    const result = await apiConfigApi.export(domainId ? { domainId } : {})
+    const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' })
+    downloadBlob(blob, timestampExcelFilename('apis-export').replace('.xlsx', '.json'))
+    message.success('导出成功')
+  } catch {}
+}
+
+function handleImportClick() {
+  fileInputRef.value?.click()
+}
+
+async function handleFileChosen(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+
+  if (!file.name.endsWith('.json')) {
+    message.error('仅支持 .json 文件')
+    return
+  }
+
+  // Read file content for preview
+  let doc: { apis: Array<Record<string, unknown>> }
+  try {
+    const text = await file.text()
+    doc = JSON.parse(text)
+    if (!doc.apis || !Array.isArray(doc.apis)) {
+      message.error('格式无效：缺少 apis 数组')
+      return
+    }
+  } catch {
+    message.error('JSON 解析失败')
+    return
+  }
+
+  // Build preview
+  const toCreate: Array<{ method: string; path: string; name: string }> = []
+  const toUpdate: Array<{ method: string; path: string; oldName: string; newName: string }> = []
+  const errors: string[] = []
+
+  for (const api of doc.apis) {
+    if (!api.method || !api.path) {
+      errors.push('缺少 method/path，跳过')
+      continue
+    }
+    const existing = props.items.find(
+      item =>
+        (item.domainId || null) === (api.domain_id || null) &&
+        item.method === api.method &&
+        item.path === api.path,
+    )
+    if (existing) {
+      if (existing.name !== (api.name || '')) {
+        toUpdate.push({
+          method: api.method as string,
+          path: api.path as string,
+          oldName: existing.name,
+          newName: (api.name as string) || '',
+        })
+      }
+    } else {
+      toCreate.push({
+        method: api.method as string,
+        path: api.path as string,
+        name: (api.name as string) || '',
+      })
+    }
+  }
+
+  // Show preview modal
+  const children: ReturnType<typeof h>[] = []
+
+  if (toCreate.length) {
+    children.push(
+      h('div', { style: { fontWeight: 'bold', marginBottom: '4px' } },
+        `将新建 ${toCreate.length} 个接口：`),
+      ...toCreate.map(item =>
+        h('div', { style: { paddingLeft: '8px' } },
+          `+ ${item.method} ${item.path} ${item.name}`),
+      ),
+    )
+  }
+
+  if (toUpdate.length) {
+    if (children.length) children.push(h('br'))
+    children.push(
+      h('div', { style: { fontWeight: 'bold', marginBottom: '4px' } },
+        `将更新 ${toUpdate.length} 个接口：`),
+      ...toUpdate.map(item =>
+        h('div', { style: { paddingLeft: '8px' } },
+          `~ ${item.method} ${item.path}（${item.oldName} → ${item.newName}）`),
+      ),
+    )
+  }
+
+  if (errors.length) {
+    if (children.length) children.push(h('br'))
+    children.push(
+      h('div', { style: { color: '#faad14' } },
+        `⚠ 有 ${errors.length} 行将被跳过。`),
+    )
+  }
+
+  if (toCreate.length === 0 && toUpdate.length === 0 && errors.length > 0) {
+    message.warning('没有可导入的接口')
+    return
+  }
+
+  Modal.confirm({
+    title: '确认导入',
+    content: () => h('div', { style: { lineHeight: '1.8' } }, children),
+    okText: '确认导入',
+    cancelText: '取消',
+    width: 520,
+    onOk: async () => {
+      const result = await apiConfigApi.import(file)
+      const parts: string[] = []
+      if (result.created) parts.push(`新建 ${result.created} 个`)
+      if (result.updated) parts.push(`更新 ${result.updated} 个`)
+      message.success(parts.join('，') || '导入完成')
+      if (result.errors.length) {
+        message.warning(result.errors.join('；'))
+      }
+      emit('refresh')
+    },
+  })
 }
 
 const columns = [
@@ -160,15 +304,12 @@ function formatDate(iso: string): string {
     <div class="toolbar">
       <Space wrap>
         <Input
-          v-model:value="pathInput"
-          placeholder="按路径搜索"
-          style="width: 220px"
+          v-model:value="searchKeyword"
+          placeholder="搜索接口名称或路径..."
+          style="width: 260px"
           allow-clear
-          @press-enter="applyFilters"
         >
-          <template #prefix>
-            <SearchOutlined />
-          </template>
+          <template #prefix><SearchOutlined /></template>
         </Input>
         <Select
           v-model:value="methodFilter"
@@ -186,11 +327,25 @@ function formatDate(iso: string): string {
           allow-clear
           @change="applyFilters"
         />
-        <Button type="primary" @click="applyFilters">搜索</Button>
         <Button @click="resetFilters">重置</Button>
       </Space>
 
       <Space>
+        <Button @click="handleExport">
+          <template #icon><ExportOutlined /></template>
+          {{ selectedApiIds.size > 0 ? `导出 (${selectedApiIds.size})` : '导出' }}
+        </Button>
+        <Button @click="handleImportClick">
+          <template #icon><ImportOutlined /></template>
+          导入
+        </Button>
+        <input
+          ref="fileInputRef"
+          type="file"
+          accept=".json"
+          style="display: none"
+          @change="handleFileChosen"
+        />
         <Button @click="emit('refresh')">
           <template #icon><ReloadOutlined /></template>
           刷新
@@ -200,16 +355,6 @@ function formatDate(iso: string): string {
           新建接口
         </Button>
       </Space>
-    </div>
-
-    <div class="keyword-search">
-      <Input
-        v-model:value="searchKeyword"
-        placeholder="输入关键字过滤接口（名称/路径）..."
-        allow-clear
-      >
-        <template #prefix><SearchOutlined /></template>
-      </Input>
     </div>
 
     <div v-for="group in (() => {
@@ -236,6 +381,7 @@ function formatDate(iso: string): string {
       <div class="domain-group-header" @click="toggleGroup(group.domainId || '__none__')">
         <span class="group-arrow">{{ collapsedGroups.has(group.domainId || '__none__') ? '▶' : '▼' }}</span>
         <span class="group-title">{{ group.domainName }} ({{ group.totalCount }})</span>
+        <Button size="small" class="group-add-btn" @click.stop="handleExportDomain(group.domainId)"><ExportOutlined /></Button>
         <Button size="small" class="group-add-btn" @click.stop="handleCreateInDomain(group.domainId)">+</Button>
       </div>
       <div v-show="!collapsedGroups.has(group.domainId || '__none__')" class="domain-group-body">
@@ -246,6 +392,11 @@ function formatDate(iso: string): string {
           :pagination="false"
           size="small"
           row-key="id"
+          :row-selection="{
+            selectedRowKeys: [...selectedApiIds],
+            onChange: (keys: (string | number)[]) => { selectedApiIds.value = new Set(keys as string[]) },
+            onSelectAll: (selected: boolean) => { if (!selected) selectedApiIds.value = new Set() },
+          }"
         >
           <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'method'">
@@ -359,10 +510,6 @@ code {
 
 .domain-group-body {
   border-top: 1px solid #f0f0f0;
-}
-
-.keyword-search {
-  margin-bottom: 12px;
 }
 
 .placeholder {

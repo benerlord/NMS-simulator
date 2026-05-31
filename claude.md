@@ -252,8 +252,15 @@ InterfaceTest/
   - NodeTypeTable 批量操作合并为 Dropdown（关联网管/设备 / 解除关联 / 批量删除）+ 所属网管/设备 Tag 列
   - TopologyModal 新增所属网管/设备选择器
   - 左侧面板 overflow 约束防止画布被推动滚动
+- ✅ 接口分类优化（commit 3145ece）：api_configs 新增 domain_id / category 列，接口管理页面改为网管/设备目录式分组视图（可折叠 + 搜索跨目录过滤 + 目录自动同步）
+- ✅ 多端口实例管理（commit 待提交）：
+  - 新增 mock_instances 表 + CRUD API + 前端实例管理页面
+  - 实例绑定拓扑（而非直接绑域），自动继承拓扑下所有接口
+  - InstanceRunner 进程管理器：启用实例自动启动 uvicorn 子进程，禁用/删除自动终止
+  - `instance_app.py` 子进程入口：按 topology_id 过滤接口，不暴露管理 API
+- ✅ 接口导出/导入：JSON 格式导出（全部/按目录/按勾选）+ 导入预览确认框
+- ✅ SQL 列名格式统一：SqlRunner 测试运行后自动提取 snake_case 列名，响应模板提示列名格式，参数映射 bindTo 改为 AutoComplete
 
 ### 待开发
 - 编辑组定义打开 GroupCreateModal（目前右键"编辑组定义"已 emit 事件但 CanvasView 尚未接入 editGroupId）
 - 大规模节点组性能测试（10 万+ 虚拟节点 CTE 查询耗时）
-- 接口管理优化：导出/导入、SQL 列名格式统一、接口分类（网管/设备 + 类型）、多端口实例（设计/开发方案已编写）

@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut, apiPatch, apiDelete } from './http'
+import http, { apiGet, apiPost, apiPut, apiPatch, apiDelete } from './http'
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 export type DataSource = 'sql' | 'static'
@@ -148,4 +148,15 @@ export const apiConfigApi = {
 
   delete: (id: string): Promise<{ id: string }> =>
     apiDelete(`/apis/${id}`),
+
+  export: (params?: { domainId?: string; ids?: string[] }): Promise<{ schemaVersion: string; exportedAt: string; apis: ApiConfigDetail[] }> =>
+    apiPost('/apis/export', params || {}),
+
+  import: (file: File): Promise<{ created: number; updated: number; errors: string[] }> => {
+    const form = new FormData()
+    form.append('file', file)
+    return http.post('/apis/import', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then(r => r.data.data)
+  },
 }

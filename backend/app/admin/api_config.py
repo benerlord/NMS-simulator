@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, UploadFile, File
 
 from app.core.response_template import TemplateRenderError, render_template
 from app.core.sql_executor import SqlValidationError, execute_paged
@@ -708,5 +708,130 @@ def test_api(api_id: str, body: ApiTestRequest) -> dict:
     return {
         "code": 0,
         "data": result.model_dump(mode="json", by_alias=True),
+        "message": "ok",
+    }
+
+
+# ============== Export / Import ==============
+
+@router.post("/apis/export")
+def export_apis(data: dict) -> dict:
+    """导出接口为 JSON"""
+    ids = data.get("ids")
+    domain_id = data.get("domainId")
+    with connect() as conn:
+        if ids:
+            placeholders = ",".join("?" for _ in ids)
+            rows = conn.execute(
+                f"SELECT * FROM api_configs WHERE id IN ({placeholders}) ORDER BY method, path",
+                tuple(ids),
+            ).fetchall()
+        elif domain_id:
+            rows = conn.execute(
+                "SELECT * FROM api_configs WHERE domain_id = ? ORDER BY method, path",
+                (domain_id,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM api_configs ORDER BY method, path"
+            ).fetchall()
+        apis = []
+        for r in rows:
+            item = dict(r)
+            try:
+                item["config"] = json.loads(r["config"]) if r["config"] else {}
+            except json.JSONDecodeError:
+                item["config"] = {}
+            apis.append(item)
+    return {
+        "code": 0,
+        "data": {
+            "schemaVersion": "1.0",
+            "exportedAt": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "apis": apis,
+        },
+        "message": "ok",
+    }
+
+
+@router.post("/apis/import")
+async def import_apis(file: UploadFile = File(...)) -> dict:
+    """导入 JSON 文件，以 (domain_id, method, path) 匹配新建或覆盖"""
+    if not file.filename or not file.filename.endswith('.json'):
+        raise HTTPException(
+            status_code=400,
+            detail={"code": 40410, "message": "仅支持 .json 文件"},
+        )
+
+    contents = await file.read()
+    try:
+        doc = json.loads(contents)
+    except json.JSONDecodeError:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": 40411, "message": "JSON 解析失败"},
+        )
+
+    apis = doc.get("apis", [])
+    if not isinstance(apis, list):
+        raise HTTPException(
+            status_code=400,
+            detail={"code": 40412, "message": "格式无效：缺少 apis 数组"},
+        )
+
+    created = 0
+    updated = 0
+    errors: list[str] = []
+
+    with transaction() as conn:
+        for api_data in apis:
+            method = api_data.get("method")
+            path = api_data.get("path")
+            if not method or not path:
+                errors.append("缺少 method/path，跳过")
+                continue
+
+            domain_id = api_data.get("domain_id")
+            existing = conn.execute(
+                "SELECT id FROM api_configs WHERE domain_id IS ? AND method = ? AND path = ?",
+                (domain_id, method, path),
+            ).fetchone()
+
+            name = api_data.get("name", "")
+            data_source = api_data.get("data_source", "static")
+            topology_id = api_data.get("topology_id")
+            sql_text = api_data.get("sql_text")
+            config = api_data.get("config", {})
+            enabled = api_data.get("enabled", 1)
+            group_name = api_data.get("group_name")
+            category = api_data.get("category")
+
+            if existing:
+                conn.execute(
+                    """UPDATE api_configs SET name=?, data_source=?, topology_id=?,
+                       sql_text=?, config=?, enabled=?, group_name=?, domain_id=?,
+                       category=?, updated_at=datetime('now')
+                       WHERE id=?""",
+                    (name, data_source, topology_id, sql_text,
+                     json.dumps(config, ensure_ascii=False), enabled, group_name,
+                     domain_id, category, existing["id"]),
+                )
+                updated += 1
+            else:
+                api_id = _new_id()
+                conn.execute(
+                    """INSERT INTO api_configs
+                       (id, name, method, path, enabled, group_name, domain_id,
+                        category, data_source, topology_id, sql_text, config)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (api_id, name, method, path, enabled, group_name, domain_id,
+                     category, data_source, topology_id, sql_text,
+                     json.dumps(config, ensure_ascii=False)),
+                )
+                created += 1
+
+    return {
+        "code": 0,
+        "data": {"created": created, "updated": updated, "errors": errors},
         "message": "ok",
     }
