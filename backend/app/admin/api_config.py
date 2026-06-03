@@ -756,7 +756,7 @@ def export_apis(data: dict) -> dict:
 
 @router.post("/apis/import")
 async def import_apis(file: UploadFile = File(...)) -> dict:
-    """导入 JSON 文件，以 (domain_id, method, path) 匹配新建或覆盖"""
+    """导入 JSON 文件，以 (method, path) 匹配新建或覆盖"""
     if not file.filename or not file.filename.endswith('.json'):
         raise HTTPException(
             status_code=400,
@@ -791,19 +791,15 @@ async def import_apis(file: UploadFile = File(...)) -> dict:
                 errors.append("缺少 method/path，跳过")
                 continue
 
-            domain_id = api_data.get("domain_id")
-            existing = conn.execute(
-                "SELECT id FROM api_configs WHERE domain_id IS ? AND method = ? AND path = ?",
-                (domain_id, method, path),
-            ).fetchone()
-
+            # 兼容 snake_case（后端导出）和 camelCase（前端导出）两种格式
+            domain_id = api_data.get("domain_id") or api_data.get("domainId")
             name = api_data.get("name", "")
-            data_source = api_data.get("data_source", "static")
-            topology_id = api_data.get("topology_id")
-            sql_text = api_data.get("sql_text")
+            data_source = api_data.get("data_source") or api_data.get("dataSource") or "static"
+            topology_id = api_data.get("topology_id") or api_data.get("topologyId")
+            sql_text = api_data.get("sql_text") or api_data.get("sqlText")
             config = api_data.get("config", {})
             enabled = api_data.get("enabled", 1)
-            group_name = api_data.get("group_name")
+            group_name = api_data.get("group_name") or api_data.get("groupName")
             category = api_data.get("category")
 
             if existing:
@@ -835,3 +831,15 @@ async def import_apis(file: UploadFile = File(...)) -> dict:
         "data": {"created": created, "updated": updated, "errors": errors},
         "message": "ok",
     }
+
+
+@router.post("/apis/directory/{domain_id}/clear")
+def clear_directory(domain_id: str) -> dict:
+    """将指定域下所有接口的 domain_id 置 NULL，接口移至未归类"""
+    with transaction() as conn:
+        result = conn.execute(
+            "UPDATE api_configs SET domain_id = NULL, updated_at = datetime('now') WHERE domain_id = ?",
+            (domain_id,),
+        )
+        count = result.rowcount
+    return {"code": 0, "data": {"clearedCount": count}, "message": "ok"}

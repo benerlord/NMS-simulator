@@ -478,6 +478,10 @@ function onSqlColumns(cols: string[]) {
   sqlColumnNames.value = cols
 }
 
+const columnNamesHint = computed(() =>
+  sqlColumnNames.value.map(c => '{{' + c + '}}').join('、'),
+)
+
 const availableFieldNames = computed<string[]>(() => {
   const names = new Set<string>()
   // SQL 列名（snake_case，来自数据库）
@@ -760,7 +764,7 @@ async function handleSubmit() {
             整串匹配（如 "data": "{{items}}"）注入原值保持数组/对象类型；子串匹配做文本替换。留空走默认模板。
           </div>
           <div v-if="sqlColumnNames.length > 0" class="hint hint-columns">
-            查询列名（snake_case）：{{ sqlColumnNames.map(c => `{{${c}}}`).join('、') }}
+            查询列名（snake_case）：{{ columnNamesHint }}
           </div>
         </Form.Item>
 

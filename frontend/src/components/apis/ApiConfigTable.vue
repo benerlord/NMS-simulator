@@ -10,8 +10,8 @@ import {
   Select,
   Button,
 } from 'ant-design-vue'
-import { SearchOutlined, ReloadOutlined, PlusOutlined, ExportOutlined, ImportOutlined } from '@ant-design/icons-vue'
-import { message, Modal } from 'ant-design-vue'
+import { SearchOutlined, ReloadOutlined, PlusOutlined, ExportOutlined, ImportOutlined, DeleteOutlined } from '@ant-design/icons-vue'
+import { message, Modal, Popconfirm } from 'ant-design-vue'
 import { apiConfigApi } from '@/api/api_config'
 import { downloadBlob, timestampExcelFilename } from '@/utils/download'
 import type { ApiConfigItem, HttpMethod } from '@/api/api_config'
@@ -158,6 +158,14 @@ function handleImportClick() {
   fileInputRef.value?.click()
 }
 
+async function handleClearDirectory(domainId: string, domainName: string) {
+  try {
+    const result = await apiConfigApi.clearDirectory(domainId)
+    message.success(`已清空 ${result.clearedCount} 个接口的归属`)
+    emit('refresh')
+  } catch {}
+}
+
 async function handleFileChosen(e: Event) {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0]
@@ -195,19 +203,16 @@ async function handleFileChosen(e: Event) {
     }
     const existing = props.items.find(
       item =>
-        (item.domainId || null) === (api.domain_id || null) &&
         item.method === api.method &&
         item.path === api.path,
     )
     if (existing) {
-      if (existing.name !== (api.name || '')) {
-        toUpdate.push({
-          method: api.method as string,
-          path: api.path as string,
-          oldName: existing.name,
-          newName: (api.name as string) || '',
-        })
-      }
+      toUpdate.push({
+        method: api.method as string,
+        path: api.path as string,
+        oldName: existing.name,
+        newName: (api.name as string) || '',
+      })
     } else {
       toCreate.push({
         method: api.method as string,
@@ -236,10 +241,13 @@ async function handleFileChosen(e: Event) {
     children.push(
       h('div', { style: { fontWeight: 'bold', marginBottom: '4px' } },
         `将更新 ${toUpdate.length} 个接口：`),
-      ...toUpdate.map(item =>
-        h('div', { style: { paddingLeft: '8px' } },
-          `~ ${item.method} ${item.path}（${item.oldName} → ${item.newName}）`),
-      ),
+      ...toUpdate.map(item => {
+        const namePart = item.oldName !== item.newName
+          ? `（${item.oldName} → ${item.newName}）`
+          : `（${item.newName || '(空)'}）`
+        return h('div', { style: { paddingLeft: '8px' } },
+          `~ ${item.method} ${item.path} ${namePart}`)
+      }),
     )
   }
 
@@ -383,6 +391,15 @@ function formatDate(iso: string): string {
         <span class="group-title">{{ group.domainName }} ({{ group.totalCount }})</span>
         <Button size="small" class="group-add-btn" @click.stop="handleExportDomain(group.domainId)"><ExportOutlined /></Button>
         <Button size="small" class="group-add-btn" @click.stop="handleCreateInDomain(group.domainId)">+</Button>
+        <Popconfirm
+          v-if="group.domainId"
+          :title="`确定清空目录'${group.domainName}'下的所有接口归属？接口不会被删除，将移至未归类`"
+          ok-text="确定"
+          cancel-text="取消"
+          @confirm="handleClearDirectory(group.domainId!, group.domainName)"
+        >
+          <Button size="small" class="group-add-btn" @click.stop><DeleteOutlined /></Button>
+        </Popconfirm>
       </div>
       <div v-show="!collapsedGroups.has(group.domainId || '__none__')" class="domain-group-body">
         <Table

@@ -1,4 +1,6 @@
+import atexit
 from contextlib import asynccontextmanager
+from typing import Optional
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,21 +23,31 @@ from app.core.ws_hub import router as ws_router
 from app.db.connection import init_db
 from app.mock.registry import registry as mock_registry
 
+_runner: Optional[InstanceRunner] = None
+
+
+def _cleanup():
+    if _runner:
+        _runner.shutdown_all()
+
+
+atexit.register(_cleanup)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _runner
     init_db()
     mock_registry.bind(app)
     mock_registry.load_all()
 
-    runner = InstanceRunner()
-    runner.sync_all()
-    runner.start_monitor()
-    app.state.instance_runner = runner
+    _runner = InstanceRunner()
+    _runner.start_monitor()
+    app.state.instance_runner = _runner
 
     yield
 
-    runner.shutdown_all()
+    _cleanup()
 
 
 app = FastAPI(title="NMS Mock", lifespan=lifespan)

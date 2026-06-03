@@ -35,6 +35,9 @@ class InstanceRunner:
                 return
             _update_status(inst_id, "starting")
             try:
+                kwargs = {}
+                if sys.platform == 'win32':
+                    kwargs['creationflags'] = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
                 proc = subprocess.Popen(
                     [
                         sys.executable, "-m", "app.mock.instance_app",
@@ -43,6 +46,7 @@ class InstanceRunner:
                     ],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
+                    **kwargs,
                 )
                 self._processes[inst_id] = proc
                 _update_status(inst_id, "running")
@@ -53,11 +57,8 @@ class InstanceRunner:
         with self._lock:
             proc = self._processes.pop(inst_id, None)
             if proc:
-                proc.terminate()
-                try:
-                    proc.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
+                proc.kill()
+                proc.wait(timeout=3)
             _update_status(inst_id, "stopped")
 
     def restart_instance(self, inst_id: str, port: int, topology_id: str):

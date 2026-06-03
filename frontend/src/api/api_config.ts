@@ -152,6 +152,9 @@ export const apiConfigApi = {
   export: (params?: { domainId?: string; ids?: string[] }): Promise<{ schemaVersion: string; exportedAt: string; apis: ApiConfigDetail[] }> =>
     apiPost('/apis/export', params || {}),
 
+  clearDirectory: (domainId: string): Promise<{ clearedCount: number }> =>
+    apiPost(`/apis/directory/${domainId}/clear`),
+
   import: (file: File): Promise<{ created: number; updated: number; errors: string[] }> => {
     const form = new FormData()
     form.append('file', file)
