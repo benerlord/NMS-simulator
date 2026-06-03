@@ -152,10 +152,10 @@ export const apiConfigApi = {
   export: (params?: { domainId?: string; ids?: string[] }): Promise<{ schemaVersion: string; exportedAt: string; apis: ApiConfigDetail[] }> =>
     apiPost('/apis/export', params || {}),
 
-  clearDirectory: (domainId: string): Promise<{ clearedCount: number }> =>
-    apiPost(`/apis/directory/${domainId}/clear`),
+  deleteDirectory: (domainId: string): Promise<{ deletedApis: number; deletedDirectory: number }> =>
+    apiDelete(`/apis/directory/${domainId}`),
 
-  import: (file: File): Promise<{ created: number; updated: number; errors: string[] }> => {
+  import: (file: File): Promise<{ created: number; updated: number; errors: string[]; autoCreatedDomains: string[] }> => {
     const form = new FormData()
     form.append('file', file)
     return http.post('/apis/import', form, {

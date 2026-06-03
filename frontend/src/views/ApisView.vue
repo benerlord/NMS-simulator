@@ -25,7 +25,7 @@ const {
 
 const modalOpen = ref(false)
 const editingApiId = ref<string | null>(null)
-const presetDomainId = ref<string | null>(null)
+const presetCategory = ref<string | null>(null)
 const domains = ref<DomainItem[]>([])
 
 async function fetchDomains() {
@@ -40,15 +40,15 @@ onMounted(() => {
   fetchDomains()
 })
 
-function handleCreate(domainId?: string | null) {
+function handleCreate(category?: string | null) {
   editingApiId.value = null
-  presetDomainId.value = domainId ?? null
+  presetCategory.value = category ?? null
   modalOpen.value = true
 }
 
 function handleEdit(id: string) {
   editingApiId.value = id
-  presetDomainId.value = null
+  presetCategory.value = null
   modalOpen.value = true
 }
 
@@ -102,7 +102,7 @@ async function handleDelete(id: string) {
       @filter-change="onFilterChange"
       @toggle-enabled="handleToggleEnabled"
       @delete="handleDelete"
-      @refresh="fetchApis"
+      @refresh="() => { fetchApis(); fetchDomains() }"
       @create="handleCreate"
       @edit="handleEdit"
     />
@@ -110,7 +110,7 @@ async function handleDelete(id: string) {
     <ApiConfigModal
       v-model:open="modalOpen"
       :api-id="editingApiId"
-      :preset-domain-id="presetDomainId"
+      :preset-category="presetCategory"
       @create-submit="handleCreateSubmit"
       @update-submit="handleUpdateSubmit"
     />

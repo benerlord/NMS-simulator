@@ -782,8 +782,28 @@ async def import_apis(file: UploadFile = File(...)) -> dict:
     created = 0
     updated = 0
     errors: list[str] = []
+    auto_created_domains: list[str] = []
 
     with transaction() as conn:
+        # 预扫描所有待导入接口的 category，自动创建不存在的 domain
+        categories_to_check: set[str] = set()
+        for api_data in apis:
+            cat = api_data.get("category")
+            if cat and isinstance(cat, str) and cat.strip():
+                categories_to_check.add(cat.strip())
+
+        for cat_name in categories_to_check:
+            existing_dom = conn.execute(
+                "SELECT id FROM domains WHERE name = ?", (cat_name,)
+            ).fetchone()
+            if not existing_dom:
+                dom_id = f"dom_{uuid.uuid4().hex[:12]}"
+                conn.execute(
+                    "INSERT INTO domains (id, name, description) VALUES (?, ?, ?)",
+                    (dom_id, cat_name, f"导入时自动创建"),
+                )
+                auto_created_domains.append(cat_name)
+
         for api_data in apis:
             method = api_data.get("method")
             path = api_data.get("path")
@@ -801,6 +821,20 @@ async def import_apis(file: UploadFile = File(...)) -> dict:
             enabled = api_data.get("enabled", 1)
             group_name = api_data.get("group_name") or api_data.get("groupName")
             category = api_data.get("category")
+
+            # 如果有 category 但没有 domain_id，通过 category 名匹配 domain
+            if category and not domain_id:
+                matched = conn.execute(
+                    "SELECT id FROM domains WHERE name = ?", (category,)
+                ).fetchone()
+                if matched:
+                    domain_id = matched["id"]
+
+            # 以 domain_id + method + path 匹配
+            existing = conn.execute(
+                "SELECT id FROM api_configs WHERE domain_id IS ? AND method = ? AND path = ?",
+                (domain_id, method, path),
+            ).fetchone()
 
             if existing:
                 conn.execute(
@@ -828,18 +862,38 @@ async def import_apis(file: UploadFile = File(...)) -> dict:
 
     return {
         "code": 0,
-        "data": {"created": created, "updated": updated, "errors": errors},
+        "data": {
+            "created": created,
+            "updated": updated,
+            "errors": errors,
+            "autoCreatedDomains": auto_created_domains,
+        },
         "message": "ok",
     }
 
 
-@router.post("/apis/directory/{domain_id}/clear")
-def clear_directory(domain_id: str) -> dict:
-    """将指定域下所有接口的 domain_id 置 NULL，接口移至未归类"""
+@router.delete("/apis/directory/{domain_id}")
+def delete_directory(domain_id: str) -> dict:
+    """删除指定域下的所有接口 + 删除域本身。同时按 domain_id 和 category（域名）匹配。"""
     with transaction() as conn:
-        result = conn.execute(
-            "UPDATE api_configs SET domain_id = NULL, updated_at = datetime('now') WHERE domain_id = ?",
-            (domain_id,),
+        existing = conn.execute(
+            "SELECT id, name FROM domains WHERE id = ?", (domain_id,)
+        ).fetchone()
+        if not existing:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": 40420, "message": "目录不存在"},
+            )
+        domain_name = existing["name"]
+        # 按 domain_id 或 category（域名）删除，确保导入数据也能被清理
+        api_result = conn.execute(
+            "DELETE FROM api_configs WHERE domain_id = ? OR category = ?",
+            (domain_id, domain_name),
         )
-        count = result.rowcount
-    return {"code": 0, "data": {"clearedCount": count}, "message": "ok"}
+        deleted_apis = api_result.rowcount
+        conn.execute("DELETE FROM domains WHERE id = ?", (domain_id,))
+    return {
+        "code": 0,
+        "data": {"deletedApis": deleted_apis, "deletedDirectory": 1},
+        "message": "ok",
+    }

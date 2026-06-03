@@ -9,9 +9,10 @@ import {
   Input,
   Select,
   Button,
+  message,
+  Modal,
 } from 'ant-design-vue'
 import { SearchOutlined, ReloadOutlined, PlusOutlined, ExportOutlined, ImportOutlined, DeleteOutlined } from '@ant-design/icons-vue'
-import { message, Modal, Popconfirm } from 'ant-design-vue'
 import { apiConfigApi } from '@/api/api_config'
 import { downloadBlob, timestampExcelFilename } from '@/utils/download'
 import type { ApiConfigItem, HttpMethod } from '@/api/api_config'
@@ -37,7 +38,7 @@ const emit = defineEmits<{
   (e: 'toggleEnabled', id: string, value: boolean): void
   (e: 'delete', id: string): void
   (e: 'refresh'): void
-  (e: 'create', domainId?: string | null): void
+  (e: 'create', category?: string | null): void
   (e: 'edit', id: string): void
 }>()
 
@@ -58,24 +59,25 @@ function toggleGroup(key: string) {
 
 // Auto-collapse all groups by default whenever items or domains change
 // When searching, also auto-collapse groups with no matching results
+function getCategoryKey(api: ApiConfigItem): string {
+  return api.category || api.domainName || '__none__'
+}
+
 watch(
   [() => props.items, () => props.domains, searchKeyword],
   () => {
     const kw = searchKeyword.value.trim().toLowerCase()
     const keys = new Set<string>()
-    for (const d of props.domains) keys.add(d.id)
-    for (const api of props.items) keys.add(api.domainId || '__none__')
+    for (const d of props.domains) keys.add(d.name)
+    for (const api of props.items) keys.add(getCategoryKey(api))
     if (kw) {
-      // When searching: expand groups with matches, collapse empty ones
       for (const key of keys) {
         const hasMatch = props.items.some(
-          api => (api.domainId || '__none__') === key && (api.name.toLowerCase().includes(kw) || api.path.toLowerCase().includes(kw)),
+          api => getCategoryKey(api) === key && (api.name.toLowerCase().includes(kw) || api.path.toLowerCase().includes(kw)),
         )
         if (hasMatch) {
-          // Expand matching groups so user can see results
           collapsedGroups.value.delete(key)
         } else {
-          // Collapse empty groups
           collapsedGroups.value.add(key)
         }
       }
@@ -130,8 +132,8 @@ function onDelete(id: string) {
   emit('delete', id)
 }
 
-function handleCreateInDomain(domainId: string | null) {
-  emit('create', domainId)
+function handleCreateInCategory(category: string | null) {
+  emit('create', category)
 }
 
 async function handleExport() {
@@ -145,12 +147,12 @@ async function handleExport() {
   } catch {}
 }
 
-async function handleExportDomain(domainId: string | null) {
+async function handleExportByCategory(apiIds: string[]) {
   try {
-    const result = await apiConfigApi.export(domainId ? { domainId } : {})
+    const result = await apiConfigApi.export(apiIds.length > 0 ? { ids: apiIds } : {})
     const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' })
     downloadBlob(blob, timestampExcelFilename('apis-export').replace('.xlsx', '.json'))
-    message.success('导出成功')
+    message.success(`已导出 ${result.apis.length} 个接口`)
   } catch {}
 }
 
@@ -158,10 +160,10 @@ function handleImportClick() {
   fileInputRef.value?.click()
 }
 
-async function handleClearDirectory(domainId: string, domainName: string) {
+async function handleDeleteDirectory(domainId: string, domainName: string) {
   try {
-    const result = await apiConfigApi.clearDirectory(domainId)
-    message.success(`已清空 ${result.clearedCount} 个接口的归属`)
+    const result = await apiConfigApi.deleteDirectory(domainId)
+    message.success(`已删除目录'${domainName}'及 ${result.deletedApis} 个接口`)
     emit('refresh')
   } catch {}
 }
@@ -195,11 +197,16 @@ async function handleFileChosen(e: Event) {
   const toCreate: Array<{ method: string; path: string; name: string }> = []
   const toUpdate: Array<{ method: string; path: string; oldName: string; newName: string }> = []
   const errors: string[] = []
+  const newCategories = new Set<string>()
 
   for (const api of doc.apis) {
     if (!api.method || !api.path) {
       errors.push('缺少 method/path，跳过')
       continue
+    }
+    const cat = api.category as string | undefined
+    if (cat && !props.domains.some(d => d.name === cat)) {
+      newCategories.add(cat)
     }
     const existing = props.items.find(
       item =>
@@ -259,6 +266,14 @@ async function handleFileChosen(e: Event) {
     )
   }
 
+  if (newCategories.size > 0) {
+    if (children.length) children.push(h('br'))
+    children.push(
+      h('div', { style: { color: '#1890ff' } },
+        `ℹ 将自动创建 ${newCategories.size} 个目录：${[...newCategories].join('、')}`),
+    )
+  }
+
   if (toCreate.length === 0 && toUpdate.length === 0 && errors.length > 0) {
     message.warning('没有可导入的接口')
     return
@@ -276,6 +291,9 @@ async function handleFileChosen(e: Event) {
       if (result.created) parts.push(`新建 ${result.created} 个`)
       if (result.updated) parts.push(`更新 ${result.updated} 个`)
       message.success(parts.join('，') || '导入完成')
+      if (result.autoCreatedDomains.length) {
+        message.info(`自动创建了 ${result.autoCreatedDomains.length} 个目录：${result.autoCreatedDomains.join('、')}`)
+      }
       if (result.errors.length) {
         message.warning(result.errors.join('；'))
       }
@@ -367,41 +385,42 @@ function formatDate(iso: string): string {
 
     <div v-for="group in (() => {
       const kw = searchKeyword.trim().toLowerCase()
-      const map: Record<string, { domainId: string | null; domainName: string; apis: ApiConfigItem[]; totalCount: number }> = {}
+      const map: Record<string, { categoryKey: string; categoryName: string; domainId: string | null; apis: ApiConfigItem[]; allIds: string[]; totalCount: number }> = {}
       for (const d of domains) {
-        map[d.id] = { domainId: d.id, domainName: d.name, apis: [], totalCount: 0 }
+        map[d.name] = { categoryKey: d.name, categoryName: d.name, domainId: d.id, apis: [], allIds: [], totalCount: 0 }
       }
       for (const api of items) {
-        const key = api.domainId || '__none__'
-        if (!map[key]) map[key] = { domainId: api.domainId, domainName: api.domainName || '未归类', apis: [], totalCount: 0 }
+        const key = api.category || api.domainName || '__none__'
+        if (!map[key]) map[key] = { categoryKey: key, categoryName: key === '__none__' ? '未归类' : key, domainId: null, apis: [], allIds: [], totalCount: 0 }
         map[key].totalCount++
+        map[key].allIds.push(api.id)
         if (!kw || api.name.toLowerCase().includes(kw) || api.path.toLowerCase().includes(kw)) {
           map[key].apis.push(api)
         }
       }
       const sorted = Object.values(map).sort((a, b) => {
-        if (a.domainId === null) return 1
-        if (b.domainId === null) return -1
-        return a.domainName.localeCompare(b.domainName)
+        if (a.categoryKey === '__none__') return 1
+        if (b.categoryKey === '__none__') return -1
+        return a.categoryName.localeCompare(b.categoryName)
       })
       return sorted
-    })()" :key="group.domainId || '__none__'" class="domain-group">
-      <div class="domain-group-header" @click="toggleGroup(group.domainId || '__none__')">
-        <span class="group-arrow">{{ collapsedGroups.has(group.domainId || '__none__') ? '▶' : '▼' }}</span>
-        <span class="group-title">{{ group.domainName }} ({{ group.totalCount }})</span>
-        <Button size="small" class="group-add-btn" @click.stop="handleExportDomain(group.domainId)"><ExportOutlined /></Button>
-        <Button size="small" class="group-add-btn" @click.stop="handleCreateInDomain(group.domainId)">+</Button>
+    })()" :key="group.categoryKey" class="domain-group">
+      <div class="domain-group-header" @click="toggleGroup(group.categoryKey)">
+        <span class="group-arrow">{{ collapsedGroups.has(group.categoryKey) ? '▶' : '▼' }}</span>
+        <span class="group-title">{{ group.categoryName }} ({{ group.totalCount }})</span>
+        <Button size="small" class="group-add-btn" @click.stop="handleExportByCategory(group.allIds)"><ExportOutlined /></Button>
+        <Button size="small" class="group-add-btn" @click.stop="handleCreateInCategory(group.categoryKey === '__none__' ? null : group.categoryName)">+</Button>
         <Popconfirm
-          v-if="group.domainId"
-          :title="`确定清空目录'${group.domainName}'下的所有接口归属？接口不会被删除，将移至未归类`"
+          v-if="group.categoryKey !== '__none__' && group.domainId"
+          :title="`确定删除目录'${group.categoryName}'及其下的 ${group.totalCount} 个接口？此操作不可恢复`"
           ok-text="确定"
           cancel-text="取消"
-          @confirm="handleClearDirectory(group.domainId!, group.domainName)"
+          @confirm="handleDeleteDirectory(group.domainId!, group.categoryName)"
         >
           <Button size="small" class="group-add-btn" @click.stop><DeleteOutlined /></Button>
         </Popconfirm>
       </div>
-      <div v-show="!collapsedGroups.has(group.domainId || '__none__')" class="domain-group-body">
+      <div v-show="!collapsedGroups.has(group.categoryKey)" class="domain-group-body">
         <Table
           :data-source="group.apis"
           :columns="columns"

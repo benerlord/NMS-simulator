@@ -40,7 +40,7 @@ import AuthConfigPanel from './AuthConfigPanel.vue'
 interface Props {
   open: boolean
   apiId?: string | null
-  presetDomainId?: string | null
+  presetCategory?: string | null
 }
 
 const props = defineProps<Props>()
@@ -258,6 +258,9 @@ watch(
       loadDetail(props.apiId)
     } else {
       formState.value = emptyForm()
+      if (props.presetCategory) {
+        formState.value.category = props.presetCategory
+      }
       originalTopologyId.value = null
     }
   },
@@ -530,6 +533,13 @@ async function handleSubmit() {
       formState.value.dataSource === 'sql' ? formState.value.sqlText : null
     const config = buildConfig()
 
+    // 根据分类名匹配 domainId
+    const categoryName = formState.value.category || null
+    const matchedDomain = categoryName
+      ? domains.value.find(d => d.name === categoryName)
+      : null
+    const resolvedDomainId = matchedDomain ? matchedDomain.id : null
+
     if (isEdit.value && props.apiId) {
       // LEGACY-06: 编辑模式下若 topologyId 变化，先独立 PATCH /topology 解耦失败可重试
       const newTopoId = formState.value.topologyId ?? null
@@ -541,8 +551,8 @@ async function handleSubmit() {
         name: formState.value.name.trim(),
         path: formState.value.path.trim(),
         groupName: formState.value.groupName.trim() || null,
-        domainId: formState.value.domainId,
-        category: formState.value.category || null,
+        domainId: resolvedDomainId,
+        category: categoryName,
         dataSource: formState.value.dataSource,
         sqlText,
         config,
@@ -556,8 +566,8 @@ async function handleSubmit() {
         enabled: formState.value.enabled,
         dataSource: formState.value.dataSource,
         groupName: formState.value.groupName.trim() || null,
-        domainId: props.presetDomainId ?? null,
-        category: formState.value.category || null,
+        domainId: resolvedDomainId,
+        category: categoryName,
         topologyId: formState.value.topologyId || null,
         sqlText,
         config,
@@ -635,15 +645,10 @@ async function handleSubmit() {
             <Input v-model:value="formState.groupName" placeholder="可选，例：设备管理" />
           </Form.Item>
 
-          <Form.Item
-            v-if="isEdit"
-            label="所属网管/设备"
-            name="domainId"
-            class="form-col-half"
-          >
+          <Form.Item label="分类" name="category" class="form-col-half">
             <Select
-              v-model:value="formState.domainId"
-              placeholder="选择网管/设备"
+              v-model:value="formState.category"
+              placeholder="选择分类"
               allow-clear
               show-search
               option-filter-prop="label"
@@ -651,27 +656,11 @@ async function handleSubmit() {
               <Select.Option
                 v-for="d in domains"
                 :key="d.id"
-                :value="d.id"
+                :value="d.name"
                 :label="d.name"
               >
                 {{ d.name }}
               </Select.Option>
-            </Select>
-          </Form.Item>
-
-          <Form.Item label="分类" name="category" class="form-col-half">
-            <Select
-              v-model:value="formState.category"
-              placeholder="选择分类"
-              allow-clear
-              show-search
-            >
-              <Select.Option value="设备查询">设备查询</Select.Option>
-              <Select.Option value="告警管理">告警管理</Select.Option>
-              <Select.Option value="性能统计">性能统计</Select.Option>
-              <Select.Option value="配置管理">配置管理</Select.Option>
-              <Select.Option value="拓扑查询">拓扑查询</Select.Option>
-              <Select.Option value="其他">其他</Select.Option>
             </Select>
           </Form.Item>
         </div>
