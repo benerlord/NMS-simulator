@@ -1,10 +1,10 @@
 """
 每实例子进程的入口模块。
-用法: python -m app.mock.instance_app --topology-id topo_xxx --port 8081
+用法: python -m app.mock.instance_app --topology-id topo_xxx --port 8081 --instance-id inst_xxx
 """
 
 
-def create_app(topology_id: str):
+def create_app(topology_id: str, instance_id: str = None):
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
     from app.db.connection import connect
@@ -27,7 +27,7 @@ def create_app(topology_id: str):
         ).fetchall()
 
     for row in rows:
-        handler = make_handler(row["id"])
+        handler = make_handler(row["id"], instance_id=instance_id)
         app.add_api_route(
             path=row["path"],
             endpoint=handler,
@@ -45,8 +45,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--topology-id", required=True)
     parser.add_argument("--port", type=int, required=True)
+    parser.add_argument("--instance-id", default=None)
     args = parser.parse_args()
 
     init_db()
-    app = create_app(args.topology_id)
+    app = create_app(args.topology_id, instance_id=args.instance_id)
     uvicorn.run(app, host="0.0.0.0", port=args.port, log_level="warning")
