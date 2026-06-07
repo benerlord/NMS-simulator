@@ -32,3 +32,17 @@ class MockInstanceItem(CamelModel):
     api_count: int = 0
     created_at: str
     updated_at: str
+
+
+class RequestLogItem(CamelModel):
+    id: int
+    ts: str
+    api_id: Optional[str] = None
+    method: str
+    path: str
+    query: Optional[str] = None
+    status_code: int
+    duration_ms: int
+    client_ip: Optional[str] = None
+    error_message: Optional[str] = None
+    instance_id: Optional[str] = None

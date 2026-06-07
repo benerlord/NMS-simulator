@@ -1,12 +1,14 @@
 import uuid
+from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.db.connection import connect, transaction
 from app.admin.schemas.mock_instance import (
     MockInstanceCreate,
     MockInstanceUpdate,
     MockInstanceItem,
+    RequestLogItem,
 )
 
 router = APIRouter(prefix="/admin/api", tags=["实例"])
@@ -157,4 +159,42 @@ def patch_instance_enabled(inst_id: str, data: dict, request: Request) -> dict:
             _get_runner(request).start_instance(inst_id, row["port"], row["topology_id"])
         else:
             _get_runner(request).stop_instance(inst_id)
+    return {"code": 0, "data": {"id": inst_id}, "message": "ok"}
+
+
+@router.get("/mock-instances/{inst_id}/logs")
+def get_instance_logs(
+    inst_id: str,
+    limit: int = Query(default=100, ge=1, le=500),
+    before: Optional[str] = Query(default=None),
+) -> dict:
+    with connect() as conn:
+        inst = conn.execute("SELECT id FROM mock_instances WHERE id = ?", (inst_id,)).fetchone()
+        if not inst:
+            raise HTTPException(status_code=404, detail="实例不存在")
+
+        conditions = ["instance_id = ?"]
+        params: list = [inst_id]
+        if before:
+            conditions.append("ts < ?")
+            params.append(before)
+        where = " AND ".join(conditions)
+
+        rows = conn.execute(
+            f"SELECT * FROM request_logs WHERE {where} ORDER BY ts DESC LIMIT ?",
+            params + [limit + 1],
+        ).fetchall()
+
+    has_more = len(rows) > limit
+    items = [dict(r) for r in rows[:limit]]
+    return {"code": 0, "data": {"items": items, "has_more": has_more}, "message": "ok"}
+
+
+@router.delete("/mock-instances/{inst_id}/logs")
+def clear_instance_logs(inst_id: str) -> dict:
+    with connect() as conn:
+        inst = conn.execute("SELECT id FROM mock_instances WHERE id = ?", (inst_id,)).fetchone()
+        if not inst:
+            raise HTTPException(status_code=404, detail="实例不存在")
+        conn.execute("DELETE FROM request_logs WHERE instance_id = ?", (inst_id,))
     return {"code": 0, "data": {"id": inst_id}, "message": "ok"}
