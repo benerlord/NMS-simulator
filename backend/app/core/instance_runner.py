@@ -43,6 +43,7 @@ class InstanceRunner:
                         sys.executable, "-m", "app.mock.instance_app",
                         "--topology-id", topology_id,
                         "--port", str(port),
+                        "--instance-id", inst_id,
                     ],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
