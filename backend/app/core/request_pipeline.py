@@ -23,6 +23,7 @@ import asyncio
 import json
 import random
 import sqlite3
+import time as _time
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -120,9 +121,8 @@ async def _build_req_ctx(request: Request) -> _RequestCtx:
     )
 
 
-async def run(api_id: str, request: Request) -> Response:
+async def run(api_id: str, request: Request, instance_id: Optional[str] = None) -> Response:
     """Entry point called by the per-api handler closure in `mock.handler`."""
-    # Lazy import breaks the cycle mock.handler ↔ admin.api_config ↔ pipeline.
     from app.admin.api_config import (
         _build_sql_params,
         _default_sql_template,
@@ -130,29 +130,62 @@ async def run(api_id: str, request: Request) -> Response:
         _row_to_detail,
     )
 
+    start_ts = _time.time()
     ctx = PipelineContext(api_id=api_id, request=request)
+    error_message: Optional[str] = None
     try:
         with connect() as conn:
             _step2_check_enabled(conn, ctx, _row_to_detail)
             _step3_authenticate(conn, ctx)
-            # 提前 build req_ctx 是 M5-01 必需：step3.5 校验复用 headers/query；
-            # body 也已被 _build_req_ctx 读取并由 starlette 缓存，避免重复消费。
             ctx.req_ctx = await _build_req_ctx(request)
             await _step3_5_validate_request(ctx)
             await _step4_inject_fault(ctx)
             _step5_execute(conn, ctx, _build_sql_params, _resolve_pagination)
             _step6_render(ctx, _default_sql_template)
     except PipelineError as exc:
+        error_message = exc.message
+        duration_ms = int((_time.time() - start_ts) * 1000)
+        _log_request(api_id, request, exc.http_status, duration_ms, error_message, instance_id)
         return JSONResponse(
             status_code=exc.http_status,
             content={"code": exc.code, "message": exc.message},
         )
 
+    duration_ms = int((_time.time() - start_ts) * 1000)
+    _log_request(api_id, request, ctx.status_code, duration_ms, None, instance_id)
     return JSONResponse(
         status_code=ctx.status_code,
         content=ctx.body,
         media_type=ctx.content_type,
     )
+
+
+def _log_request(
+    api_id: str,
+    request: Request,
+    status_code: int,
+    duration_ms: int,
+    error_message: Optional[str],
+    instance_id: Optional[str],
+) -> None:
+    """Write a request log entry and enforce the 10000-row rolling cap."""
+    try:
+        client_ip = request.client.host if request.client else None
+        query_str = str(request.query_params) if request.query_params else None
+        with connect() as conn:
+            conn.execute(
+                """INSERT INTO request_logs
+                   (api_id, method, path, query, status_code, duration_ms, client_ip, error_message, instance_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (api_id, request.method, request.url.path, query_str,
+                 status_code, duration_ms, client_ip, error_message, instance_id),
+            )
+            conn.execute(
+                "DELETE FROM request_logs WHERE id NOT IN "
+                "(SELECT id FROM request_logs ORDER BY ts DESC LIMIT 10000)"
+            )
+    except Exception:
+        pass
 
 
 # ---------- Step 2 ----------
