@@ -45,3 +45,30 @@ export const mockInstanceApi = {
   patchEnabled: (id: string, enabled: boolean): Promise<{ id: string }> =>
     apiPatch(`/mock-instances/${id}/enabled`, { enabled }),
 }
+
+export interface RequestLogItem {
+  id: number
+  ts: string
+  apiId: string | null
+  method: string
+  path: string
+  query: string | null
+  statusCode: number
+  durationMs: number
+  clientIp: string | null
+  errorMessage: string | null
+  instanceId: string | null
+}
+
+export interface RequestLogResponse {
+  items: RequestLogItem[]
+  hasMore: boolean
+}
+
+export const requestLogApi = {
+  fetchLogs: (instId: string, params?: { limit?: number; before?: string }): Promise<RequestLogResponse> =>
+    apiGet(`/mock-instances/${instId}/logs`, params),
+
+  clearLogs: (instId: string): Promise<{ id: string }> =>
+    apiDelete(`/mock-instances/${instId}/logs`),
+}
