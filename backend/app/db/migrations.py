@@ -290,3 +290,9 @@ def run_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE mock_instances ADD COLUMN status TEXT NOT NULL DEFAULT 'running'")
     except sqlite3.OperationalError:
         pass
+    # 请求日志：request_logs 新增 instance_id 列
+    try:
+        conn.execute("ALTER TABLE request_logs ADD COLUMN instance_id TEXT")
+    except sqlite3.OperationalError:
+        pass
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_logs_instance ON request_logs(instance_id)")
