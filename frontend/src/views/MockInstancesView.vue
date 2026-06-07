@@ -1,14 +1,22 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { Card, Button, Space, Table, Tag, Switch, Popconfirm, message } from 'ant-design-vue'
-import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons-vue'
+import { PlusOutlined, EditOutlined, DeleteOutlined, FileTextOutlined } from '@ant-design/icons-vue'
 import { mockInstanceApi, type MockInstanceItem } from '@/api/mockInstance'
 import MockInstanceModal from '@/components/mockInstance/MockInstanceModal.vue'
+import InstanceLogsDrawer from '@/components/mockInstance/InstanceLogsDrawer.vue'
 
 const instances = ref<MockInstanceItem[]>([])
 const loading = ref(false)
 const modalOpen = ref(false)
 const editingInstance = ref<MockInstanceItem | null>(null)
+const logsDrawerOpen = ref(false)
+const logsInstance = ref<MockInstanceItem | null>(null)
+
+function openLogs(item: MockInstanceItem) {
+  logsInstance.value = item
+  logsDrawerOpen.value = true
+}
 
 async function fetchInstances() {
   loading.value = true
@@ -68,7 +76,7 @@ const columns = [
     title: '接口数', key: 'apiCount', width: 80, align: 'center' as const,
   },
   { title: '创建时间', dataIndex: 'createdAt', key: 'createdAt', width: 180 },
-  { title: '操作', key: 'action', width: 120, fixed: 'right' as const },
+  { title: '操作', key: 'action', width: 150, fixed: 'right' as const },
 ]
 
 function formatDate(iso: string): string {
@@ -117,6 +125,7 @@ onMounted(fetchInstances)
         <template v-else-if="column.key === 'action'">
           <Space>
             <a @click="openEdit(record)"><EditOutlined /></a>
+            <a @click="openLogs(record)" title="请求日志"><FileTextOutlined /></a>
             <Popconfirm
               title="确定删除该实例？"
               ok-text="确定"
@@ -136,5 +145,13 @@ onMounted(fetchInstances)
     :editing="editingInstance"
     @create="handleCreate"
     @update="handleUpdate"
+  />
+
+  <InstanceLogsDrawer
+    v-if="logsInstance"
+    v-model:open="logsDrawerOpen"
+    :instance-id="logsInstance.id"
+    :instance-name="logsInstance.name"
+    :instance-port="logsInstance.port"
   />
 </template>
