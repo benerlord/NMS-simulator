@@ -87,6 +87,28 @@ async function handleDelete(id: string) {
     // http interceptor handles error toast
   }
 }
+
+function handleDuplicate(newId: string) {
+  editingApiId.value = newId
+  presetCategory.value = null
+  modalOpen.value = true
+}
+
+async function handleRenameCategory(domainId: string, oldName: string, newName: string) {
+  try {
+    await domainApi.renameCategory(domainId, oldName, newName)
+    message.success('子目录已重命名')
+    fetchApis()
+  } catch {}
+}
+
+async function handleDeleteCategory(domainId: string, name: string) {
+  try {
+    await domainApi.deleteCategory(domainId, name)
+    message.success('子目录已删除')
+    fetchApis()
+  } catch {}
+}
 </script>
 
 <template>
@@ -105,6 +127,9 @@ async function handleDelete(id: string) {
       @refresh="() => { fetchApis(); fetchDomains() }"
       @create="handleCreate"
       @edit="handleEdit"
+      @duplicate="handleDuplicate"
+      @rename-category="handleRenameCategory"
+      @delete-category="handleDeleteCategory"
     />
 
     <ApiConfigModal

@@ -53,6 +53,21 @@ const emit = defineEmits<{
 const loading = ref(false)
 const detailLoading = ref(false)
 const domains = ref<DomainItem[]>([])
+const categoryOptions = ref<{ label: string; value: string }[]>([])
+
+async function loadCategories(domainId: string) {
+  if (!domainId) {
+    categoryOptions.value = []
+    return
+  }
+  try {
+    const cats = await domainApi.fetchCategories(domainId)
+    categoryOptions.value = cats.map(c => ({ label: c, value: c }))
+  } catch {
+    categoryOptions.value = []
+  }
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const formRef = ref<{ validateFields?: () => Promise<void> } | null>(null)
 const sqlEditorRef = ref<{
@@ -168,6 +183,10 @@ async function loadDomains() {
   try {
     const res = await domainApi.list()
     domains.value = res.items
+    // Load categories for current domain if set
+    if (formState.value.domainId) {
+      loadCategories(formState.value.domainId)
+    }
   } catch {}
 }
 
@@ -262,6 +281,17 @@ watch(
         formState.value.category = props.presetCategory
       }
       originalTopologyId.value = null
+    }
+  },
+)
+
+watch(
+  () => formState.value.domainId,
+  (newDomainId) => {
+    if (newDomainId) {
+      loadCategories(newDomainId)
+    } else {
+      categoryOptions.value = []
     }
   },
 )
@@ -533,12 +563,8 @@ async function handleSubmit() {
       formState.value.dataSource === 'sql' ? formState.value.sqlText : null
     const config = buildConfig()
 
-    // 根据分类名匹配 domainId
     const categoryName = formState.value.category || null
-    const matchedDomain = categoryName
-      ? domains.value.find(d => d.name === categoryName)
-      : null
-    const resolvedDomainId = matchedDomain ? matchedDomain.id : null
+    const resolvedDomainId = formState.value.domainId || null
 
     if (isEdit.value && props.apiId) {
       // LEGACY-06: 编辑模式下若 topologyId 变化，先独立 PATCH /topology 解耦失败可重试
@@ -645,23 +671,15 @@ async function handleSubmit() {
             <Input v-model:value="formState.groupName" placeholder="可选，例：设备管理" />
           </Form.Item>
 
-          <Form.Item label="分类" name="category" class="form-col-half">
+          <Form.Item label="所属子目录" name="category" class="form-col-half">
             <Select
               v-model:value="formState.category"
-              placeholder="选择分类"
+              :options="categoryOptions"
+              placeholder="选择或输入子目录名称"
               allow-clear
               show-search
               option-filter-prop="label"
-            >
-              <Select.Option
-                v-for="d in domains"
-                :key="d.id"
-                :value="d.name"
-                :label="d.name"
-              >
-                {{ d.name }}
-              </Select.Option>
-            </Select>
+            />
           </Form.Item>
         </div>
 
