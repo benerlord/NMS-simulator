@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.db.connection import connect, transaction
 from app.admin.schemas.domain import DomainCreate, DomainUpdate, DomainItem
+from app.admin.schemas.api_config import CategoryRename
 
 router = APIRouter(prefix="/admin/api", tags=["域"])
 
@@ -108,3 +109,42 @@ def delete_domain(dom_id: str) -> dict:
         )
         conn.execute("DELETE FROM domains WHERE id = ?", (dom_id,))
     return {"code": 0, "data": {"id": dom_id}, "message": "ok"}
+
+
+@router.get("/domains/{domain_id}/categories")
+def list_categories(domain_id: str) -> dict:
+    with connect() as conn:
+        dom = conn.execute("SELECT id FROM domains WHERE id = ?", (domain_id,)).fetchone()
+        if not dom:
+            raise HTTPException(status_code=404, detail="网管/设备不存在")
+        rows = conn.execute(
+            "SELECT DISTINCT category FROM api_configs WHERE domain_id = ? AND category IS NOT NULL AND category != '' ORDER BY category",
+            (domain_id,),
+        ).fetchall()
+    return {"code": 0, "data": [r["category"] for r in rows], "message": "ok"}
+
+
+@router.put("/domains/{domain_id}/categories/{name}")
+def rename_category(domain_id: str, name: str, data: CategoryRename) -> dict:
+    with connect() as conn:
+        dom = conn.execute("SELECT id FROM domains WHERE id = ?", (domain_id,)).fetchone()
+        if not dom:
+            raise HTTPException(status_code=404, detail="网管/设备不存在")
+        conn.execute(
+            "UPDATE api_configs SET category = ?, updated_at = datetime('now') WHERE domain_id = ? AND category = ?",
+            (data.new_name, domain_id, name),
+        )
+    return {"code": 0, "data": {"domain_id": domain_id, "old_name": name, "new_name": data.new_name}, "message": "ok"}
+
+
+@router.delete("/domains/{domain_id}/categories/{name}")
+def delete_category(domain_id: str, name: str) -> dict:
+    with connect() as conn:
+        dom = conn.execute("SELECT id FROM domains WHERE id = ?", (domain_id,)).fetchone()
+        if not dom:
+            raise HTTPException(status_code=404, detail="网管/设备不存在")
+        conn.execute(
+            "UPDATE api_configs SET category = NULL, updated_at = datetime('now') WHERE domain_id = ? AND category = ?",
+            (domain_id, name),
+        )
+    return {"code": 0, "data": {"domain_id": domain_id, "name": name}, "message": "ok"}

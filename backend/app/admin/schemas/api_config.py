@@ -128,3 +128,12 @@ class ApiTestResponse(CamelModel):
     code: int = 0
     data: ApiTestResult
     message: str = "ok"
+
+
+class BatchCategoryUpdate(CamelModel):
+    api_ids: list[str] = Field(..., min_length=1)
+    category: Optional[str] = Field(default=None, max_length=50)
+
+
+class CategoryRename(CamelModel):
+    new_name: str = Field(..., min_length=1, max_length=50)

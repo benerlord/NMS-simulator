@@ -24,6 +24,7 @@ from app.admin.schemas import (
     ApiTestResponse,
     ApiTestResult,
 )
+from app.admin.schemas.api_config import BatchCategoryUpdate
 
 router = APIRouter(prefix="/admin/api", tags=["接口配置"])
 
@@ -931,3 +932,15 @@ def delete_directory(domain_id: str) -> dict:
         "data": {"deletedApis": deleted_apis, "deletedDirectory": 1},
         "message": "ok",
     }
+
+
+# PUT /admin/api/apis/batch-category
+@router.put("/apis/batch-category")
+def batch_update_category(data: BatchCategoryUpdate) -> dict:
+    with transaction() as conn:
+        placeholders = ",".join("?" for _ in data.api_ids)
+        conn.execute(
+            f"UPDATE api_configs SET category = ?, updated_at = datetime('now') WHERE id IN ({placeholders})",
+            [data.category] + data.api_ids,
+        )
+    return {"code": 0, "data": {"updated": len(data.api_ids)}, "message": "ok"}
