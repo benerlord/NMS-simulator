@@ -12,7 +12,7 @@ import {
   message,
   Modal,
 } from 'ant-design-vue'
-import { SearchOutlined, ReloadOutlined, PlusOutlined, ExportOutlined, ImportOutlined, DeleteOutlined } from '@ant-design/icons-vue'
+import { SearchOutlined, ReloadOutlined, PlusOutlined, ExportOutlined, ImportOutlined, DeleteOutlined, CopyOutlined } from '@ant-design/icons-vue'
 import { apiConfigApi } from '@/api/api_config'
 import { downloadBlob, timestampExcelFilename } from '@/utils/download'
 import type { ApiConfigItem, HttpMethod } from '@/api/api_config'
@@ -40,6 +40,7 @@ const emit = defineEmits<{
   (e: 'refresh'): void
   (e: 'create', category?: string | null): void
   (e: 'edit', id: string): void
+  (e: 'duplicate', id: string): void
 }>()
 
 const methodFilter = ref<HttpMethod | undefined>(undefined)
@@ -153,6 +154,14 @@ async function handleExportByCategory(apiIds: string[]) {
     const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' })
     downloadBlob(blob, timestampExcelFilename('apis-export').replace('.xlsx', '.json'))
     message.success(`已导出 ${result.apis.length} 个接口`)
+  } catch {}
+}
+
+async function handleDuplicate(record: ApiConfigItem) {
+  try {
+    const result = await apiConfigApi.duplicate(record.id)
+    message.success('接口已复制')
+    emit('duplicate', result.id)
   } catch {}
 }
 
@@ -309,7 +318,7 @@ const columns = [
   { title: '分类', dataIndex: 'category', key: 'category', width: 100 },
   { title: '数据源', dataIndex: 'dataSource', key: 'dataSource', width: 100 },
   { title: '启用', dataIndex: 'enabled', key: 'enabled', width: 90 },
-  { title: '操作', key: 'action', width: 140, fixed: 'right' as const },
+  { title: '操作', key: 'action', width: 170, fixed: 'right' as const },
 ]
 
 function formatDate(iso: string): string {
@@ -467,6 +476,7 @@ function formatDate(iso: string): string {
             <template v-else-if="column.key === 'action'">
               <Space>
                 <a @click="emit('edit', (record as ApiConfigItem).id)">编辑</a>
+                <a @click="handleDuplicate(record as ApiConfigItem)" title="复制"><CopyOutlined /></a>
                 <Popconfirm
                   title="确定删除该接口配置？"
                   ok-text="确定"
