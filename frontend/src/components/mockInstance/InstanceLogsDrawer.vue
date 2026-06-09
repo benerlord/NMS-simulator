@@ -79,7 +79,7 @@ watch(() => props.open, (val) => {
   } else {
     stopPolling()
   }
-})
+}, { immediate: true })
 
 watch(autoRefresh, (val) => {
   if (val && props.open) startPolling()
