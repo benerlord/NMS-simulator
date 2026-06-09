@@ -41,6 +41,7 @@ interface Props {
   open: boolean
   apiId?: string | null
   presetCategory?: string | null
+  presetDomainId?: string | null
 }
 
 const props = defineProps<Props>()
@@ -277,6 +278,10 @@ watch(
       loadDetail(props.apiId)
     } else {
       formState.value = emptyForm()
+      if (props.presetDomainId) {
+        formState.value.domainId = props.presetDomainId
+        loadCategories(props.presetDomainId)
+      }
       if (props.presetCategory) {
         formState.value.category = props.presetCategory
       }

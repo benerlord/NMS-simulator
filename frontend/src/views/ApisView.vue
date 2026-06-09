@@ -26,6 +26,7 @@ const {
 const modalOpen = ref(false)
 const editingApiId = ref<string | null>(null)
 const presetCategory = ref<string | null>(null)
+const presetDomainId = ref<string | null>(null)
 const domains = ref<DomainItem[]>([])
 
 async function fetchDomains() {
@@ -40,15 +41,17 @@ onMounted(() => {
   fetchDomains()
 })
 
-function handleCreate(category?: string | null) {
+function handleCreate(category?: string | null, domainId?: string | null) {
   editingApiId.value = null
   presetCategory.value = category ?? null
+  presetDomainId.value = domainId ?? null
   modalOpen.value = true
 }
 
 function handleEdit(id: string) {
   editingApiId.value = id
   presetCategory.value = null
+  presetDomainId.value = null
   modalOpen.value = true
 }
 
@@ -91,6 +94,7 @@ async function handleDelete(id: string) {
 function handleDuplicate(newId: string) {
   editingApiId.value = newId
   presetCategory.value = null
+  presetDomainId.value = null
   modalOpen.value = true
 }
 
@@ -136,6 +140,7 @@ async function handleDeleteCategory(domainId: string, name: string) {
       v-model:open="modalOpen"
       :api-id="editingApiId"
       :preset-category="presetCategory"
+      :preset-domain-id="presetDomainId"
       @create-submit="handleCreateSubmit"
       @update-submit="handleUpdateSubmit"
     />

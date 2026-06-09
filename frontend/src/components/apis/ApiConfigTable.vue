@@ -38,7 +38,7 @@ const emit = defineEmits<{
   (e: 'toggleEnabled', id: string, value: boolean): void
   (e: 'delete', id: string): void
   (e: 'refresh'): void
-  (e: 'create', category?: string | null): void
+  (e: 'create', category?: string | null, domainId?: string | null): void
   (e: 'edit', id: string): void
   (e: 'duplicate', id: string): void
   (e: 'renameCategory', domainId: string, oldName: string, newName: string): void
@@ -135,8 +135,8 @@ function onDelete(id: string) {
   emit('delete', id)
 }
 
-function handleCreateInCategory(category: string | null) {
-  emit('create', category)
+function handleCreateInCategory(category: string | null, domainId?: string | null) {
+  emit('create', category, domainId)
 }
 
 async function handleExport() {
@@ -199,7 +199,7 @@ function startAddCategory(domainId: string) {
 
 function confirmAddCategory() {
   if (newCategoryDomainId.value && newCategoryName.value.trim()) {
-    emit('create', newCategoryName.value.trim())
+    handleCreateInCategory(newCategoryName.value.trim(), newCategoryDomainId.value)
     newCategoryDomainId.value = null
   }
 }
@@ -428,10 +428,6 @@ function formatDate(iso: string): string {
           <template #icon><ReloadOutlined /></template>
           刷新
         </Button>
-        <Button @click="startAddCategory(domains.length === 1 ? domains[0].id : '')">
-          <template #icon><FolderAddOutlined /></template>
-          添加子目录
-        </Button>
         <Button type="primary" @click="emit('create')">
           <template #icon><PlusOutlined /></template>
           新建接口
@@ -441,13 +437,17 @@ function formatDate(iso: string): string {
 
     <div v-for="group in (() => {
       const kw = searchKeyword.trim().toLowerCase()
-      const map: Record<string, { categoryKey: string; categoryName: string; domainId: string | null; apis: ApiConfigItem[]; allIds: string[]; totalCount: number }> = {}
+      const domainNameSet = new Set(domains.map(d => d.name))
+      const map: Record<string, { categoryKey: string; categoryName: string; domainId: string | null; groupType: 'domain' | 'category' | 'none'; apis: ApiConfigItem[]; allIds: string[]; totalCount: number }> = {}
       for (const d of domains) {
-        map[d.name] = { categoryKey: d.name, categoryName: d.name, domainId: d.id, apis: [], allIds: [], totalCount: 0 }
+        map[d.name] = { categoryKey: d.name, categoryName: d.name, domainId: d.id, groupType: 'domain', apis: [], allIds: [], totalCount: 0 }
       }
       for (const api of items) {
         const key = api.category || api.domainName || '__none__'
-        if (!map[key]) map[key] = { categoryKey: key, categoryName: key === '__none__' ? '未归类' : key, domainId: null, apis: [], allIds: [], totalCount: 0 }
+        if (!map[key]) {
+          const isDomain = domainNameSet.has(key)
+          map[key] = { categoryKey: key, categoryName: key === '__none__' ? '未归类' : key, domainId: isDomain ? domains.find(d => d.name === key)!.id : null, groupType: isDomain ? 'domain' : key === '__none__' ? 'none' : 'category', apis: [], allIds: [], totalCount: 0 }
+        }
         map[key].totalCount++
         map[key].allIds.push(api.id)
         if (!kw || api.name.toLowerCase().includes(kw) || api.path.toLowerCase().includes(kw)) {
@@ -465,8 +465,19 @@ function formatDate(iso: string): string {
         <span class="group-arrow">{{ collapsedGroups.has(group.categoryKey) ? '▶' : '▼' }}</span>
         <span class="group-title">{{ group.categoryName }} ({{ group.totalCount }})</span>
         <Button size="small" class="group-add-btn" @click.stop="handleExportByCategory(group.allIds)"><ExportOutlined /></Button>
-        <Button size="small" class="group-add-btn" @click.stop="handleCreateInCategory(group.categoryKey === '__none__' ? null : group.categoryName)">+</Button>
-        <template v-if="group.domainId && group.categoryKey !== '__none__'">
+        <Button size="small" class="group-add-btn" @click.stop="handleCreateInCategory(group.categoryKey === '__none__' ? null : group.categoryName, group.domainId)">+</Button>
+        <template v-if="group.groupType === 'domain'">
+          <Button size="small" class="group-add-btn" @click.stop="startAddCategory(group.domainId!)" title="添加子目录"><FolderAddOutlined /></Button>
+          <Popconfirm
+            :title="`确定删除目录'${group.categoryName}'及其下的 ${group.totalCount} 个接口？此操作不可恢复`"
+            ok-text="确定"
+            cancel-text="取消"
+            @confirm="handleDeleteDirectory(group.domainId!, group.categoryName)"
+          >
+            <Button size="small" class="group-add-btn" @click.stop title="删除目录"><DeleteOutlined /></Button>
+          </Popconfirm>
+        </template>
+        <template v-else-if="group.groupType === 'category'">
           <Button size="small" class="group-add-btn" @click.stop="startRenameCategory(group.domainId!, group.categoryName)" title="重命名"><EditOutlined /></Button>
           <Popconfirm
             :title="`确定删除子目录'${group.categoryName}'？其下的接口将归入未分类`"
@@ -477,15 +488,6 @@ function formatDate(iso: string): string {
             <Button size="small" class="group-add-btn" @click.stop title="删除子目录"><DeleteOutlined /></Button>
           </Popconfirm>
         </template>
-        <Popconfirm
-          v-if="group.categoryKey !== '__none__' && group.domainId"
-          :title="`确定删除目录'${group.categoryName}'及其下的 ${group.totalCount} 个接口？此操作不可恢复`"
-          ok-text="确定"
-          cancel-text="取消"
-          @confirm="handleDeleteDirectory(group.domainId!, group.categoryName)"
-        >
-          <Button size="small" class="group-add-btn" @click.stop><DeleteOutlined /></Button>
-        </Popconfirm>
       </div>
       <div v-if="editingCategory && editingCategory.domainId === group.domainId && editingCategory.oldName === group.categoryKey" style="padding: 8px 16px; background: #f0f5ff;">
         <Space>
