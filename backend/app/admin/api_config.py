@@ -199,6 +199,40 @@ def get_api(api_id: str) -> dict:
     return {"code": 0, "data": detail.model_dump(mode="json", by_alias=True), "message": "ok"}
 
 
+# POST /admin/api/apis/{api_id}/duplicate
+@router.post("/apis/{api_id}/duplicate")
+def duplicate_api(api_id: str) -> dict:
+    with transaction() as conn:
+        row = conn.execute("SELECT * FROM api_configs WHERE id = ?", (api_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="接口不存在")
+        new_id = _new_id()
+        original_name = row["name"]
+        original_path = row["path"]
+        new_name = f"{original_name}(副本)"
+        new_path = f"{original_path}_copy"
+        suffix = 2
+        while True:
+            conflict = conn.execute(
+                "SELECT id FROM api_configs WHERE method = ? AND path = ?",
+                (row["method"], new_path),
+            ).fetchone()
+            if not conflict:
+                break
+            new_path = f"{original_path}_copy{suffix}"
+            suffix += 1
+        conn.execute(
+            """INSERT INTO api_configs
+               (id, name, method, path, enabled, group_name, data_source,
+                topology_id, sql_text, config, domain_id, category)
+               VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)""",
+            (new_id, new_name, row["method"], new_path, row["group_name"],
+             row["data_source"], row["topology_id"], row["sql_text"],
+             row["config"], row["domain_id"], row["category"]),
+        )
+    return {"code": 0, "data": {"id": new_id}, "message": "ok"}
+
+
 # POST /admin/api/apis
 @router.post("/apis", response_model=ApiConfigDetailResponse)
 def create_api(body: ApiConfigCreate) -> dict:
