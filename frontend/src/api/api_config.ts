@@ -162,4 +162,10 @@ export const apiConfigApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
     }).then(r => r.data.data)
   },
+
+  duplicate: (id: string): Promise<{ id: string }> =>
+    apiPost(`/apis/${id}/duplicate`),
+
+  batchCategory: (apiIds: string[], category: string | null): Promise<{ updated: number }> =>
+    apiPut('/apis/batch-category', { apiIds, category }),
 }

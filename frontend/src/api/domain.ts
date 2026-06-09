@@ -31,4 +31,13 @@ export const domainApi = {
 
   delete: (id: string): Promise<{ id: string }> =>
     apiDelete(`/domains/${id}`),
+
+  fetchCategories: (domainId: string): Promise<string[]> =>
+    apiGet(`/domains/${domainId}/categories`),
+
+  renameCategory: (domainId: string, name: string, newName: string): Promise<{ domainId: string; oldName: string; newName: string }> =>
+    apiPut(`/domains/${domainId}/categories/${name}`, { newName }),
+
+  deleteCategory: (domainId: string, name: string): Promise<{ domainId: string; name: string }> =>
+    apiDelete(`/domains/${domainId}/categories/${name}`),
 }
