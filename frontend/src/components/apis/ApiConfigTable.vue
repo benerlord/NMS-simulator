@@ -12,7 +12,7 @@ import {
   message,
   Modal,
 } from 'ant-design-vue'
-import { SearchOutlined, ReloadOutlined, PlusOutlined, ExportOutlined, ImportOutlined, DeleteOutlined, CopyOutlined } from '@ant-design/icons-vue'
+import { SearchOutlined, ReloadOutlined, PlusOutlined, ExportOutlined, ImportOutlined, DeleteOutlined, CopyOutlined, FolderAddOutlined, EditOutlined } from '@ant-design/icons-vue'
 import { apiConfigApi } from '@/api/api_config'
 import { downloadBlob, timestampExcelFilename } from '@/utils/download'
 import type { ApiConfigItem, HttpMethod } from '@/api/api_config'
@@ -41,6 +41,8 @@ const emit = defineEmits<{
   (e: 'create', category?: string | null): void
   (e: 'edit', id: string): void
   (e: 'duplicate', id: string): void
+  (e: 'renameCategory', domainId: string, oldName: string, newName: string): void
+  (e: 'deleteCategory', domainId: string, name: string): void
 }>()
 
 const methodFilter = ref<HttpMethod | undefined>(undefined)
@@ -163,6 +165,47 @@ async function handleDuplicate(record: ApiConfigItem) {
     message.success('接口已复制')
     emit('duplicate', result.id)
   } catch {}
+}
+
+const editingCategory = ref<{ domainId: string; oldName: string } | null>(null)
+const editingCategoryName = ref('')
+const newCategoryDomainId = ref<string | null>(null)
+const newCategoryName = ref('')
+
+function startRenameCategory(domainId: string, name: string) {
+  editingCategory.value = { domainId, oldName: name }
+  editingCategoryName.value = name
+}
+
+function confirmRenameCategory() {
+  if (editingCategory.value && editingCategoryName.value.trim()) {
+    emit('renameCategory', editingCategory.value.domainId, editingCategory.value.oldName, editingCategoryName.value.trim())
+    editingCategory.value = null
+  }
+}
+
+function cancelRenameCategory() {
+  editingCategory.value = null
+}
+
+function handleDeleteCategory(domainId: string, name: string) {
+  emit('deleteCategory', domainId, name)
+}
+
+function startAddCategory(domainId: string) {
+  newCategoryDomainId.value = domainId
+  newCategoryName.value = ''
+}
+
+function confirmAddCategory() {
+  if (newCategoryDomainId.value && newCategoryName.value.trim()) {
+    emit('create', newCategoryName.value.trim())
+    newCategoryDomainId.value = null
+  }
+}
+
+function cancelAddCategory() {
+  newCategoryDomainId.value = null
 }
 
 function handleImportClick() {
@@ -385,6 +428,10 @@ function formatDate(iso: string): string {
           <template #icon><ReloadOutlined /></template>
           刷新
         </Button>
+        <Button @click="startAddCategory(domains.length === 1 ? domains[0].id : '')">
+          <template #icon><FolderAddOutlined /></template>
+          添加子目录
+        </Button>
         <Button type="primary" @click="emit('create')">
           <template #icon><PlusOutlined /></template>
           新建接口
@@ -419,6 +466,17 @@ function formatDate(iso: string): string {
         <span class="group-title">{{ group.categoryName }} ({{ group.totalCount }})</span>
         <Button size="small" class="group-add-btn" @click.stop="handleExportByCategory(group.allIds)"><ExportOutlined /></Button>
         <Button size="small" class="group-add-btn" @click.stop="handleCreateInCategory(group.categoryKey === '__none__' ? null : group.categoryName)">+</Button>
+        <template v-if="group.domainId && group.categoryKey !== '__none__'">
+          <Button size="small" class="group-add-btn" @click.stop="startRenameCategory(group.domainId!, group.categoryName)" title="重命名"><EditOutlined /></Button>
+          <Popconfirm
+            :title="`确定删除子目录'${group.categoryName}'？其下的接口将归入未分类`"
+            ok-text="确定"
+            cancel-text="取消"
+            @confirm="handleDeleteCategory(group.domainId!, group.categoryName)"
+          >
+            <Button size="small" class="group-add-btn" @click.stop title="删除子目录"><DeleteOutlined /></Button>
+          </Popconfirm>
+        </template>
         <Popconfirm
           v-if="group.categoryKey !== '__none__' && group.domainId"
           :title="`确定删除目录'${group.categoryName}'及其下的 ${group.totalCount} 个接口？此操作不可恢复`"
@@ -428,6 +486,13 @@ function formatDate(iso: string): string {
         >
           <Button size="small" class="group-add-btn" @click.stop><DeleteOutlined /></Button>
         </Popconfirm>
+      </div>
+      <div v-if="editingCategory && editingCategory.domainId === group.domainId && editingCategory.oldName === group.categoryKey" style="padding: 8px 16px; background: #f0f5ff;">
+        <Space>
+          <Input v-model:value="editingCategoryName" size="small" style="width: 200px" @pressEnter="confirmRenameCategory" />
+          <Button size="small" type="primary" @click="confirmRenameCategory">确定</Button>
+          <Button size="small" @click="cancelRenameCategory">取消</Button>
+        </Space>
       </div>
       <div v-show="!collapsedGroups.has(group.categoryKey)" class="domain-group-body">
         <Table
@@ -495,6 +560,15 @@ function formatDate(iso: string): string {
     <div v-if="items.length === 0 && domains.length === 0" style="text-align: center; padding: 48px 0; color: rgba(0,0,0,0.35);">
       暂无接口配置
     </div>
+
+    <Modal
+      v-model:open="newCategoryDomainId"
+      title="添加子目录"
+      @ok="confirmAddCategory"
+      @cancel="cancelAddCategory"
+    >
+      <Input v-model:value="newCategoryName" placeholder="请输入子目录名称" @pressEnter="confirmAddCategory" />
+    </Modal>
   </div>
 </template>
 
