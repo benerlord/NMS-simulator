@@ -43,9 +43,9 @@ EDGE_JOIN_COLUMNS: list[str] = [
     "target_group_id",
 ]
 
-GENERIC_VIEW_NAMES: list[str] = ["nodes", "edges", "children", "node_groups", "group_nodes", "group_edges", "topology_nodes", "topology_edges"]
+GENERIC_VIEW_NAMES: list[str] = ["gn_seq", "nodes", "edges", "children", "node_groups", "group_nodes", "group_edges", "topology_nodes", "topology_edges"]
 
-_RESERVED_NAMES: set[str] = {"nodes", "edges", "children", "node_groups", "group_nodes", "group_edges", "topology_nodes", "topology_edges"}
+_RESERVED_NAMES: set[str] = {"gn_seq", "nodes", "edges", "children", "node_groups", "group_nodes", "group_edges", "topology_nodes", "topology_edges"}
 
 
 def is_valid_ident(s: str) -> bool:
@@ -58,11 +58,14 @@ def _fetch_used_node_types(conn: sqlite3.Connection, topology_id: str) -> list[d
         """
         SELECT DISTINCT nt.id, nt.code, nt.name
         FROM node_types nt
-        JOIN nodes n ON n.node_type_id = nt.id
-        WHERE n.topology_id = ?
+        WHERE nt.id IN (
+            SELECT node_type_id FROM nodes WHERE topology_id = ?
+            UNION
+            SELECT node_type_id FROM node_groups WHERE topology_id = ?
+        )
         ORDER BY nt.code
         """,
-        (topology_id,),
+        (topology_id, topology_id),
     ).fetchall()
     return [{"id": r["id"], "code": r["code"], "name": r["name"]} for r in rows]
 
@@ -109,6 +112,9 @@ def build_node_type_cte(code: str, type_id: str, field_keys: list[str]) -> dict[
     """Return `{name, columns, sql}` for a node_type CTE.
 
     Emits SELECT body only (caller wraps with `WITH <name> AS (...)`).
+    Includes both physical nodes (from main.nodes) and virtual group nodes
+    (from the `gn_seq` + `group_nodes` CTEs) so that type-specific views
+    like `switch` can query all nodes of that type.
     """
     columns = list(NODE_FIXED_COLUMNS)
     pivots: list[str] = []
@@ -123,6 +129,11 @@ def build_node_type_cte(code: str, type_id: str, field_keys: list[str]) -> dict[
     select_lines = fixed + pivots
     select_body = ",\n         ".join(select_lines)
 
+    # Virtual group nodes: NULL for all pivoted attr columns (no real attrs stored)
+    gn_fixed = [f"gn.{c}" for c in NODE_FIXED_COLUMNS]
+    gn_nulls = [f"NULL AS {key}" for key in field_keys if key not in NODE_FIXED_COLUMNS]
+    gn_select_body = ",\n         ".join(gn_fixed + gn_nulls)
+
     # type_id is a generated string like `nt_switch` from seed; bind-safe as literal
     # since it comes from DB rows we just read.
     sql = (
@@ -131,7 +142,14 @@ def build_node_type_cte(code: str, type_id: str, field_keys: list[str]) -> dict[
         "  LEFT JOIN node_attrs a ON a.node_id = n.id\n"
         "  WHERE n.topology_id = :__tid__\n"
         f"    AND n.node_type_id = '{type_id}'\n"
-        "  GROUP BY n.id"
+        "  GROUP BY n.id\n"
+        "\n"
+        "UNION ALL\n"
+        "\n"
+        f"SELECT {gn_select_body}\n"
+        "  FROM group_nodes gn\n"
+        f"  WHERE gn.node_type_id = '{type_id}'\n"
+        "  GROUP BY gn.id"
     )
     return {"name": code, "columns": columns, "sql": sql}
 
@@ -168,23 +186,36 @@ def build_edge_type_cte(code: str, type_id: str, field_keys: list[str]) -> dict[
     return {"name": code, "columns": columns, "sql": sql}
 
 
-def _build_group_nodes_cte() -> dict[str, Any]:
-    """Virtual node generation from node_groups definitions via recursive CTE.
+def _build_gn_seq_cte() -> dict[str, Any]:
+    """Recursive sequence generator for node groups.
 
-    No materialization required — generates rows on-the-fly from name_template
-    and node_count.  Capped at 100 000 per group to prevent runaway recursion.
+    Generates (grp_id, idx) pairs from 1 to node_count for each group.
+    Extracted as a standalone CTE so that both `group_nodes` and type-specific
+    node views can reference it.  Capped at 100 000 per group.
     """
     sql = (
-        "WITH RECURSIVE\n"
-        "gn_seq(grp_id, idx) AS (\n"
-        "    SELECT id, 1 FROM main.node_groups\n"
-        "     WHERE topology_id = :__tid__ AND node_count > 0\n"
-        "    UNION ALL\n"
-        "    SELECT s.grp_id, s.idx + 1\n"
-        "    FROM gn_seq s\n"
-        "    JOIN main.node_groups ng ON ng.id = s.grp_id\n"
-        "    WHERE s.idx < ng.node_count AND s.idx < 100000\n"
-        ")\n"
+        "SELECT id AS grp_id, 1 AS idx FROM main.node_groups\n"
+        "  WHERE topology_id = :__tid__ AND node_count > 0\n"
+        "UNION ALL\n"
+        "SELECT s.grp_id, s.idx + 1\n"
+        "  FROM gn_seq s\n"
+        "  JOIN main.node_groups ng ON ng.id = s.grp_id\n"
+        "  WHERE s.idx < ng.node_count AND s.idx < 100000"
+    )
+    return {
+        "name": "gn_seq",
+        "columns": ["grp_id", "idx"],
+        "sql": sql,
+    }
+
+
+def _build_group_nodes_cte() -> dict[str, Any]:
+    """Virtual node generation from node_groups definitions.
+
+    References the `gn_seq` CTE (defined earlier in the same WITH clause)
+    to generate rows on-the-fly from name_template and node_count.
+    """
+    sql = (
         "SELECT\n"
         "    ng.id || '_' || CAST(s.idx AS TEXT) AS id,\n"
         "    ng.topology_id,\n"
@@ -471,6 +502,9 @@ def build_generic_ctes() -> list[dict[str, Any]]:
         "  WHERE topology_id = :__tid__"
     )
     return [
+        # gn_seq must come before group_nodes (which references it) and before
+        # type-specific node views (which also reference group_nodes).
+        _build_gn_seq_cte(),
         {
             "name": "nodes",
             "columns": [
@@ -532,7 +566,9 @@ def collect_views(
         edge_views.append(build_edge_type_cte(et["code"], et["id"], fields))
 
     return {
+        # generic first: gn_seq and group_nodes must be defined before
+        # type-specific views that reference them via UNION ALL.
+        "generic": build_generic_ctes(),
         "nodeViews": node_views,
         "edgeViews": edge_views,
-        "generic": build_generic_ctes(),
     }

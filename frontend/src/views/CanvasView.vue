@@ -1030,7 +1030,7 @@ onBeforeUnmount(() => {
 
     <div class="canvas-content">
       <div class="left-panels">
-        <TypePalette />
+        <TypePalette :topology-id="topologyId" />
         <GroupPalette
           :topology-id="topologyId"
           @create="handleGroupCreate"
@@ -1176,6 +1176,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
+  overflow: hidden;
 }
 
 .canvas-area {

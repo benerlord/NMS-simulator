@@ -40,7 +40,44 @@
       "Bash(awk '{print $5}')",
       "Bash(npm run *)",
       "Bash(taskkill //F //IM \"node.exe\")",
-      "Bash(taskkill //F //IM \"python.exe\")"
+      "Bash(taskkill //F //IM \"python.exe\")",
+      "WebFetch(domain:localhost)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git checkout *)",
+      "Bash(git push *)",
+      "Bash(git branch *)",
+      "Bash(git ls-files *)",
+      "Bash(git pull *)",
+      "Bash(git merge *)",
+      "Bash(grep -v \"\\\\.pyc$\\\\|settings.local\\\\|__pycache__\")",
+      "Bash(printf '{\"name\":\"TC48-Health\",\"method\":\"GET\",\"path\":\"/api/tc48-health\",\"topologyId\":\"topo_cf5fe9492848\",\"dataSource\":\"static\",\"config\":{\"staticBody\":\"{\\\\\\\\\"status\\\\\\\\\":\\\\\\\\\"ok\\\\\\\\\"}\"}}')",
+      "Bash(tasklist //fi \"imagename eq python.exe\")",
+      "Bash(npx playwright *)"
+    ]
+  },
+  "hooks": {
+    "Notification": [
+      {
+        "matcher": "permission_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy RemoteSigned -Command \"Import-Module BurntToast; New-BurntToastNotification -Text 'ClaudeCode', 'Claude Code has requested confirmation' -Sound Default\" && powershell -c \"[System.Media.SystemSounds]::Exclamation.Play()\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy RemoteSigned -Command \"Import-Module BurntToast; New-BurntToastNotification -Text 'ClaudeCode', 'The process is complete' -Sound Default\" && powershell -c \"[System.Media.SystemSounds]::Exclamation.Play()\""
+          }
+        ]
+      }
     ]
   }
 }

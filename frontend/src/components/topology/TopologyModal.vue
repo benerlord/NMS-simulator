@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
-import { Modal, Form, Input } from 'ant-design-vue'
+import { ref, computed, watch, onMounted } from 'vue'
+import { Modal, Form, Input, Select } from 'ant-design-vue'
 import type { TopologyCreate, TopologyUpdate } from '@/api/topology'
+import { domainApi, type DomainItem } from '@/api/domain'
 
 interface Props {
   open: boolean
-  topology?: { id: string; name: string; description: string | null } | null
+  topology?: { id: string; name: string; description: string | null; domainId?: string | null } | null
 }
 
 const props = defineProps<Props>()
@@ -14,17 +15,26 @@ const emit = defineEmits<{
   (e: 'submit', data: TopologyCreate | TopologyUpdate): Promise<void>
 }>()
 
+const domains = ref<DomainItem[]>([])
 const loading = ref(false)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const formRef = ref<{ validateFields?: () => Promise<void> } | null>(null)
 
-const formState = ref<{ name: string; description: string }>({
+const formState = ref<{ name: string; description: string; domainId: string | null }>({
   name: '',
   description: '',
+  domainId: null,
 })
 
 const isEdit = computed(() => !!props.topology)
 const title = computed(() => (isEdit.value ? '编辑拓扑' : '新建拓扑'))
+
+onMounted(async () => {
+  try {
+    const res = await domainApi.list()
+    domains.value = res.items
+  } catch {}
+})
 
 watch(
   () => props.open,
@@ -33,6 +43,7 @@ watch(
       formState.value = {
         name: props.topology?.name ?? '',
         description: props.topology?.description ?? '',
+        domainId: props.topology?.domainId ?? null,
       }
     }
   },
@@ -92,6 +103,25 @@ async function handleSubmit() {
           :rows="3"
           :maxlength="500"
         />
+      </Form.Item>
+
+      <Form.Item
+        label="所属网管/设备"
+        name="domainId"
+      >
+        <Select
+          v-model:value="formState.domainId"
+          placeholder="可选，选择后画布仅展示该网管/设备的节点类型"
+          allow-clear
+        >
+          <Select.Option
+            v-for="d in domains"
+            :key="d.id"
+            :value="d.id"
+          >
+            {{ d.name }}
+          </Select.Option>
+        </Select>
       </Form.Item>
     </Form>
   </Modal>

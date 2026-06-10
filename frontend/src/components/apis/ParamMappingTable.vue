@@ -132,11 +132,13 @@ const columns = [
         </template>
 
         <template v-else-if="column.key === 'bindTo'">
-          <Input
+          <AutoComplete
             :value="modelValue[index].bindTo"
-            placeholder="例：topology_id"
+            :options="nameOptions"
+            :placeholder="availableFieldNames?.length ? '选择或输入列名（snake_case）' : '请先运行 SQL 测试以获取列名'"
             size="small"
-            @update:value="(v: string) => setField(index, 'bindTo', v)"
+            style="width: 100%"
+            @update:value="(v: unknown) => setField(index, 'bindTo', String(v ?? ''))"
           />
         </template>
 

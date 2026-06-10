@@ -1,6 +1,7 @@
 ## 注意事项
 - 每个任务完成之后记录任务进度
 - 前后端测试完成后，要关闭进程，释放端口
+- 回答使用中文
 
 ---
 
@@ -206,6 +207,7 @@ InterfaceTest/
 - **Excel 导入按表头名匹配** — `_build_header_map(ws)` 读取第 1 行构建 `{表头名: 列索引}` 字典，`_col(headers, name, row)` 按名称取值。列顺序可任意调换，只要表头名一致即可
 - **Python 3.9 类型注解** — 不可使用 `str | None`（PEP 604，需 3.10+），必须用 `Optional[str]`
 - **必填校验 + 自动滚动模式** — 校验失败后设置 `fieldErrors`，`await nextTick()` 等待 DOM 更新，`querySelector('.ant-form-item-has-error')` 查找报错元素，`scrollIntoView({ behavior: 'smooth', block: 'center' })` 滚动 + `focus()` 聚焦输入框
+- **网管/设备作用域（Domain）** — `domains` 表代表网管环境，`topologies.domain_id` 绑定拓扑，`domain_node_types` M2M 绑定节点类型。白名单模式：域有绑定时只展示绑定类型，无绑定则默认全部可用。前端菜单/页面显示为"网管/设备"而非"域"，代码层面使用 `domain` 命名
 
 ---
 
@@ -243,6 +245,22 @@ InterfaceTest/
   - 属性策略步骤：必填字段未配置时阻止跳转 + 自动滚动聚焦到报错行
   - 提交时自动过滤未配置的非必填字段策略（避免后端 422）
 - ✅ 画布创建节点必填校验：点击"创建"时自动滚动 + 聚焦第一个未填写的必填字段（`NodeAttrsModal.vue`）
+- ✅ 网管/设备作用域 + 画布面板搜索/折叠优化（commit a9ebb14）：
+  - 新增 domains / domain_node_types 表 + topologies.domain_id 列，网管/设备 CRUD API
+  - 节点类型与网管/设备批量/单个关联 API，list_node_types 支持 domain_id 过滤
+  - 拓扑绑定网管/设备，画布面板仅展示当前拓扑所属网管/设备的节点类型
+  - TypePalette AutoComplete 搜索 + 分类标题折叠 + 单分类内容区独立滚动（max-height: 240px）
+  - NodeTypeTable 批量操作合并为 Dropdown（关联网管/设备 / 解除关联 / 批量删除）+ 所属网管/设备 Tag 列
+  - TopologyModal 新增所属网管/设备选择器
+  - 左侧面板 overflow 约束防止画布被推动滚动
+- ✅ 接口分类优化（commit 3145ece）：api_configs 新增 domain_id / category 列，接口管理页面改为网管/设备目录式分组视图（可折叠 + 搜索跨目录过滤 + 目录自动同步）
+- ✅ 多端口实例管理（commit 待提交）：
+  - 新增 mock_instances 表 + CRUD API + 前端实例管理页面
+  - 实例绑定拓扑（而非直接绑域），自动继承拓扑下所有接口
+  - InstanceRunner 进程管理器：启用实例自动启动 uvicorn 子进程，禁用/删除自动终止
+  - `instance_app.py` 子进程入口：按 topology_id 过滤接口，不暴露管理 API
+- ✅ 接口导出/导入：JSON 格式导出（全部/按目录/按勾选）+ 导入预览确认框
+- ✅ SQL 列名格式统一：SqlRunner 测试运行后自动提取 snake_case 列名，响应模板提示列名格式，参数映射 bindTo 改为 AutoComplete
 
 ### 待开发
 - 编辑组定义打开 GroupCreateModal（目前右键"编辑组定义"已 emit 事件但 CanvasView 尚未接入 editGroupId）

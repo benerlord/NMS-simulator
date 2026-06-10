@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, UploadFile, File
 
 from app.core.response_template import TemplateRenderError, render_template
 from app.core.sql_executor import SqlValidationError, execute_paged
@@ -24,6 +24,7 @@ from app.admin.schemas import (
     ApiTestResponse,
     ApiTestResult,
 )
+from app.admin.schemas.api_config import BatchCategoryUpdate
 
 router = APIRouter(prefix="/admin/api", tags=["接口配置"])
 
@@ -50,6 +51,9 @@ def _row_to_item(row) -> ApiConfigItem:
         path=row["path"],
         enabled=bool(row["enabled"]),
         group_name=row["group_name"],
+        domain_id=row["domain_id"] if "domain_id" in row.keys() else None,
+        domain_name=row["domain_name"] if "domain_name" in row.keys() else None,
+        category=row["category"] if "category" in row.keys() else None,
         data_source=row["data_source"],
         topology_id=row["topology_id"],
         created_at=_parse_dt(row["created_at"]),
@@ -69,6 +73,9 @@ def _row_to_detail(row) -> ApiConfigDetail:
         path=row["path"],
         enabled=bool(row["enabled"]),
         group_name=row["group_name"],
+        domain_id=row["domain_id"] if "domain_id" in row.keys() else None,
+        domain_name=row["domain_name"] if "domain_name" in row.keys() else None,
+        category=row["category"] if "category" in row.keys() else None,
         data_source=row["data_source"],
         topology_id=row["topology_id"],
         sql_text=row["sql_text"],
@@ -113,6 +120,7 @@ def _ensure_api_exists(conn, api_id: str):
 @router.get("/apis", response_model=ApiConfigListResponse)
 def list_apis(
     group_name: Optional[str] = Query(None, alias="groupName"),
+    domain_id: Optional[str] = Query(None, alias="domainId"),
     enabled: Optional[bool] = Query(None),
     topology_id: Optional[str] = Query(None, alias="topologyId"),
     method: Optional[str] = Query(None),
@@ -123,19 +131,22 @@ def list_apis(
     conditions: list[str] = []
     params: list[Any] = []
     if group_name is not None:
-        conditions.append("group_name = ?")
+        conditions.append("a.group_name = ?")
         params.append(group_name)
+    if domain_id is not None:
+        conditions.append("a.domain_id = ?")
+        params.append(domain_id)
     if enabled is not None:
-        conditions.append("enabled = ?")
+        conditions.append("a.enabled = ?")
         params.append(1 if enabled else 0)
     if topology_id is not None:
-        conditions.append("topology_id = ?")
+        conditions.append("a.topology_id = ?")
         params.append(topology_id)
     if method is not None:
-        conditions.append("method = ?")
+        conditions.append("a.method = ?")
         params.append(method.upper())
     if path is not None:
-        conditions.append("path LIKE ?")
+        conditions.append("a.path LIKE ?")
         params.append(f"%{path}%")
 
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
@@ -143,12 +154,15 @@ def list_apis(
 
     with connect() as conn:
         total = conn.execute(
-            f"SELECT COUNT(*) FROM api_configs {where}", params
+            f"SELECT COUNT(*) FROM api_configs a {where}", params
         ).fetchone()[0]
         rows = conn.execute(
             f"""
-            SELECT * FROM api_configs {where}
-            ORDER BY updated_at DESC
+            SELECT a.*, d.name AS domain_name
+            FROM api_configs a
+            LEFT JOIN domains d ON d.id = a.domain_id
+            {where}
+            ORDER BY a.updated_at DESC
             LIMIT ? OFFSET ?
             """,
             params + [page_size, offset],
@@ -171,9 +185,53 @@ def list_apis(
 @router.get("/apis/{api_id}", response_model=ApiConfigDetailResponse)
 def get_api(api_id: str) -> dict:
     with connect() as conn:
-        row = _ensure_api_exists(conn, api_id)
+        row = conn.execute("""
+            SELECT a.*, d.name AS domain_name
+            FROM api_configs a
+            LEFT JOIN domains d ON d.id = a.domain_id
+            WHERE a.id = ?
+        """, (api_id,)).fetchone()
+        if not row:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": 40302, "message": "接口不存在", "details": {"apiId": api_id}},
+            )
         detail = _row_to_detail(row)
     return {"code": 0, "data": detail.model_dump(mode="json", by_alias=True), "message": "ok"}
+
+
+# POST /admin/api/apis/{api_id}/duplicate
+@router.post("/apis/{api_id}/duplicate")
+def duplicate_api(api_id: str) -> dict:
+    with transaction() as conn:
+        row = conn.execute("SELECT * FROM api_configs WHERE id = ?", (api_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="接口不存在")
+        new_id = _new_id()
+        original_name = row["name"]
+        original_path = row["path"]
+        new_name = f"{original_name}(副本)"
+        new_path = f"{original_path}_copy"
+        suffix = 2
+        while True:
+            conflict = conn.execute(
+                "SELECT id FROM api_configs WHERE method = ? AND path = ?",
+                (row["method"], new_path),
+            ).fetchone()
+            if not conflict:
+                break
+            new_path = f"{original_path}_copy{suffix}"
+            suffix += 1
+        conn.execute(
+            """INSERT INTO api_configs
+               (id, name, method, path, enabled, group_name, data_source,
+                topology_id, sql_text, config, domain_id, category)
+               VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)""",
+            (new_id, new_name, row["method"], new_path, row["group_name"],
+             row["data_source"], row["topology_id"], row["sql_text"],
+             row["config"], row["domain_id"], row["category"]),
+        )
+    return {"code": 0, "data": {"id": new_id}, "message": "ok"}
 
 
 # POST /admin/api/apis
@@ -223,9 +281,9 @@ def create_api(body: ApiConfigCreate) -> dict:
         conn.execute(
             """
             INSERT INTO api_configs
-              (id, name, method, path, enabled, group_name, data_source,
-               topology_id, sql_text, config, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              (id, name, method, path, enabled, group_name, domain_id, category,
+               data_source, topology_id, sql_text, config, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 api_id,
@@ -234,6 +292,8 @@ def create_api(body: ApiConfigCreate) -> dict:
                 body.path,
                 1 if body.enabled else 0,
                 body.group_name,
+                body.domain_id,
+                body.category,
                 body.data_source,
                 body.topology_id,
                 body.sql_text,
@@ -280,6 +340,12 @@ def update_api(api_id: str, body: ApiConfigUpdate) -> dict:
     if body.group_name is not None:
         updates.append("group_name = ?")
         params.append(body.group_name)
+    if body.domain_id is not None:
+        updates.append("domain_id = ?")
+        params.append(body.domain_id)
+    if body.category is not None:
+        updates.append("category = ?")
+        params.append(body.category)
     if body.data_source is not None:
         updates.append("data_source = ?")
         params.append(body.data_source)
@@ -679,3 +745,202 @@ def test_api(api_id: str, body: ApiTestRequest) -> dict:
         "data": result.model_dump(mode="json", by_alias=True),
         "message": "ok",
     }
+
+
+# ============== Export / Import ==============
+
+@router.post("/apis/export")
+def export_apis(data: dict) -> dict:
+    """导出接口为 JSON"""
+    ids = data.get("ids")
+    domain_id = data.get("domainId")
+    with connect() as conn:
+        if ids:
+            placeholders = ",".join("?" for _ in ids)
+            rows = conn.execute(
+                f"SELECT * FROM api_configs WHERE id IN ({placeholders}) ORDER BY method, path",
+                tuple(ids),
+            ).fetchall()
+        elif domain_id:
+            rows = conn.execute(
+                "SELECT * FROM api_configs WHERE domain_id = ? ORDER BY method, path",
+                (domain_id,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM api_configs ORDER BY method, path"
+            ).fetchall()
+        apis = []
+        for r in rows:
+            item = dict(r)
+            try:
+                item["config"] = json.loads(r["config"]) if r["config"] else {}
+            except json.JSONDecodeError:
+                item["config"] = {}
+            apis.append(item)
+    return {
+        "code": 0,
+        "data": {
+            "schemaVersion": "1.0",
+            "exportedAt": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "apis": apis,
+        },
+        "message": "ok",
+    }
+
+
+@router.post("/apis/import")
+async def import_apis(file: UploadFile = File(...)) -> dict:
+    """导入 JSON 文件，以 (method, path) 匹配新建或覆盖"""
+    if not file.filename or not file.filename.endswith('.json'):
+        raise HTTPException(
+            status_code=400,
+            detail={"code": 40410, "message": "仅支持 .json 文件"},
+        )
+
+    contents = await file.read()
+    try:
+        doc = json.loads(contents)
+    except json.JSONDecodeError:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": 40411, "message": "JSON 解析失败"},
+        )
+
+    apis = doc.get("apis", [])
+    if not isinstance(apis, list):
+        raise HTTPException(
+            status_code=400,
+            detail={"code": 40412, "message": "格式无效：缺少 apis 数组"},
+        )
+
+    created = 0
+    updated = 0
+    errors: list[str] = []
+    auto_created_domains: list[str] = []
+
+    with transaction() as conn:
+        # 预扫描所有待导入接口的 category，自动创建不存在的 domain
+        categories_to_check: set[str] = set()
+        for api_data in apis:
+            cat = api_data.get("category")
+            if cat and isinstance(cat, str) and cat.strip():
+                categories_to_check.add(cat.strip())
+
+        for cat_name in categories_to_check:
+            existing_dom = conn.execute(
+                "SELECT id FROM domains WHERE name = ?", (cat_name,)
+            ).fetchone()
+            if not existing_dom:
+                dom_id = f"dom_{uuid.uuid4().hex[:12]}"
+                conn.execute(
+                    "INSERT INTO domains (id, name, description) VALUES (?, ?, ?)",
+                    (dom_id, cat_name, f"导入时自动创建"),
+                )
+                auto_created_domains.append(cat_name)
+
+        for api_data in apis:
+            method = api_data.get("method")
+            path = api_data.get("path")
+            if not method or not path:
+                errors.append("缺少 method/path，跳过")
+                continue
+
+            # 兼容 snake_case（后端导出）和 camelCase（前端导出）两种格式
+            domain_id = api_data.get("domain_id") or api_data.get("domainId")
+            name = api_data.get("name", "")
+            data_source = api_data.get("data_source") or api_data.get("dataSource") or "static"
+            topology_id = api_data.get("topology_id") or api_data.get("topologyId")
+            sql_text = api_data.get("sql_text") or api_data.get("sqlText")
+            config = api_data.get("config", {})
+            enabled = api_data.get("enabled", 1)
+            group_name = api_data.get("group_name") or api_data.get("groupName")
+            category = api_data.get("category")
+
+            # 如果有 category 但没有 domain_id，通过 category 名匹配 domain
+            if category and not domain_id:
+                matched = conn.execute(
+                    "SELECT id FROM domains WHERE name = ?", (category,)
+                ).fetchone()
+                if matched:
+                    domain_id = matched["id"]
+
+            # 以 domain_id + method + path 匹配
+            existing = conn.execute(
+                "SELECT id FROM api_configs WHERE domain_id IS ? AND method = ? AND path = ?",
+                (domain_id, method, path),
+            ).fetchone()
+
+            if existing:
+                conn.execute(
+                    """UPDATE api_configs SET name=?, data_source=?, topology_id=?,
+                       sql_text=?, config=?, enabled=?, group_name=?, domain_id=?,
+                       category=?, updated_at=datetime('now')
+                       WHERE id=?""",
+                    (name, data_source, topology_id, sql_text,
+                     json.dumps(config, ensure_ascii=False), enabled, group_name,
+                     domain_id, category, existing["id"]),
+                )
+                updated += 1
+            else:
+                api_id = _new_id()
+                conn.execute(
+                    """INSERT INTO api_configs
+                       (id, name, method, path, enabled, group_name, domain_id,
+                        category, data_source, topology_id, sql_text, config)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (api_id, name, method, path, enabled, group_name, domain_id,
+                     category, data_source, topology_id, sql_text,
+                     json.dumps(config, ensure_ascii=False)),
+                )
+                created += 1
+
+    return {
+        "code": 0,
+        "data": {
+            "created": created,
+            "updated": updated,
+            "errors": errors,
+            "autoCreatedDomains": auto_created_domains,
+        },
+        "message": "ok",
+    }
+
+
+@router.delete("/apis/directory/{domain_id}")
+def delete_directory(domain_id: str) -> dict:
+    """删除指定域下的所有接口 + 删除域本身。同时按 domain_id 和 category（域名）匹配。"""
+    with transaction() as conn:
+        existing = conn.execute(
+            "SELECT id, name FROM domains WHERE id = ?", (domain_id,)
+        ).fetchone()
+        if not existing:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": 40420, "message": "目录不存在"},
+            )
+        domain_name = existing["name"]
+        # 按 domain_id 或 category（域名）删除，确保导入数据也能被清理
+        api_result = conn.execute(
+            "DELETE FROM api_configs WHERE domain_id = ? OR category = ?",
+            (domain_id, domain_name),
+        )
+        deleted_apis = api_result.rowcount
+        conn.execute("DELETE FROM domains WHERE id = ?", (domain_id,))
+    return {
+        "code": 0,
+        "data": {"deletedApis": deleted_apis, "deletedDirectory": 1},
+        "message": "ok",
+    }
+
+
+# PUT /admin/api/apis/batch-category
+@router.put("/apis/batch-category")
+def batch_update_category(data: BatchCategoryUpdate) -> dict:
+    with transaction() as conn:
+        placeholders = ",".join("?" for _ in data.api_ids)
+        conn.execute(
+            f"UPDATE api_configs SET category = ?, updated_at = datetime('now') WHERE id IN ({placeholders})",
+            [data.category] + data.api_ids,
+        )
+    return {"code": 0, "data": {"updated": len(data.api_ids)}, "message": "ok"}

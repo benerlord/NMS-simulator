@@ -5,6 +5,7 @@ import { message } from 'ant-design-vue'
 import ApiConfigTable from '@/components/apis/ApiConfigTable.vue'
 import ApiConfigModal from '@/components/apis/ApiConfigModal.vue'
 import { useApiConfigs } from '@/composables/useApiConfigs'
+import { domainApi, type DomainItem } from '@/api/domain'
 import type { ApiConfigCreate, ApiConfigUpdate } from '@/api/api_config'
 
 const {
@@ -24,18 +25,33 @@ const {
 
 const modalOpen = ref(false)
 const editingApiId = ref<string | null>(null)
+const presetCategory = ref<string | null>(null)
+const presetDomainId = ref<string | null>(null)
+const domains = ref<DomainItem[]>([])
+
+async function fetchDomains() {
+  try {
+    const res = await domainApi.list()
+    domains.value = res.items
+  } catch {}
+}
 
 onMounted(() => {
   fetchApis()
+  fetchDomains()
 })
 
-function handleCreate() {
+function handleCreate(category?: string | null, domainId?: string | null) {
   editingApiId.value = null
+  presetCategory.value = category ?? null
+  presetDomainId.value = domainId ?? null
   modalOpen.value = true
 }
 
 function handleEdit(id: string) {
   editingApiId.value = id
+  presetCategory.value = null
+  presetDomainId.value = null
   modalOpen.value = true
 }
 
@@ -74,12 +90,36 @@ async function handleDelete(id: string) {
     // http interceptor handles error toast
   }
 }
+
+function handleDuplicate(newId: string) {
+  editingApiId.value = newId
+  presetCategory.value = null
+  presetDomainId.value = null
+  modalOpen.value = true
+}
+
+async function handleRenameCategory(domainId: string, oldName: string, newName: string) {
+  try {
+    await domainApi.renameCategory(domainId, oldName, newName)
+    message.success('子目录已重命名')
+    fetchApis()
+  } catch {}
+}
+
+async function handleDeleteCategory(domainId: string, name: string) {
+  try {
+    await domainApi.deleteCategory(domainId, name)
+    message.success('子目录已删除')
+    fetchApis()
+  } catch {}
+}
 </script>
 
 <template>
   <a-card title="接口配置">
     <ApiConfigTable
       :items="items"
+      :domains="domains"
       :total="total"
       :page="page"
       :page-size="pageSize"
@@ -88,14 +128,19 @@ async function handleDelete(id: string) {
       @filter-change="onFilterChange"
       @toggle-enabled="handleToggleEnabled"
       @delete="handleDelete"
-      @refresh="fetchApis"
+      @refresh="() => { fetchApis(); fetchDomains() }"
       @create="handleCreate"
       @edit="handleEdit"
+      @duplicate="handleDuplicate"
+      @rename-category="handleRenameCategory"
+      @delete-category="handleDeleteCategory"
     />
 
     <ApiConfigModal
       v-model:open="modalOpen"
       :api-id="editingApiId"
+      :preset-category="presetCategory"
+      :preset-domain-id="presetDomainId"
       @create-submit="handleCreateSubmit"
       @update-submit="handleUpdateSubmit"
     />

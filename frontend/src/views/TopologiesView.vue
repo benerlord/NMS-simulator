@@ -31,7 +31,7 @@ const {
 } = useTopologies()
 
 const modalOpen = ref(false)
-const editingTopology = ref<{ id: string; name: string; description: string | null } | null>(null)
+const editingTopology = ref<{ id: string; name: string; description: string | null; domainId?: string | null } | null>(null)
 const router = useRouter()
 const fileInputRef = ref<HTMLInputElement | null>(null)
 
@@ -44,7 +44,7 @@ function handleCreate() {
   modalOpen.value = true
 }
 
-function handleEdit(item: { id: string; name: string; description: string | null }) {
+function handleEdit(item: { id: string; name: string; description: string | null; domainId?: string | null }) {
   editingTopology.value = { ...item }
   modalOpen.value = true
 }

@@ -44,8 +44,10 @@ def validate_readonly(sql: str) -> None:
 
 def _build_cte_prefix(conn: sqlite3.Connection, topology_id: str) -> str:
     views = collect_views(conn, topology_id)
+    # generic first: gn_seq and group_nodes must be defined before
+    # type-specific views that reference them via UNION ALL.
     all_views: list[dict[str, Any]] = (
-        views["nodeViews"] + views["edgeViews"] + views["generic"]
+        views["generic"] + views["nodeViews"] + views["edgeViews"]
     )
     if not all_views:
         return ""
