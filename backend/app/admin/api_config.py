@@ -231,6 +231,11 @@ def duplicate_api(api_id: str) -> dict:
              row["data_source"], row["topology_id"], row["sql_text"],
              row["config"], row["domain_id"], row["category"]),
         )
+        new_method = row["method"]
+
+    from app.mock.registry import registry as mock_registry
+    mock_registry.register(new_id, new_method, new_path)
+
     return {"code": 0, "data": {"id": new_id}, "message": "ok"}
 
 
@@ -384,6 +389,25 @@ def update_api(api_id: str, body: ApiConfigUpdate) -> dict:
                         "details": {"method": new_method, "path": new_path},
                     },
                 )
+
+        # 若本次更新会让接口落到 sql 模式，必须保证 sql_text 非空，避免脏配置入库
+        effective_data_source = (
+            body.data_source if body.data_source is not None else existing["data_source"]
+        )
+        effective_sql_text = (
+            body.sql_text if body.sql_text is not None else existing["sql_text"]
+        )
+        if effective_data_source == "sql" and not (
+            effective_sql_text and effective_sql_text.strip()
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": 40001,
+                    "message": "sqlText 不得为空",
+                    "details": {"field": "sqlText"},
+                },
+            )
 
         updates.append("updated_at = ?")
         params.append(_now())
@@ -818,6 +842,8 @@ async def import_apis(file: UploadFile = File(...)) -> dict:
     updated = 0
     errors: list[str] = []
     auto_created_domains: list[str] = []
+    # 收集新插入接口的 (id, method, path)，事务提交后注册到 mock 路由表
+    new_routes: list[tuple[str, str, str]] = []
 
     with transaction() as conn:
         # 预扫描所有待导入接口的 category，自动创建不存在的 domain
@@ -853,7 +879,8 @@ async def import_apis(file: UploadFile = File(...)) -> dict:
             topology_id = api_data.get("topology_id") or api_data.get("topologyId")
             sql_text = api_data.get("sql_text") or api_data.get("sqlText")
             config = api_data.get("config", {})
-            enabled = api_data.get("enabled", 1)
+            # 强制规范为 0/1，避免 "true"/"false" 等字符串落库后被错判
+            enabled = 1 if bool(api_data.get("enabled", 1)) else 0
             group_name = api_data.get("group_name") or api_data.get("groupName")
             category = api_data.get("category")
 
@@ -894,6 +921,13 @@ async def import_apis(file: UploadFile = File(...)) -> dict:
                      json.dumps(config, ensure_ascii=False)),
                 )
                 created += 1
+                new_routes.append((api_id, method, path))
+
+    # 事务成功后再挂载路由，避免回滚时留下幽灵路由
+    if new_routes:
+        from app.mock.registry import registry as mock_registry
+        for rid, rmethod, rpath in new_routes:
+            mock_registry.register(rid, rmethod, rpath)
 
     return {
         "code": 0,
@@ -920,6 +954,12 @@ def delete_directory(domain_id: str) -> dict:
                 detail={"code": 40420, "message": "目录不存在"},
             )
         domain_name = existing["name"]
+        # 先收集即将被删除的接口 id，事务提交后反注册 mock 路由
+        rows_to_delete = conn.execute(
+            "SELECT id FROM api_configs WHERE domain_id = ? OR category = ?",
+            (domain_id, domain_name),
+        ).fetchall()
+        deleted_api_ids = [r["id"] for r in rows_to_delete]
         # 按 domain_id 或 category（域名）删除，确保导入数据也能被清理
         api_result = conn.execute(
             "DELETE FROM api_configs WHERE domain_id = ? OR category = ?",
@@ -927,6 +967,12 @@ def delete_directory(domain_id: str) -> dict:
         )
         deleted_apis = api_result.rowcount
         conn.execute("DELETE FROM domains WHERE id = ?", (domain_id,))
+
+    if deleted_api_ids:
+        from app.mock.registry import registry as mock_registry
+        for aid in deleted_api_ids:
+            mock_registry.unregister(aid)
+
     return {
         "code": 0,
         "data": {"deletedApis": deleted_apis, "deletedDirectory": 1},

@@ -23,7 +23,8 @@ export function useApiConfigs(options: UseApiConfigsOptions = {}) {
   const loading = ref(false)
 
   const page = ref(options.page ?? 1)
-  const pageSize = ref(options.pageSize ?? 20)
+  // 接口管理用目录树视图，必须一次拉满，否则 ApiConfigTable 分组只看到当前页
+  const pageSize = ref(options.pageSize ?? 500)
   const method = ref<HttpMethod | null>(options.method ?? null)
   const enabled = ref<boolean | null>(options.enabled ?? null)
   const topologyId = ref<string | null>(options.topologyId ?? null)

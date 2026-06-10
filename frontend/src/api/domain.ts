@@ -36,8 +36,8 @@ export const domainApi = {
     apiGet(`/domains/${domainId}/categories`),
 
   renameCategory: (domainId: string, name: string, newName: string): Promise<{ domainId: string; oldName: string; newName: string }> =>
-    apiPut(`/domains/${domainId}/categories/${name}`, { newName }),
+    apiPut(`/domains/${encodeURIComponent(domainId)}/categories/${encodeURIComponent(name)}`, { newName }),
 
   deleteCategory: (domainId: string, name: string): Promise<{ domainId: string; name: string }> =>
-    apiDelete(`/domains/${domainId}/categories/${name}`),
+    apiDelete(`/domains/${encodeURIComponent(domainId)}/categories/${encodeURIComponent(name)}`),
 }
