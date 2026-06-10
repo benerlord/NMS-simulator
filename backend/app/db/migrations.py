@@ -239,6 +239,49 @@ CREATE TABLE IF NOT EXISTS mock_instances (
   UNIQUE (port)
 );
 CREATE INDEX IF NOT EXISTS idx_instances_topo ON mock_instances(topology_id);
+
+CREATE TABLE IF NOT EXISTS alarm_schemas (
+  id              TEXT PRIMARY KEY,
+  code            TEXT NOT NULL UNIQUE,
+  name            TEXT NOT NULL,
+  description     TEXT,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS alarm_schema_fields (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  alarm_schema_id TEXT NOT NULL,
+  field_key       TEXT NOT NULL,
+  field_label     TEXT NOT NULL,
+  field_type      TEXT NOT NULL CHECK (field_type IN ('text','number','select','boolean')),
+  default_value   TEXT,
+  options         TEXT,
+  required        INTEGER NOT NULL DEFAULT 0,
+  max_length      INTEGER,
+  sort_order      INTEGER NOT NULL DEFAULT 0,
+  FOREIGN KEY (alarm_schema_id) REFERENCES alarm_schemas(id) ON DELETE CASCADE,
+  UNIQUE (alarm_schema_id, field_key)
+);
+
+CREATE TABLE IF NOT EXISTS node_alarms (
+  id              TEXT PRIMARY KEY,
+  node_id         TEXT NOT NULL,
+  alarm_index     INTEGER NOT NULL,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_node_alarms_node ON node_alarms(node_id);
+
+CREATE TABLE IF NOT EXISTS node_alarm_attrs (
+  alarm_id        TEXT NOT NULL,
+  field_key       TEXT NOT NULL,
+  value           TEXT,
+  PRIMARY KEY (alarm_id, field_key),
+  FOREIGN KEY (alarm_id) REFERENCES node_alarms(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_node_alarm_attrs_key ON node_alarm_attrs(field_key);
 """
 
 
@@ -296,3 +339,8 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     except sqlite3.OperationalError:
         pass
     conn.execute("CREATE INDEX IF NOT EXISTS idx_logs_instance ON request_logs(instance_id)")
+    # Idempotent column addition for topologies.alarm_schema_id
+    try:
+        conn.execute("ALTER TABLE topologies ADD COLUMN alarm_schema_id TEXT")
+    except sqlite3.OperationalError:
+        pass
