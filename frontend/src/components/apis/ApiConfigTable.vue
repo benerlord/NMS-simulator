@@ -189,8 +189,13 @@ async function handleExport() {
 }
 
 async function handleExportByCategory(apiIds: string[]) {
+  // 空目录直接提示并返回，避免传 {} 给后端被解释成"导出全部"
+  if (apiIds.length === 0) {
+    message.info('该目录下暂无接口可导出')
+    return
+  }
   try {
-    const result = await apiConfigApi.export(apiIds.length > 0 ? { ids: apiIds } : {})
+    const result = await apiConfigApi.export({ ids: apiIds })
     const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' })
     downloadBlob(blob, timestampExcelFilename('apis-export').replace('.xlsx', '.json'))
     message.success(`已导出 ${result.apis.length} 个接口`)
@@ -402,6 +407,22 @@ const columns = [
   { title: '操作', key: 'action', width: 170, fixed: 'right' as const },
 ]
 
+// 每个分组渲染独立 Table，但 selectedApiIds 是全局 Set。
+// onChange 只携带"当前 Table 可见行的新选中状态"，因此合并时必须先剔除该作用域内的旧 id，再加入 keys，
+// 否则会把其它分组的选择整体覆盖掉。
+function buildRowSelection(scopedApis: ApiConfigItem[]) {
+  const scopedIds = scopedApis.map(a => a.id)
+  return {
+    selectedRowKeys: scopedIds.filter(id => selectedApiIds.value.has(id)),
+    onChange: (keys: (string | number)[]) => {
+      const next = new Set(selectedApiIds.value)
+      for (const id of scopedIds) next.delete(id)
+      for (const k of keys) next.add(k as string)
+      selectedApiIds.value = next
+    },
+  }
+}
+
 function formatDate(iso: string): string {
   if (!iso) return '-'
   const d = new Date(iso)
@@ -561,11 +582,7 @@ const groupedDomains = computed(() => {
           :pagination="false"
           size="small"
           row-key="id"
-          :row-selection="{
-            selectedRowKeys: [...selectedApiIds],
-            onChange: (keys: (string | number)[]) => { selectedApiIds.value = new Set(keys as string[]) },
-            onSelectAll: (selected: boolean) => { if (!selected) selectedApiIds.value = new Set() },
-          }"
+          :row-selection="buildRowSelection(group.apis)"
         >
           <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'method'">
@@ -634,11 +651,7 @@ const groupedDomains = computed(() => {
               :pagination="false"
               size="small"
               row-key="id"
-              :row-selection="{
-                selectedRowKeys: [...selectedApiIds],
-                onChange: (keys: (string | number)[]) => { selectedApiIds.value = new Set(keys as string[]) },
-                onSelectAll: (selected: boolean) => { if (!selected) selectedApiIds.value = new Set() },
-              }"
+              :row-selection="buildRowSelection(sub.apis)"
             >
               <template #bodyCell="{ column, record }">
                 <template v-if="column.key === 'method'">
