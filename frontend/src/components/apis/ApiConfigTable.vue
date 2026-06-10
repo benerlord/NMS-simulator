@@ -61,31 +61,69 @@ function toggleGroup(key: string) {
 }
 
 // Auto-collapse all groups by default whenever items or domains change
-// When searching, also auto-collapse groups with no matching results
-function getCategoryKey(api: ApiConfigItem): string {
-  return api.category || api.domainName || '__none__'
-}
-
+// When searching, expand groups that contain matching results
 watch(
   [() => props.items, () => props.domains, searchKeyword],
   () => {
     const kw = searchKeyword.value.trim().toLowerCase()
-    const keys = new Set<string>()
-    for (const d of props.domains) keys.add(d.name)
-    for (const api of props.items) keys.add(getCategoryKey(api))
+    const domainKeys = new Set(props.domains.map(d => d.name))
+    const subGroupKeysByDomain = new Map<string, Set<string>>()
+
+    for (const d of props.domains) {
+      subGroupKeysByDomain.set(d.id, new Set())
+    }
+
+    for (const api of props.items) {
+      const dId = api.domainId || null
+      const cat = api.category
+      if (dId && cat && cat !== props.domains.find(d => d.id === dId)?.name) {
+        subGroupKeysByDomain.get(dId)?.add(cat)
+      }
+    }
+
     if (kw) {
-      for (const key of keys) {
-        const hasMatch = props.items.some(
-          api => getCategoryKey(api) === key && (api.name.toLowerCase().includes(kw) || api.path.toLowerCase().includes(kw)),
-        )
-        if (hasMatch) {
-          collapsedGroups.value.delete(key)
+      const hasDomainMatch = new Map<string, boolean>()
+      const hasSubGroupMatch = new Map<string, boolean>()
+      for (const dk of domainKeys) {
+        hasDomainMatch.set(dk, false)
+      }
+
+      for (const api of props.items) {
+        if (!api.name.toLowerCase().includes(kw) && !api.path.toLowerCase().includes(kw)) continue
+        const dk = api.domainName || null
+        const cat = api.category
+        if (dk && domainKeys.has(dk)) {
+          if (!cat || cat === dk) {
+            hasDomainMatch.set(dk, true)
+          } else {
+            hasSubGroupMatch.set(`${dk}::${cat}`, true)
+          }
+        }
+      }
+
+      for (const dk of domainKeys) {
+        const subKeys = subGroupKeysByDomain.get(props.domains.find(d => d.name === dk)?.id || '') || new Set()
+        const anySubMatch = [...subKeys].some(sg => hasSubGroupMatch.get(`${dk}::${sg}`))
+        if (hasDomainMatch.get(dk) || anySubMatch) {
+          collapsedGroups.value.delete(dk)
         } else {
-          collapsedGroups.value.add(key)
+          collapsedGroups.value.add(dk)
+        }
+        for (const sg of subKeys) {
+          if (hasSubGroupMatch.get(`${dk}::${sg}`)) {
+            collapsedGroups.value.delete(sg)
+          } else {
+            collapsedGroups.value.add(sg)
+          }
         }
       }
     } else {
-      collapsedGroups.value = keys
+      const allKeys = new Set(domainKeys)
+      for (const sgs of subGroupKeysByDomain.values()) {
+        for (const sg of sgs) allKeys.add(sg)
+      }
+      allKeys.add('__none__')
+      collapsedGroups.value = allKeys
     }
   },
   { immediate: true },
@@ -375,6 +413,64 @@ function formatDate(iso: string): string {
     minute: '2-digit',
   })
 }
+
+type SubGroup = { categoryKey: string; categoryName: string; domainId: string; apis: ApiConfigItem[]; allIds: string[]; totalCount: number }
+type DomainGroup = { categoryKey: string; categoryName: string; domainId: string; apis: ApiConfigItem[]; allIds: string[]; totalCount: number; subGroups: SubGroup[] }
+type NoneGroup = { categoryKey: '__none__'; categoryName: string; domainId: null; apis: ApiConfigItem[]; allIds: string[]; totalCount: number; subGroups: SubGroup[] }
+
+function resolveDomainId(api: ApiConfigItem, nameToId: Map<string, string>): string | null {
+  if (api.domainId) return api.domainId
+  if (api.domainName) return nameToId.get(api.domainName) ?? null
+  return null
+}
+
+const groupedDomains = computed(() => {
+  const kw = searchKeyword.value.trim().toLowerCase()
+  const domainMap = new Map<string, DomainGroup>()
+  for (const d of props.domains) {
+    domainMap.set(d.id, { categoryKey: d.name, categoryName: d.name, domainId: d.id, apis: [], allIds: [], totalCount: 0, subGroups: [] })
+  }
+  const domainNameToId = new Map(props.domains.map(d => [d.name, d.id]))
+  const noneGroup: NoneGroup = { categoryKey: '__none__', categoryName: '未归类', domainId: null, apis: [], allIds: [], totalCount: 0, subGroups: [] }
+
+  for (const api of props.items) {
+    const dId = resolveDomainId(api, domainNameToId)
+    const matchesKw = !kw || api.name.toLowerCase().includes(kw) || api.path.toLowerCase().includes(kw)
+
+    if (!dId) {
+      noneGroup.totalCount++
+      noneGroup.allIds.push(api.id)
+      if (matchesKw) noneGroup.apis.push(api)
+      continue
+    }
+
+    const dg = domainMap.get(dId)!
+    dg.totalCount++
+    dg.allIds.push(api.id)
+
+    const cat = api.category
+    if (!cat || cat === dg.categoryName) {
+      if (matchesKw) dg.apis.push(api)
+    } else {
+      let sg = dg.subGroups.find(s => s.categoryKey === cat)
+      if (!sg) {
+        sg = { categoryKey: cat, categoryName: cat, domainId: dId, apis: [], allIds: [], totalCount: 0 }
+        dg.subGroups.push(sg)
+      }
+      sg.totalCount++
+      sg.allIds.push(api.id)
+      if (matchesKw) sg.apis.push(api)
+    }
+  }
+
+  for (const dg of domainMap.values()) {
+    dg.subGroups.sort((a, b) => a.categoryName.localeCompare(b.categoryName))
+  }
+
+  const sorted = [...domainMap.values()].sort((a, b) => a.categoryName.localeCompare(b.categoryName))
+  if (noneGroup.totalCount > 0) sorted.push(noneGroup)
+  return sorted
+})
 </script>
 
 <template>
@@ -435,69 +531,30 @@ function formatDate(iso: string): string {
       </Space>
     </div>
 
-    <div v-for="group in (() => {
-      const kw = searchKeyword.trim().toLowerCase()
-      const domainNameSet = new Set(domains.map(d => d.name))
-      const map: Record<string, { categoryKey: string; categoryName: string; domainId: string | null; groupType: 'domain' | 'category' | 'none'; apis: ApiConfigItem[]; allIds: string[]; totalCount: number }> = {}
-      for (const d of domains) {
-        map[d.name] = { categoryKey: d.name, categoryName: d.name, domainId: d.id, groupType: 'domain', apis: [], allIds: [], totalCount: 0 }
-      }
-      for (const api of items) {
-        const key = api.category || api.domainName || '__none__'
-        if (!map[key]) {
-          const isDomain = domainNameSet.has(key)
-          map[key] = { categoryKey: key, categoryName: key === '__none__' ? '未归类' : key, domainId: isDomain ? domains.find(d => d.name === key)!.id : null, groupType: isDomain ? 'domain' : key === '__none__' ? 'none' : 'category', apis: [], allIds: [], totalCount: 0 }
-        }
-        map[key].totalCount++
-        map[key].allIds.push(api.id)
-        if (!kw || api.name.toLowerCase().includes(kw) || api.path.toLowerCase().includes(kw)) {
-          map[key].apis.push(api)
-        }
-      }
-      const sorted = Object.values(map).sort((a, b) => {
-        if (a.categoryKey === '__none__') return 1
-        if (b.categoryKey === '__none__') return -1
-        return a.categoryName.localeCompare(b.categoryName)
-      })
-      return sorted
-    })()" :key="group.categoryKey" class="domain-group">
+    <!-- Domain groups with nested sub-groups -->
+    <div v-for="group in groupedDomains" :key="group.categoryKey" class="domain-group">
+      <!-- Domain header -->
       <div class="domain-group-header" @click="toggleGroup(group.categoryKey)">
         <span class="group-arrow">{{ collapsedGroups.has(group.categoryKey) ? '▶' : '▼' }}</span>
         <span class="group-title">{{ group.categoryName }} ({{ group.totalCount }})</span>
         <Button size="small" class="group-add-btn" @click.stop="handleExportByCategory(group.allIds)"><ExportOutlined /></Button>
         <Button size="small" class="group-add-btn" @click.stop="handleCreateInCategory(group.categoryKey === '__none__' ? null : group.categoryName, group.domainId)">+</Button>
-        <template v-if="group.groupType === 'domain'">
-          <Button size="small" class="group-add-btn" @click.stop="startAddCategory(group.domainId!)" title="添加子目录"><FolderAddOutlined /></Button>
+        <template v-if="group.domainId">
+          <Button size="small" class="group-add-btn" @click.stop="startAddCategory(group.domainId)" title="添加子目录"><FolderAddOutlined /></Button>
           <Popconfirm
             :title="`确定删除目录'${group.categoryName}'及其下的 ${group.totalCount} 个接口？此操作不可恢复`"
             ok-text="确定"
             cancel-text="取消"
-            @confirm="handleDeleteDirectory(group.domainId!, group.categoryName)"
+            @confirm="handleDeleteDirectory(group.domainId, group.categoryName)"
           >
             <Button size="small" class="group-add-btn" @click.stop title="删除目录"><DeleteOutlined /></Button>
           </Popconfirm>
         </template>
-        <template v-else-if="group.groupType === 'category'">
-          <Button size="small" class="group-add-btn" @click.stop="startRenameCategory(group.domainId!, group.categoryName)" title="重命名"><EditOutlined /></Button>
-          <Popconfirm
-            :title="`确定删除子目录'${group.categoryName}'？其下的接口将归入未分类`"
-            ok-text="确定"
-            cancel-text="取消"
-            @confirm="handleDeleteCategory(group.domainId!, group.categoryName)"
-          >
-            <Button size="small" class="group-add-btn" @click.stop title="删除子目录"><DeleteOutlined /></Button>
-          </Popconfirm>
-        </template>
-      </div>
-      <div v-if="editingCategory && editingCategory.domainId === group.domainId && editingCategory.oldName === group.categoryKey" style="padding: 8px 16px; background: #f0f5ff;">
-        <Space>
-          <Input v-model:value="editingCategoryName" size="small" style="width: 200px" @pressEnter="confirmRenameCategory" />
-          <Button size="small" type="primary" @click="confirmRenameCategory">确定</Button>
-          <Button size="small" @click="cancelRenameCategory">取消</Button>
-        </Space>
       </div>
       <div v-show="!collapsedGroups.has(group.categoryKey)" class="domain-group-body">
+        <!-- Domain direct APIs -->
         <Table
+          v-if="group.apis.length > 0"
           :data-source="group.apis"
           :columns="columns"
           :loading="loading"
@@ -512,25 +569,19 @@ function formatDate(iso: string): string {
         >
           <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'method'">
-              <Tag :color="METHOD_COLORS[(record as ApiConfigItem).method]">
-                {{ (record as ApiConfigItem).method }}
-              </Tag>
+              <Tag :color="METHOD_COLORS[(record as ApiConfigItem).method]">{{ (record as ApiConfigItem).method }}</Tag>
             </template>
-
             <template v-else-if="column.key === 'path'">
               <code>{{ (record as ApiConfigItem).path }}</code>
             </template>
-
             <template v-else-if="column.key === 'category'">
               <Tag v-if="(record as ApiConfigItem).category" color="blue">{{ (record as ApiConfigItem).category }}</Tag>
               <span v-else class="placeholder">-</span>
             </template>
-
             <template v-else-if="column.key === 'dataSource'">
               <Tag v-if="(record as ApiConfigItem).dataSource === 'sql'" color="geekblue">SQL</Tag>
               <Tag v-else>静态</Tag>
             </template>
-
             <template v-else-if="column.key === 'enabled'">
               <Switch
                 :checked="(record as ApiConfigItem).enabled"
@@ -539,23 +590,92 @@ function formatDate(iso: string): string {
                 @change="(v: boolean | string | number) => onToggle((record as ApiConfigItem).id, v)"
               />
             </template>
-
             <template v-else-if="column.key === 'action'">
               <Space>
                 <a @click="emit('edit', (record as ApiConfigItem).id)">编辑</a>
                 <a @click="handleDuplicate(record as ApiConfigItem)" title="复制"><CopyOutlined /></a>
-                <Popconfirm
-                  title="确定删除该接口配置？"
-                  ok-text="确定"
-                  cancel-text="取消"
-                  @confirm="onDelete((record as ApiConfigItem).id)"
-                >
+                <Popconfirm title="确定删除该接口配置？" ok-text="确定" cancel-text="取消" @confirm="onDelete((record as ApiConfigItem).id)">
                   <a style="color: #ff4d4f">删除</a>
                 </Popconfirm>
               </Space>
             </template>
           </template>
         </Table>
+
+        <!-- Sub-groups nested under domain -->
+        <div v-for="sub in group.subGroups" :key="sub.categoryKey" class="sub-group">
+          <div class="sub-group-header" @click="toggleGroup(sub.categoryKey)">
+            <span class="group-arrow">{{ collapsedGroups.has(sub.categoryKey) ? '▶' : '▼' }}</span>
+            <span class="group-title">{{ sub.categoryName }} ({{ sub.totalCount }})</span>
+            <Button size="small" class="group-add-btn" @click.stop="handleExportByCategory(sub.allIds)"><ExportOutlined /></Button>
+            <Button size="small" class="group-add-btn" @click.stop="handleCreateInCategory(sub.categoryName, sub.domainId)">+</Button>
+            <Button size="small" class="group-add-btn" @click.stop="startRenameCategory(sub.domainId, sub.categoryName)" title="重命名"><EditOutlined /></Button>
+            <Popconfirm
+              :title="`确定删除子目录'${sub.categoryName}'？其下的接口将归入未分类`"
+              ok-text="确定"
+              cancel-text="取消"
+              @confirm="handleDeleteCategory(sub.domainId, sub.categoryName)"
+            >
+              <Button size="small" class="group-add-btn" @click.stop title="删除子目录"><DeleteOutlined /></Button>
+            </Popconfirm>
+          </div>
+          <div v-if="editingCategory && editingCategory.domainId === sub.domainId && editingCategory.oldName === sub.categoryKey" style="padding: 8px 16px; background: #f0f5ff;">
+            <Space>
+              <Input v-model:value="editingCategoryName" size="small" style="width: 200px" @pressEnter="confirmRenameCategory" />
+              <Button size="small" type="primary" @click="confirmRenameCategory">确定</Button>
+              <Button size="small" @click="cancelRenameCategory">取消</Button>
+            </Space>
+          </div>
+          <div v-show="!collapsedGroups.has(sub.categoryKey)" class="domain-group-body">
+            <Table
+              :data-source="sub.apis"
+              :columns="columns"
+              :loading="loading"
+              :pagination="false"
+              size="small"
+              row-key="id"
+              :row-selection="{
+                selectedRowKeys: [...selectedApiIds],
+                onChange: (keys: (string | number)[]) => { selectedApiIds.value = new Set(keys as string[]) },
+                onSelectAll: (selected: boolean) => { if (!selected) selectedApiIds.value = new Set() },
+              }"
+            >
+              <template #bodyCell="{ column, record }">
+                <template v-if="column.key === 'method'">
+                  <Tag :color="METHOD_COLORS[(record as ApiConfigItem).method]">{{ (record as ApiConfigItem).method }}</Tag>
+                </template>
+                <template v-else-if="column.key === 'path'">
+                  <code>{{ (record as ApiConfigItem).path }}</code>
+                </template>
+                <template v-else-if="column.key === 'category'">
+                  <Tag v-if="(record as ApiConfigItem).category" color="blue">{{ (record as ApiConfigItem).category }}</Tag>
+                  <span v-else class="placeholder">-</span>
+                </template>
+                <template v-else-if="column.key === 'dataSource'">
+                  <Tag v-if="(record as ApiConfigItem).dataSource === 'sql'" color="geekblue">SQL</Tag>
+                  <Tag v-else>静态</Tag>
+                </template>
+                <template v-else-if="column.key === 'enabled'">
+                  <Switch
+                    :checked="(record as ApiConfigItem).enabled"
+                    checked-children="启用"
+                    un-checked-children="禁用"
+                    @change="(v: boolean | string | number) => onToggle((record as ApiConfigItem).id, v)"
+                  />
+                </template>
+                <template v-else-if="column.key === 'action'">
+                  <Space>
+                    <a @click="emit('edit', (record as ApiConfigItem).id)">编辑</a>
+                    <a @click="handleDuplicate(record as ApiConfigItem)" title="复制"><CopyOutlined /></a>
+                    <Popconfirm title="确定删除该接口配置？" ok-text="确定" cancel-text="取消" @confirm="onDelete((record as ApiConfigItem).id)">
+                      <a style="color: #ff4d4f">删除</a>
+                    </Popconfirm>
+                  </Space>
+                </template>
+              </template>
+            </Table>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -632,6 +752,28 @@ code {
 
 .domain-group-body {
   border-top: 1px solid #f0f0f0;
+}
+
+.sub-group {
+  margin: 0;
+  border: none;
+  border-top: 1px dashed #e8e8e8;
+  border-radius: 0;
+}
+
+.sub-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px 8px 32px;
+  background: #f6f8fa;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.2s;
+}
+
+.sub-group-header:hover {
+  background: #eef1f5;
 }
 
 .placeholder {
