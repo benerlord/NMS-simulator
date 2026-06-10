@@ -7,6 +7,8 @@ export interface TopologyListItem {
   id: string
   name: string
   description: string | null
+  domainId: string | null
+  domainName: string | null
   version: number
   createdAt: string
   updatedAt: string
@@ -19,11 +21,13 @@ export interface TopologyDetail extends TopologyListItem {
 export interface TopologyCreate {
   name: string
   description?: string | null
+  domainId?: string | null
 }
 
 export interface TopologyUpdate {
   name?: string
   description?: string | null
+  domainId?: string | null
 }
 
 export interface PageResult<T> {

@@ -14,7 +14,6 @@ export interface UseApiConfigsOptions {
   pageSize?: number
   method?: HttpMethod | null
   enabled?: boolean | null
-  path?: string | null
   topologyId?: string | null
 }
 
@@ -24,10 +23,10 @@ export function useApiConfigs(options: UseApiConfigsOptions = {}) {
   const loading = ref(false)
 
   const page = ref(options.page ?? 1)
-  const pageSize = ref(options.pageSize ?? 20)
+  // 接口管理用目录树视图，必须一次拉满，否则 ApiConfigTable 分组只看到当前页
+  const pageSize = ref(options.pageSize ?? 500)
   const method = ref<HttpMethod | null>(options.method ?? null)
   const enabled = ref<boolean | null>(options.enabled ?? null)
-  const path = ref<string | null>(options.path ?? null)
   const topologyId = ref<string | null>(options.topologyId ?? null)
 
   async function fetchApis() {
@@ -39,7 +38,6 @@ export function useApiConfigs(options: UseApiConfigsOptions = {}) {
       }
       if (method.value) params.method = method.value
       if (enabled.value !== null) params.enabled = enabled.value
-      if (path.value) params.path = path.value
       if (topologyId.value) params.topologyId = topologyId.value
 
       const result = await apiConfigApi.list(params)
@@ -81,11 +79,9 @@ export function useApiConfigs(options: UseApiConfigsOptions = {}) {
   function onFilterChange(filters: {
     method?: HttpMethod | null
     enabled?: boolean | null
-    path?: string | null
   }) {
     if (filters.method !== undefined) method.value = filters.method
     if (filters.enabled !== undefined) enabled.value = filters.enabled
-    if (filters.path !== undefined) path.value = filters.path
     page.value = 1
     fetchApis()
   }
@@ -98,7 +94,6 @@ export function useApiConfigs(options: UseApiConfigsOptions = {}) {
     pageSize,
     method,
     enabled,
-    path,
     topologyId,
     fetchApis,
     createApi,

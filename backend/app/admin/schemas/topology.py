@@ -9,11 +9,13 @@ from ._base import CamelModel
 class TopologyCreate(CamelModel):
     name: str = Field(..., min_length=1, max_length=100)
     description: Optional[str] = Field(default=None, max_length=500)
+    domain_id: Optional[str] = Field(default=None)
 
 
 class TopologyUpdate(CamelModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=100)
     description: Optional[str] = Field(default=None, max_length=500)
+    domain_id: Optional[str] = Field(default=None)
 
 
 class TopologyStats(CamelModel):
@@ -25,6 +27,8 @@ class TopologyListItem(CamelModel):
     id: str
     name: str
     description: Optional[str]
+    domain_id: Optional[str]
+    domain_name: Optional[str]
     version: int
     created_at: datetime
     updated_at: datetime
@@ -34,6 +38,8 @@ class TopologyDetail(CamelModel):
     id: str
     name: str
     description: Optional[str]
+    domain_id: Optional[str]
+    domain_name: Optional[str]
     version: int
     created_at: datetime
     updated_at: datetime

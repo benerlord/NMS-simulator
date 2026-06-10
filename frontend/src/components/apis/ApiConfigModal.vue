@@ -26,6 +26,7 @@ import {
   type QuerySpec,
   type TopologySwitchPreview,
 } from '@/api/api_config'
+import { domainApi, type DomainItem } from '@/api/domain'
 import type { TopologyListItem, PageResult } from '@/api/topology'
 import SqlEditor from './SqlEditor.vue'
 import SqlViewPanel from './SqlViewPanel.vue'
@@ -39,6 +40,8 @@ import AuthConfigPanel from './AuthConfigPanel.vue'
 interface Props {
   open: boolean
   apiId?: string | null
+  presetCategory?: string | null
+  presetDomainId?: string | null
 }
 
 const props = defineProps<Props>()
@@ -50,6 +53,22 @@ const emit = defineEmits<{
 
 const loading = ref(false)
 const detailLoading = ref(false)
+const domains = ref<DomainItem[]>([])
+const categoryOptions = ref<{ label: string; value: string }[]>([])
+
+async function loadCategories(domainId: string) {
+  if (!domainId) {
+    categoryOptions.value = []
+    return
+  }
+  try {
+    const cats = await domainApi.fetchCategories(domainId)
+    categoryOptions.value = cats.map(c => ({ label: c, value: c }))
+  } catch {
+    categoryOptions.value = []
+  }
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const formRef = ref<{ validateFields?: () => Promise<void> } | null>(null)
 const sqlEditorRef = ref<{
@@ -66,6 +85,8 @@ interface FormState {
   method: HttpMethod
   path: string
   groupName: string
+  domainId: string | null
+  category: string
   dataSource: DataSource
   topologyId: string | undefined
   sqlText: string
@@ -99,6 +120,8 @@ function emptyForm(): FormState {
     method: 'GET',
     path: '',
     groupName: '',
+    domainId: null,
+    category: '',
     dataSource: 'static',
     topologyId: undefined,
     sqlText: '',
@@ -157,6 +180,17 @@ async function loadTopologies() {
   }
 }
 
+async function loadDomains() {
+  try {
+    const res = await domainApi.list()
+    domains.value = res.items
+    // Load categories for current domain if set
+    if (formState.value.domainId) {
+      loadCategories(formState.value.domainId)
+    }
+  } catch {}
+}
+
 async function loadDetail(id: string) {
   detailLoading.value = true
   try {
@@ -197,6 +231,8 @@ async function loadDetail(id: string) {
       method: detail.method,
       path: detail.path,
       groupName: detail.groupName ?? '',
+      domainId: detail.domainId ?? null,
+      category: detail.category ?? '',
       dataSource: detail.dataSource,
       topologyId: detail.topologyId ?? undefined,
       sqlText: detail.sqlText ?? '',
@@ -237,11 +273,30 @@ watch(
   (open) => {
     if (!open) return
     loadTopologies()
+    loadDomains()
     if (props.apiId) {
       loadDetail(props.apiId)
     } else {
       formState.value = emptyForm()
+      if (props.presetDomainId) {
+        formState.value.domainId = props.presetDomainId
+        loadCategories(props.presetDomainId)
+      }
+      if (props.presetCategory) {
+        formState.value.category = props.presetCategory
+      }
       originalTopologyId.value = null
+    }
+  },
+)
+
+watch(
+  () => formState.value.domainId,
+  (newDomainId) => {
+    if (newDomainId) {
+      loadCategories(newDomainId)
+    } else {
+      categoryOptions.value = []
     }
   },
 )
@@ -455,8 +510,20 @@ const faultPanelHeader = computed(() => {
     : '异常注入（已启用，未配置参数）'
 })
 
+const sqlColumnNames = ref<string[]>([])
+
+function onSqlColumns(cols: string[]) {
+  sqlColumnNames.value = cols
+}
+
+const columnNamesHint = computed(() =>
+  sqlColumnNames.value.map(c => '{{' + c + '}}').join('、'),
+)
+
 const availableFieldNames = computed<string[]>(() => {
   const names = new Set<string>()
+  // SQL 列名（snake_case，来自数据库）
+  for (const col of sqlColumnNames.value) names.add(col)
   for (const q of formState.value.requestQuery) {
     const n = q.name.trim()
     if (n) names.add(n)
@@ -501,6 +568,9 @@ async function handleSubmit() {
       formState.value.dataSource === 'sql' ? formState.value.sqlText : null
     const config = buildConfig()
 
+    const categoryName = formState.value.category || null
+    const resolvedDomainId = formState.value.domainId || null
+
     if (isEdit.value && props.apiId) {
       // LEGACY-06: 编辑模式下若 topologyId 变化，先独立 PATCH /topology 解耦失败可重试
       const newTopoId = formState.value.topologyId ?? null
@@ -512,6 +582,8 @@ async function handleSubmit() {
         name: formState.value.name.trim(),
         path: formState.value.path.trim(),
         groupName: formState.value.groupName.trim() || null,
+        domainId: resolvedDomainId,
+        category: categoryName,
         dataSource: formState.value.dataSource,
         sqlText,
         config,
@@ -525,6 +597,8 @@ async function handleSubmit() {
         enabled: formState.value.enabled,
         dataSource: formState.value.dataSource,
         groupName: formState.value.groupName.trim() || null,
+        domainId: resolvedDomainId,
+        category: categoryName,
         topologyId: formState.value.topologyId || null,
         sqlText,
         config,
@@ -602,6 +676,19 @@ async function handleSubmit() {
             <Input v-model:value="formState.groupName" placeholder="可选，例：设备管理" />
           </Form.Item>
 
+          <Form.Item label="所属子目录" name="category" class="form-col-half">
+            <Select
+              v-model:value="formState.category"
+              :options="categoryOptions"
+              placeholder="选择或输入子目录名称"
+              allow-clear
+              show-search
+              option-filter-prop="label"
+            />
+          </Form.Item>
+        </div>
+
+        <div class="form-row">
           <Form.Item
             label="数据源"
             name="dataSource"
@@ -652,6 +739,7 @@ async function handleSubmit() {
                 :sql-text="formState.sqlText"
                 :params="formState.params"
                 @insert="handleInsertFromPanel"
+                @columns="onSqlColumns"
               />
             </div>
           </div>
@@ -686,6 +774,9 @@ async function handleSubmit() {
           <div v-else class="hint" v-pre>
             占位符：{{items}} / {{total}} / {{page}} 或 {{pageNo}} / {{pageSize}} / {{uuid}} / {{now}}。
             整串匹配（如 "data": "{{items}}"）注入原值保持数组/对象类型；子串匹配做文本替换。留空走默认模板。
+          </div>
+          <div v-if="sqlColumnNames.length > 0" class="hint hint-columns">
+            查询列名（snake_case）：{{ columnNamesHint }}
           </div>
         </Form.Item>
 
@@ -869,6 +960,10 @@ async function handleSubmit() {
   font-size: 12px;
   color: #8c8c8c;
   margin-top: 4px;
+}
+
+.hint-columns {
+  color: #1890ff;
 }
 
 .hint-error {

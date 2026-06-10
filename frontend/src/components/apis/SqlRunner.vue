@@ -16,6 +16,7 @@ const props = defineProps<Props>()
 
 const emit = defineEmits<{
   (e: 'insert', text: string): void
+  (e: 'columns', cols: string[]): void
 }>()
 
 const loading = ref(false)
@@ -70,6 +71,9 @@ async function run() {
       page: 1,
       pageSize: 10,
     })
+    if (result.value && result.value.items.length > 0) {
+      emit('columns', Object.keys(result.value.items[0]))
+    }
   } catch (err) {
     result.value = null
     if (err instanceof ApiError) {

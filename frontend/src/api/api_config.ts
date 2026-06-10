@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut, apiPatch, apiDelete } from './http'
+import http, { apiGet, apiPost, apiPut, apiPatch, apiDelete } from './http'
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 export type DataSource = 'sql' | 'static'
@@ -54,6 +54,9 @@ export interface ApiConfigItem {
   path: string
   enabled: boolean
   groupName: string | null
+  domainId: string | null
+  domainName: string | null
+  category: string | null
   dataSource: DataSource
   topologyId: string | null
   createdAt: string
@@ -71,6 +74,8 @@ export interface ApiConfigCreate {
   path: string
   enabled?: boolean
   groupName?: string | null
+  domainId?: string | null
+  category?: string | null
   dataSource: DataSource
   topologyId?: string | null
   sqlText?: string | null
@@ -82,6 +87,8 @@ export interface ApiConfigUpdate {
   method?: HttpMethod
   path?: string
   groupName?: string | null
+  domainId?: string | null
+  category?: string | null
   dataSource?: DataSource
   sqlText?: string | null
   config?: Record<string, unknown>
@@ -89,6 +96,7 @@ export interface ApiConfigUpdate {
 
 export interface ApiConfigListParams {
   groupName?: string | null
+  domainId?: string | null
   enabled?: boolean | null
   topologyId?: string | null
   method?: HttpMethod | null
@@ -140,4 +148,24 @@ export const apiConfigApi = {
 
   delete: (id: string): Promise<{ id: string }> =>
     apiDelete(`/apis/${id}`),
+
+  export: (params?: { domainId?: string; ids?: string[] }): Promise<{ schemaVersion: string; exportedAt: string; apis: ApiConfigDetail[] }> =>
+    apiPost('/apis/export', params || {}),
+
+  deleteDirectory: (domainId: string): Promise<{ deletedApis: number; deletedDirectory: number }> =>
+    apiDelete(`/apis/directory/${domainId}`),
+
+  import: (file: File): Promise<{ created: number; updated: number; errors: string[]; autoCreatedDomains: string[] }> => {
+    const form = new FormData()
+    form.append('file', file)
+    return http.post('/apis/import', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then(r => r.data.data)
+  },
+
+  duplicate: (id: string): Promise<{ id: string }> =>
+    apiPost(`/apis/${id}/duplicate`),
+
+  batchCategory: (apiIds: string[], category: string | null): Promise<{ updated: number }> =>
+    apiPut('/apis/batch-category', { apiIds, category }),
 }

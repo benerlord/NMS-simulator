@@ -95,6 +95,8 @@ class NodeTypeItem(CamelModel):
     render_mode: str
     dn_template: Optional[str]
     description: Optional[str]
+    domain_ids: list[str] = []
+    domain_names: list[str] = []
     created_at: datetime
     updated_at: datetime
 
@@ -132,6 +134,15 @@ class TypeImportPreview(CamelModel):
     to_create: list[TypeImportPreviewItem] = []
     to_update: list[TypeImportPreviewItem] = []
     errors: list[str] = []
+
+
+class NodeTypeDomainsUpdate(CamelModel):
+    domain_ids: list[str] = []  # 空数组 = 解除所有域关联
+
+
+class NodeTypeBatchDomainsUpdate(CamelModel):
+    node_type_ids: list[str] = Field(..., min_length=1)
+    domain_ids: list[str] = []  # 空数组 = 解除所有域关联
 
 
 # --- edge_types ---

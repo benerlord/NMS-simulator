@@ -20,11 +20,11 @@ export function useNodeTypes() {
   const nodeTypesLoading = ref(false)
   const nodeTypesError = ref<string | null>(null)
 
-  async function fetchNodeTypes() {
+  async function fetchNodeTypes(params?: { domainId?: string }) {
     nodeTypesLoading.value = true
     nodeTypesError.value = null
     try {
-      const res = await nodeTypeApi.list()
+      const res = await nodeTypeApi.list(params)
       nodeTypes.value = res.items
     } catch (e: any) {
       nodeTypesError.value = e.message ?? '获取节点类型失败'

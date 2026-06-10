@@ -6,7 +6,7 @@ hands to Starlette — each route needs a stable `api_id` bound in a closure.
 """
 from __future__ import annotations
 
-from typing import Callable
+from typing import Callable, Optional
 
 from fastapi import Request
 from fastapi.responses import Response
@@ -14,8 +14,8 @@ from fastapi.responses import Response
 from app.core.request_pipeline import run as run_pipeline
 
 
-def make_handler(api_id: str) -> Callable:
+def make_handler(api_id: str, instance_id: Optional[str] = None) -> Callable:
     async def handler(request: Request) -> Response:
-        return await run_pipeline(api_id, request)
+        return await run_pipeline(api_id, request, instance_id=instance_id)
 
     return handler

@@ -16,6 +16,8 @@ class ApiConfigCreate(CamelModel):
     path: str = Field(..., min_length=1, max_length=500)
     enabled: bool = True
     group_name: Optional[str] = Field(default=None, max_length=100)
+    domain_id: Optional[str] = None
+    category: Optional[str] = Field(default=None, max_length=50)
     data_source: str = Field(..., min_length=1, max_length=20)
     topology_id: Optional[str] = None
     sql_text: Optional[str] = None
@@ -42,6 +44,8 @@ class ApiConfigUpdate(CamelModel):
     method: Optional[str] = Field(default=None, max_length=10)
     path: Optional[str] = Field(default=None, max_length=500)
     group_name: Optional[str] = Field(default=None, max_length=100)
+    domain_id: Optional[str] = None
+    category: Optional[str] = Field(default=None, max_length=50)
     data_source: Optional[str] = Field(default=None, max_length=20)
     sql_text: Optional[str] = None
     config: Optional[dict[str, Any]] = None
@@ -79,6 +83,9 @@ class ApiConfigItem(CamelModel):
     path: str
     enabled: bool
     group_name: Optional[str]
+    domain_id: Optional[str]
+    domain_name: Optional[str]
+    category: Optional[str]
     data_source: str
     topology_id: Optional[str]
     created_at: datetime
@@ -121,3 +128,12 @@ class ApiTestResponse(CamelModel):
     code: int = 0
     data: ApiTestResult
     message: str = "ok"
+
+
+class BatchCategoryUpdate(CamelModel):
+    api_ids: list[str] = Field(..., min_length=1)
+    category: Optional[str] = Field(default=None, max_length=50)
+
+
+class CategoryRename(CamelModel):
+    new_name: str = Field(..., min_length=1, max_length=50)

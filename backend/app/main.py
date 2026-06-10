@@ -1,4 +1,6 @@
+import atexit
 from contextlib import asynccontextmanager
+from typing import Optional
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,18 +15,39 @@ from app.admin.sql_helper import router as sql_helper_router
 from app.admin.token import router as token_router
 from app.admin.settings import router as settings_router
 from app.admin.node_group import router as node_group_router
+from app.admin.domain import router as domain_router
+from app.admin.mock_instance import router as mock_instance_router
 from app.core.config import settings
+from app.core.instance_runner import InstanceRunner
 from app.core.ws_hub import router as ws_router
 from app.db.connection import init_db
 from app.mock.registry import registry as mock_registry
 
+_runner: Optional[InstanceRunner] = None
+
+
+def _cleanup():
+    if _runner:
+        _runner.shutdown_all()
+
+
+atexit.register(_cleanup)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _runner
     init_db()
     mock_registry.bind(app)
     mock_registry.load_all()
+
+    _runner = InstanceRunner()
+    _runner.start_monitor()
+    app.state.instance_runner = _runner
+
     yield
+
+    _cleanup()
 
 
 app = FastAPI(title="NMS Mock", lifespan=lifespan)
@@ -47,6 +70,8 @@ app.include_router(sql_helper_router)
 app.include_router(token_router)
 app.include_router(settings_router)
 app.include_router(node_group_router)
+app.include_router(domain_router)
+app.include_router(mock_instance_router)
 app.include_router(ws_router)
 
 

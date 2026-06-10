@@ -205,6 +205,40 @@ CREATE TABLE IF NOT EXISTS node_groups (
   FOREIGN KEY (node_type_id) REFERENCES node_types(id)
 );
 CREATE INDEX IF NOT EXISTS idx_node_groups_topo ON node_groups(topology_id);
+
+CREATE TABLE IF NOT EXISTS domains (
+  id              TEXT PRIMARY KEY,
+  name            TEXT NOT NULL UNIQUE,
+  description     TEXT,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS domain_node_types (
+  domain_id       TEXT NOT NULL,
+  node_type_id    TEXT NOT NULL,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (domain_id, node_type_id),
+  FOREIGN KEY (domain_id) REFERENCES domains(id) ON DELETE CASCADE,
+  FOREIGN KEY (node_type_id) REFERENCES node_types(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_dnt_domain ON domain_node_types(domain_id);
+CREATE INDEX IF NOT EXISTS idx_dnt_type   ON domain_node_types(node_type_id);
+
+CREATE TABLE IF NOT EXISTS mock_instances (
+  id              TEXT PRIMARY KEY,
+  name            TEXT NOT NULL,
+  topology_id     TEXT NOT NULL,
+  port            INTEGER NOT NULL,
+  description     TEXT,
+  enabled         INTEGER NOT NULL DEFAULT 1,
+  status          TEXT NOT NULL DEFAULT 'running',
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (topology_id) REFERENCES topologies(id) ON DELETE CASCADE,
+  UNIQUE (port)
+);
+CREATE INDEX IF NOT EXISTS idx_instances_topo ON mock_instances(topology_id);
 """
 
 
@@ -235,3 +269,30 @@ def run_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE edge_type_fields ADD COLUMN max_length INTEGER")
     except sqlite3.OperationalError:
         pass
+    # 域作用域：topologies 新增 domain_id 列（NULL = 全局，无域限制）
+    try:
+        conn.execute("ALTER TABLE topologies ADD COLUMN domain_id TEXT")
+    except sqlite3.OperationalError:
+        pass
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_topologies_domain ON topologies(domain_id)")
+    # 接口分类：api_configs 新增 domain_id 和 category 列
+    try:
+        conn.execute("ALTER TABLE api_configs ADD COLUMN domain_id TEXT")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute("ALTER TABLE api_configs ADD COLUMN category TEXT")
+    except sqlite3.OperationalError:
+        pass
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_apis_domain ON api_configs(domain_id)")
+    # 实例状态：mock_instances 新增 status 列
+    try:
+        conn.execute("ALTER TABLE mock_instances ADD COLUMN status TEXT NOT NULL DEFAULT 'running'")
+    except sqlite3.OperationalError:
+        pass
+    # 请求日志：request_logs 新增 instance_id 列
+    try:
+        conn.execute("ALTER TABLE request_logs ADD COLUMN instance_id TEXT")
+    except sqlite3.OperationalError:
+        pass
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_logs_instance ON request_logs(instance_id)")
