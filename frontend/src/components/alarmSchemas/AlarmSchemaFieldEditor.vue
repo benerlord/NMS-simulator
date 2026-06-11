@@ -1,7 +1,13 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { PlusOutlined, DeleteOutlined, ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons-vue'
+import { ref, computed, onMounted } from 'vue'
+import {
+  Table, Input, InputNumber, Select, Switch, Button, Tooltip, Affix,
+} from 'ant-design-vue'
+import {
+  PlusOutlined, DeleteOutlined, ArrowUpOutlined, ArrowDownOutlined,
+} from '@ant-design/icons-vue'
 import type { AlarmSchemaFieldInput } from '@/api/alarmSchema'
+import { nodeFieldsApi, type AvailableNodeFields } from '@/api/nodeFields'
 
 const props = defineProps<{
   fields: AlarmSchemaFieldInput[]
@@ -11,226 +17,215 @@ const emit = defineEmits<{
   (e: 'update:fields', v: AlarmSchemaFieldInput[]): void
 }>()
 
-const FIELD_TYPES = [
-  { value: 'text', label: '文本 (text)' },
-  { value: 'number', label: '数字 (number)' },
-  { value: 'select', label: '下拉 (select)' },
-  { value: 'boolean', label: '布尔 (boolean)' },
-] as const
+const localFields = computed({
+  get: () => props.fields,
+  set: (v) => emit('update:fields', v),
+})
 
-function update(index: number, patch: Partial<AlarmSchemaFieldInput>) {
-  const next = props.fields.map((f, i) => (i === index ? { ...f, ...patch } : f))
-  emit('update:fields', next)
-}
+const availableFields = ref<AvailableNodeFields>({ systemFields: [], customFields: [] })
+
+onMounted(async () => {
+  try {
+    availableFields.value = await nodeFieldsApi.available()
+  } catch {
+    availableFields.value = { systemFields: [], customFields: [] }
+  }
+})
 
 function addField() {
-  const sortOrder = props.fields.length > 0 ? Math.max(...props.fields.map(f => f.sortOrder ?? 0)) + 1 : 0
-  emit('update:fields', [
-    ...props.fields,
-    {
-      fieldKey: '',
-      fieldLabel: '',
-      fieldType: 'text',
-      maxLength: null,
-      defaultValue: null,
-      options: null,
-      required: false,
-      sortOrder,
-    },
-  ])
+  const newField: AlarmSchemaFieldInput = {
+    fieldKey: '',
+    fieldLabel: '',
+    fieldType: 'text',
+    maxLength: 50,
+    defaultValue: undefined,
+    options: undefined,
+    required: false,
+    sortOrder: localFields.value.length,
+    mappingTarget: undefined,
+  }
+  emit('update:fields', [...localFields.value, newField])
 }
 
 function removeField(index: number) {
-  emit('update:fields', props.fields.filter((_, i) => i !== index))
+  const next = localFields.value.filter((_, i) => i !== index)
+  emit('update:fields', next)
 }
 
 function moveUp(index: number) {
   if (index === 0) return
-  const next = [...props.fields]
+  const next = [...localFields.value]
   ;[next[index - 1], next[index]] = [next[index], next[index - 1]]
   emit('update:fields', next)
 }
 
 function moveDown(index: number) {
-  if (index >= props.fields.length - 1) return
-  const next = [...props.fields]
+  if (index === localFields.value.length - 1) return
+  const next = [...localFields.value]
   ;[next[index], next[index + 1]] = [next[index + 1], next[index]]
   emit('update:fields', next)
 }
 
-function isText(f: AlarmSchemaFieldInput) {
-  return f.fieldType === 'text'
+function updateField(index: number, key: keyof AlarmSchemaFieldInput, value: any) {
+  const next = [...localFields.value]
+  next[index] = { ...next[index], [key]: value }
+  emit('update:fields', next)
 }
 
-function isSelect(f: AlarmSchemaFieldInput) {
-  return f.fieldType === 'select'
-}
+const columns = [
+  { title: 'Key', dataIndex: 'fieldKey', key: 'fieldKey', width: 100 },
+  { title: 'Label', dataIndex: 'fieldLabel', key: 'fieldLabel', width: 120 },
+  { title: 'Type', dataIndex: 'fieldType', key: 'fieldType', width: 100 },
+  { title: 'MaxLen', dataIndex: 'maxLength', key: 'maxLength', width: 80 },
+  { title: 'Default', dataIndex: 'defaultValue', key: 'defaultValue', width: 100 },
+  { title: 'Options', dataIndex: 'options', key: 'options', width: 120 },
+  { title: 'Required', dataIndex: 'required', key: 'required', width: 70 },
+  { title: 'Mapping', dataIndex: 'mappingTarget', key: 'mappingTarget', width: 140 },
+  { title: 'Sort', dataIndex: 'sortOrder', key: 'sortOrder', width: 60 },
+  { title: '操作', key: 'actions', width: 90, fixed: 'right' as const },
+]
 </script>
 
 <template>
   <div class="alarm-field-editor">
-    <div class="field-editor-header">
-      <span class="field-title">告警字段</span>
-      <a-button type="dashed" size="small" @click="addField">
-        <template #icon><PlusOutlined /></template>
-        添加字段
-      </a-button>
-    </div>
-
-    <div v-if="fields.length === 0" class="empty-tip">暂无字段，点击"添加字段"开始配置</div>
-
-    <div v-for="(field, index) in fields" :key="index" class="field-row">
-      <div class="field-row-header">
-        <span class="field-index">字段 {{ index + 1 }}</span>
-        <a-space size="small">
-          <a-button type="text" size="small" :disabled="index === 0" @click="moveUp(index)">
-            <template #icon><ArrowUpOutlined /></template>
-          </a-button>
-          <a-button type="text" size="small" :disabled="index === fields.length - 1" @click="moveDown(index)">
-            <template #icon><ArrowDownOutlined /></template>
-          </a-button>
-          <a-button type="text" size="small" danger @click="removeField(index)">
-            <template #icon><DeleteOutlined /></template>
-          </a-button>
-        </a-space>
+    <Affix :offset-top="0">
+      <div class="toolbar toolbar-top">
+        <Button type="primary" size="small" @click="addField">
+          <PlusOutlined /> 新增字段
+        </Button>
+        <span class="hint">{{ localFields.length }} 个字段</span>
       </div>
+    </Affix>
 
-      <a-row :gutter="12">
-        <a-col :span="8">
-          <a-form-item label="字段标识" :colon="false" class="compact-form-item">
-            <a-input
-              :value="field.fieldKey"
-              placeholder="如: severity"
-              @update:value="(v: string) => update(index, { fieldKey: v })"
+    <Table
+      :columns="columns"
+      :data-source="localFields"
+      :pagination="false"
+      row-key="fieldKey"
+      size="small"
+      :scroll="{ x: 1000 }"
+    >
+      <template #bodyCell="{ column, index, record }">
+        <template v-if="column.key === 'fieldKey'">
+          <Input
+            :value="record.fieldKey"
+            size="small"
+            placeholder="key"
+            @update:value="(v: string) => updateField(index, 'fieldKey', v)"
+          />
+        </template>
+        <template v-else-if="column.key === 'fieldLabel'">
+          <Input
+            :value="record.fieldLabel"
+            size="small"
+            placeholder="标签"
+            @update:value="(v: string) => updateField(index, 'fieldLabel', v)"
+          />
+        </template>
+        <template v-else-if="column.key === 'fieldType'">
+          <Select
+            :value="record.fieldType"
+            size="small"
+            style="width: 100%"
+            @change="(v: any) => updateField(index, 'fieldType', v)"
+          >
+            <Select.Option value="text">text</Select.Option>
+            <Select.Option value="number">number</Select.Option>
+            <Select.Option value="select">select</Select.Option>
+            <Select.Option value="boolean">boolean</Select.Option>
+          </Select>
+        </template>
+        <template v-else-if="column.key === 'maxLength'">
+          <InputNumber
+            :value="record.maxLength"
+            size="small"
+            :min="1"
+            :disabled="record.fieldType !== 'text'"
+            style="width: 100%"
+            @change="(v: any) => updateField(index, 'maxLength', v)"
+          />
+        </template>
+        <template v-else-if="column.key === 'defaultValue'">
+          <Input
+            :value="record.defaultValue || ''"
+            size="small"
+            placeholder="默认值"
+            @update:value="(v: string) => updateField(index, 'defaultValue', v || null)"
+          />
+        </template>
+        <template v-else-if="column.key === 'options'">
+          <Tooltip :title="record.options">
+            <Input
+              :value="record.options || ''"
+              size="small"
+              placeholder="opt1,opt2"
+              :disabled="record.fieldType !== 'select'"
+              @update:value="(v: string) => updateField(index, 'options', v || null)"
             />
-          </a-form-item>
-        </a-col>
-        <a-col :span="8">
-          <a-form-item label="显示名称" :colon="false" class="compact-form-item">
-            <a-input
-              :value="field.fieldLabel"
-              placeholder="如: 告警级别"
-              @update:value="(v: string) => update(index, { fieldLabel: v })"
-            />
-          </a-form-item>
-        </a-col>
-        <a-col :span="8">
-          <a-form-item label="字段类型" :colon="false" class="compact-form-item">
-            <a-select
-              :value="field.fieldType"
-              @update:value="(v: 'text' | 'number' | 'select' | 'boolean') => update(index, { fieldType: v, maxLength: null, options: null })"
-            >
-              <a-select-option v-for="ft in FIELD_TYPES" :key="ft.value" :value="ft.value">
-                {{ ft.label }}
-              </a-select-option>
-            </a-select>
-          </a-form-item>
-        </a-col>
-      </a-row>
+          </Tooltip>
+        </template>
+        <template v-else-if="column.key === 'required'">
+          <Switch
+            :checked="!!record.required"
+            size="small"
+            @change="(v: any) => updateField(index, 'required', v)"
+          />
+        </template>
+        <template v-else-if="column.key === 'mappingTarget'">
+          <Select
+            :value="record.mappingTarget || undefined"
+            size="small"
+            style="width: 100%"
+            allow-clear
+            show-search
+            placeholder="不映射"
+            @change="(v: any) => updateField(index, 'mappingTarget', v || null)"
+          >
+            <Select.OptGroup label="系统字段">
+              <Select.Option v-for="f in availableFields.systemFields" :key="`sys-${f}`" :value="f">{{ f }}</Select.Option>
+            </Select.OptGroup>
+            <Select.OptGroup label="自定义字段">
+              <Select.Option v-for="f in availableFields.customFields" :key="`cus-${f}`" :value="f">{{ f }}</Select.Option>
+            </Select.OptGroup>
+          </Select>
+        </template>
+        <template v-else-if="column.key === 'sortOrder'">
+          <InputNumber
+            :value="record.sortOrder"
+            size="small"
+            style="width: 100%"
+            @change="(v: any) => updateField(index, 'sortOrder', v ?? 0)"
+          />
+        </template>
+        <template v-else-if="column.key === 'actions'">
+          <div class="action-buttons">
+            <Button type="text" size="small" :disabled="index === 0" @click="moveUp(index)">
+              <ArrowUpOutlined />
+            </Button>
+            <Button type="text" size="small" :disabled="index === localFields.length - 1" @click="moveDown(index)">
+              <ArrowDownOutlined />
+            </Button>
+            <Button type="text" size="small" danger @click="removeField(index)">
+              <DeleteOutlined />
+            </Button>
+          </div>
+        </template>
+      </template>
+    </Table>
 
-      <a-row :gutter="12">
-        <a-col v-if="isText(field)" :span="8">
-          <a-form-item label="最大长度" :colon="false" class="compact-form-item">
-            <a-input-number
-              :value="field.maxLength ?? undefined"
-              :min="1"
-              :precision="0"
-              placeholder="如: 200"
-              style="width: 100%"
-              @update:value="(v: number | null) => update(index, { maxLength: v })"
-            />
-          </a-form-item>
-        </a-col>
-        <a-col v-if="isSelect(field)" :span="12">
-          <a-form-item label="选项列表" :colon="false" class="compact-form-item">
-            <a-input
-              :value="field.options ?? ''"
-              placeholder="逗号分隔，如: 紧急,严重,一般"
-              @update:value="(v: string) => update(index, { options: v || null })"
-            />
-          </a-form-item>
-        </a-col>
-        <a-col :span="8">
-          <a-form-item label="默认值" :colon="false" class="compact-form-item">
-            <a-input
-              :value="field.defaultValue ?? ''"
-              placeholder="可选"
-              @update:value="(v: string) => update(index, { defaultValue: v || null })"
-            />
-          </a-form-item>
-        </a-col>
-        <a-col :span="4">
-          <a-form-item label="排序" :colon="false" class="compact-form-item">
-            <a-input-number
-              :value="field.sortOrder ?? 0"
-              :min="0"
-              style="width: 100%"
-              @update:value="(v: number | null) => update(index, { sortOrder: v ?? 0 })"
-            />
-          </a-form-item>
-        </a-col>
-        <a-col :span="4">
-          <a-form-item label="必填" :colon="false" class="compact-form-item">
-            <a-switch
-              :checked="field.required ?? false"
-              @update:checked="(v: boolean) => update(index, { required: v })"
-            />
-          </a-form-item>
-        </a-col>
-      </a-row>
+    <div class="toolbar toolbar-bottom">
+      <Button type="primary" size="small" @click="addField">
+        <PlusOutlined /> 新增字段
+      </Button>
     </div>
   </div>
 </template>
 
 <style scoped>
-.alarm-field-editor {
-  border: 1px solid #d9d9d9;
-  border-radius: 6px;
-  padding: 12px;
-  background: #fafafa;
-}
-
-.field-editor-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-}
-
-.field-title {
-  font-weight: 500;
-  color: rgba(0, 0, 0, 0.85);
-}
-
-.empty-tip {
-  text-align: center;
-  color: rgba(0, 0, 0, 0.45);
-  padding: 16px 0;
-  font-size: 13px;
-}
-
-.field-row {
-  border: 1px solid #e8e8e8;
-  border-radius: 4px;
-  padding: 12px 12px 0;
-  margin-bottom: 10px;
-  background: #fff;
-}
-
-.field-row-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
-}
-
-.field-index {
-  font-size: 12px;
-  color: rgba(0, 0, 0, 0.45);
-  font-weight: 500;
-}
-
-.compact-form-item {
-  margin-bottom: 8px;
-}
+.alarm-field-editor { display: flex; flex-direction: column; }
+.toolbar { display: flex; align-items: center; gap: 12px; padding: 8px 0; background: #fff; z-index: 10; }
+.toolbar-top { border-bottom: 1px solid #f0f0f0; }
+.toolbar-bottom { border-top: 1px solid #f0f0f0; margin-top: 8px; }
+.hint { color: #999; font-size: 12px; }
+.action-buttons { display: flex; gap: 2px; }
 </style>
