@@ -11,6 +11,7 @@ export interface AlarmSchemaFieldItem {
   options?: string | null
   required: boolean
   sortOrder: number
+  mappingTarget?: string | null
 }
 
 export interface AlarmSchemaFieldInput {
@@ -22,6 +23,7 @@ export interface AlarmSchemaFieldInput {
   options?: string | null
   required?: boolean
   sortOrder?: number
+  mappingTarget?: string | null
 }
 
 export interface AlarmSchemaItem {
@@ -31,6 +33,7 @@ export interface AlarmSchemaItem {
   description?: string | null
   createdAt: string
   updatedAt: string
+  displayFieldKey?: string | null
 }
 
 export interface AlarmSchemaDetail extends AlarmSchemaItem {
@@ -41,12 +44,14 @@ export interface AlarmSchemaCreate {
   code: string
   name: string
   description?: string | null
+  displayFieldKey?: string | null
   fields: AlarmSchemaFieldInput[]
 }
 
 export interface AlarmSchemaUpdate {
   name?: string
   description?: string | null
+  displayFieldKey?: string | null
   fields?: AlarmSchemaFieldInput[]
 }
 
