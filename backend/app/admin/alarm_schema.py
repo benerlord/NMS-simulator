@@ -1,6 +1,6 @@
 import re
 import uuid
-from typing import Any, List
+from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
@@ -11,6 +11,7 @@ from app.admin.schemas import (
     AlarmSchemaDetail,
     AlarmSchemaItem,
     AlarmSchemaFieldItem,
+    AlarmSchemaFieldCreate,
 )
 
 router = APIRouter(prefix="/admin/api", tags=["告警模板"])
@@ -23,7 +24,7 @@ def _new_id() -> str:
     return f"as_{uuid.uuid4().hex[:12]}"
 
 
-def _validate_field_keys(fields: list) -> None:
+def _validate_field_keys(fields: list[AlarmSchemaFieldCreate]) -> None:
     seen: set = set()
     for f in fields:
         if not _IDENT_RE.match(f.field_key):
@@ -50,7 +51,7 @@ def _validate_field_keys(fields: list) -> None:
         seen.add(f.field_key)
 
 
-def _get_fields(conn, schema_id: str) -> List[AlarmSchemaFieldItem]:
+def _get_fields(conn, schema_id: str) -> list[AlarmSchemaFieldItem]:
     rows = conn.execute(
         "SELECT * FROM alarm_schema_fields WHERE alarm_schema_id = ? ORDER BY sort_order, id",
         (schema_id,),
@@ -153,8 +154,8 @@ def update_alarm_schema(schema_id: str, data: AlarmSchemaUpdate) -> dict:
         if not row:
             raise HTTPException(status_code=404, detail={"code": 40404, "message": "告警模板不存在"})
 
-        sets: List[str] = []
-        params: List[Any] = []
+        sets: list[str] = []
+        params: list[Any] = []
         if data.name is not None:
             sets.append("name = ?")
             params.append(data.name)
