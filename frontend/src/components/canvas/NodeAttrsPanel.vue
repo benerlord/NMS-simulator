@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
-import { Form, Input, InputNumber, Select, Switch, Button, Spin } from 'ant-design-vue'
+import { ref, watch, computed } from 'vue'
+import { Form, Input, InputNumber, Select, Switch, Button, Spin, Tabs } from 'ant-design-vue'
 import type { NodeTypeFieldItem } from '@/api/types'
 import { nodeApi } from '@/api/node'
+import { useRoute } from 'vue-router'
+import NodeAlarmsTab from './NodeAlarmsTab.vue'
 
 interface Props {
   visible: boolean
@@ -20,11 +22,18 @@ const emit = defineEmits<{
   (e: 'rename', nodeId: string, newName: string): void
 }>()
 
+const route = useRoute()
+const topologyId = computed(() => route.params.id as string)
+
 const fields = ref<NodeTypeFieldItem[]>([])
 const formData = ref<Record<string, string>>({})
 const loading = ref(false)
 const saving = ref(false)
 const editingName = ref('')
+
+const activeTab = ref<'attrs' | 'alarms'>('attrs')
+const alarmCount = ref(0)
+const alarmsTabRef = ref<InstanceType<typeof NodeAlarmsTab> | null>(null)
 
 watch(
   () => props.nodeName,
@@ -85,6 +94,12 @@ watch(
   { immediate: true },
 )
 
+// Reset tab to attrs when switching to a different node
+watch(
+  () => props.nodeId,
+  () => { activeTab.value = 'attrs' },
+)
+
 async function handleSave() {
   if (!props.nodeId) return
   saving.value = true
@@ -100,6 +115,15 @@ async function handleSave() {
     if (trimmedName && trimmedName !== props.nodeName) {
       await nodeApi.update(props.nodeId, { name: trimmedName })
       emit('rename', props.nodeId, trimmedName)
+    }
+
+    // Save alarm tab dirty state
+    if (alarmsTabRef.value) {
+      const ok = await alarmsTabRef.value.saveDirty()
+      if (!ok) {
+        saving.value = false
+        return
+      }
     }
   } catch {
     // ignore
@@ -126,61 +150,74 @@ function setFieldValue(key: string, value: string) {
       </div>
 
       <div class="panel-content">
-        <Spin v-if="loading" tip="加载中..." />
-        <template v-else>
-          <div class="node-name-row">
-            <span class="node-name-label">节点名称</span>
-            <Input
-              v-model:value="editingName"
-              :maxlength="100"
-              placeholder="请输入节点名称"
-            />
-          </div>
-
-          <Form layout="vertical" class="attrs-form">
-            <Form.Item
-              v-for="field in fields"
-              :key="field.id"
-              :label="field.fieldLabel"
-            >
-              <template v-if="field.fieldType === 'text'">
+        <Tabs v-model:active-key="activeTab">
+          <Tabs.TabPane key="attrs" tab="属性">
+            <Spin v-if="loading" tip="加载中..." />
+            <template v-else>
+              <div class="node-name-row">
+                <span class="node-name-label">节点名称</span>
                 <Input
-                  :value="getFieldValue(field.fieldKey)"
-                  @input="(e: any) => setFieldValue(field.fieldKey, e.target.value)"
-                  :maxlength="field.maxLength || undefined"
-                  :showCount="!!field.maxLength"
+                  v-model:value="editingName"
+                  :maxlength="100"
+                  placeholder="请输入节点名称"
                 />
-              </template>
-              <template v-else-if="field.fieldType === 'number'">
-                <InputNumber
-                  :value="Number(getFieldValue(field.fieldKey))"
-                  @change="(v: any) => setFieldValue(field.fieldKey, String(v ?? ''))"
-                  style="width: 100%"
-                />
-              </template>
-              <template v-else-if="field.fieldType === 'select'">
-                <Select
-                  :value="getFieldValue(field.fieldKey)"
-                  @change="(v: any) => setFieldValue(field.fieldKey, String(v))"
+              </div>
+
+              <Form layout="vertical" class="attrs-form">
+                <Form.Item
+                  v-for="field in fields"
+                  :key="field.id"
+                  :label="field.fieldLabel"
                 >
-                  <Select.Option
-                    v-for="opt in (field.options || '').split(',')"
-                    :key="opt.trim()"
-                    :value="opt.trim()"
-                  >
-                    {{ opt.trim() }}
-                  </Select.Option>
-                </Select>
-              </template>
-              <template v-else-if="field.fieldType === 'boolean'">
-                <Switch
-                  :checked="getFieldValue(field.fieldKey) === 'true'"
-                  @change="(v: any) => setFieldValue(field.fieldKey, String(v))"
-                />
-              </template>
-            </Form.Item>
-          </Form>
-        </template>
+                  <template v-if="field.fieldType === 'text'">
+                    <Input
+                      :value="getFieldValue(field.fieldKey)"
+                      @input="(e: any) => setFieldValue(field.fieldKey, e.target.value)"
+                      :maxlength="field.maxLength || undefined"
+                      :showCount="!!field.maxLength"
+                    />
+                  </template>
+                  <template v-else-if="field.fieldType === 'number'">
+                    <InputNumber
+                      :value="Number(getFieldValue(field.fieldKey))"
+                      @change="(v: any) => setFieldValue(field.fieldKey, String(v ?? ''))"
+                      style="width: 100%"
+                    />
+                  </template>
+                  <template v-else-if="field.fieldType === 'select'">
+                    <Select
+                      :value="getFieldValue(field.fieldKey)"
+                      @change="(v: any) => setFieldValue(field.fieldKey, String(v))"
+                    >
+                      <Select.Option
+                        v-for="opt in (field.options || '').split(',')"
+                        :key="opt.trim()"
+                        :value="opt.trim()"
+                      >
+                        {{ opt.trim() }}
+                      </Select.Option>
+                    </Select>
+                  </template>
+                  <template v-else-if="field.fieldType === 'boolean'">
+                    <Switch
+                      :checked="getFieldValue(field.fieldKey) === 'true'"
+                      @change="(v: any) => setFieldValue(field.fieldKey, String(v))"
+                    />
+                  </template>
+                </Form.Item>
+              </Form>
+            </template>
+          </Tabs.TabPane>
+
+          <Tabs.TabPane key="alarms" :tab="`告警(${alarmCount})`">
+            <NodeAlarmsTab
+              ref="alarmsTabRef"
+              :node-id="nodeId"
+              :topology-id="topologyId"
+              @count-change="(c) => alarmCount = c"
+            />
+          </Tabs.TabPane>
+        </Tabs>
       </div>
 
       <div v-if="!loading" class="panel-footer">
