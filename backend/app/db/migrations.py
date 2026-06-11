@@ -344,3 +344,13 @@ def run_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE topologies ADD COLUMN alarm_schema_id TEXT")
     except sqlite3.OperationalError:
         pass
+    # Idempotent column addition for alarm_schema_fields.mapping_target
+    try:
+        conn.execute("ALTER TABLE alarm_schema_fields ADD COLUMN mapping_target TEXT")
+    except sqlite3.OperationalError:
+        pass
+    # Idempotent column addition for alarm_schemas.display_field_key
+    try:
+        conn.execute("ALTER TABLE alarm_schemas ADD COLUMN display_field_key TEXT")
+    except sqlite3.OperationalError:
+        pass
