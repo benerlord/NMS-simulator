@@ -43,8 +43,14 @@ EDGE_JOIN_COLUMNS: list[str] = [
     "target_group_id",
 ]
 
-GENERIC_VIEW_NAMES: list[str] = ["gn_seq", "nodes", "edges", "children", "node_groups", "group_nodes", "group_edges", "topology_nodes", "topology_edges", "alarms"]
+# CTEs that are always emitted by collect_views() regardless of topology content.
+# NOTE: "alarms" is intentionally excluded here — it is only emitted when the
+# topology has an alarm_schema_id bound (see _build_alarms_cte / collect_views).
+GENERIC_VIEW_NAMES: list[str] = ["gn_seq", "nodes", "edges", "children", "node_groups", "group_nodes", "group_edges", "topology_nodes", "topology_edges"]
 
+# Names that user-defined node_type / edge_type codes must not collide with.
+# "alarms" is included here so that even though the alarms CTE is only
+# conditionally emitted, user codes can never shadow it when it IS present.
 _RESERVED_NAMES: set[str] = {"gn_seq", "nodes", "edges", "children", "node_groups", "group_nodes", "group_edges", "topology_nodes", "topology_edges", "alarms"}
 
 
