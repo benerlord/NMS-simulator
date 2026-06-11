@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import NodeTypeTable from '@/components/types/NodeTypeTable.vue'
 import EdgeTypeTable from '@/components/types/EdgeTypeTable.vue'
+import AlarmSchemaTable from '@/components/alarmSchemas/AlarmSchemaTable.vue'
 
 const nodeTypeTableRef = ref<InstanceType<typeof NodeTypeTable>>()
 const edgeTypeTableRef = ref<InstanceType<typeof EdgeTypeTable>>()
@@ -20,6 +21,9 @@ onMounted(() => {
       </a-tab-pane>
       <a-tab-pane key="edge-types" tab="边类型">
         <EdgeTypeTable ref="edgeTypeTableRef" />
+      </a-tab-pane>
+      <a-tab-pane key="alarm" tab="告警模板">
+        <AlarmSchemaTable />
       </a-tab-pane>
     </a-tabs>
   </div>
