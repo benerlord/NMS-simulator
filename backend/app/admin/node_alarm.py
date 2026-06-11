@@ -35,7 +35,7 @@ def _get_alarm_schema_for_node(conn, node_id: str):
     return row["sid"], fields
 
 
-def _load_attrs(conn, alarm_id: str) -> dict:
+def _load_attrs(conn, alarm_id: str) -> dict[str, Any]:
     rows = conn.execute(
         "SELECT field_key, value FROM node_alarm_attrs WHERE alarm_id = ?",
         (alarm_id,),
@@ -67,6 +67,7 @@ def _validate_attr_lengths(fields, attrs: dict) -> None:
     for k, v in attrs.items():
         f = field_map.get(k)
         if not f:
+            # Unknown field_key passes through — stored as-is in node_alarm_attrs without schema validation.
             continue
         if f["field_type"] == "text" and f["max_length"] and v and len(str(v)) > f["max_length"]:
             raise HTTPException(
