@@ -7,10 +7,8 @@ import TopologyTable from '@/components/topology/TopologyTable.vue'
 import TopologyModal from '@/components/topology/TopologyModal.vue'
 import { useTopologies } from '@/composables/useTopologies'
 import type {
-  TopologyCreate,
   TopologyExportDoc,
   TopologyListItem,
-  TopologyUpdate,
 } from '@/api/topology'
 
 const {
@@ -20,8 +18,6 @@ const {
   page,
   pageSize,
   fetchTopologies,
-  createTopology,
-  updateTopology,
   deleteTopology,
   exportTopology,
   importTopology,
@@ -49,18 +45,8 @@ function handleEdit(item: { id: string; name: string; description: string | null
   modalOpen.value = true
 }
 
-async function handleModalSubmit(data: TopologyCreate | TopologyUpdate) {
-  try {
-    if (editingTopology.value) {
-      await updateTopology(editingTopology.value.id, data as TopologyUpdate)
-      message.success('更新成功')
-    } else {
-      await createTopology(data as TopologyCreate)
-      message.success('创建成功')
-    }
-  } catch (e) {
-    throw e
-  }
+async function handleModalSaved() {
+  await fetchTopologies()
 }
 
 async function handleDelete(id: string) {
@@ -178,7 +164,7 @@ async function handleFileChosen(e: Event) {
     <TopologyModal
       v-model:open="modalOpen"
       :topology="editingTopology"
-      @submit="handleModalSubmit"
+      @saved="handleModalSaved"
     />
   </a-card>
 </template>
