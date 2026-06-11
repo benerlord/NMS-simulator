@@ -408,6 +408,24 @@ async def materialize_node_group(group_id: str) -> dict:
 
         # 4. Generate nodes
         width = _parse_name_template(name_template)
+
+        # Pre-query alarm schema for the topology (used per-node in flush)
+        alarm_schema_id: Optional[str] = None
+        alarm_default_fields: list[tuple] = []  # [(field_key, default_value), ...]
+        with connect() as _ac:
+            _row = _ac.execute(
+                "SELECT alarm_schema_id FROM topologies WHERE id = ?", (topology_id,)
+            ).fetchone()
+            if _row and _row["alarm_schema_id"]:
+                alarm_schema_id = _row["alarm_schema_id"]
+                _fields = _ac.execute(
+                    "SELECT field_key, default_value FROM alarm_schema_fields "
+                    "WHERE alarm_schema_id = ? AND default_value IS NOT NULL "
+                    "ORDER BY sort_order, id",
+                    (alarm_schema_id,),
+                ).fetchall()
+                alarm_default_fields = [(f["field_key"], f["default_value"]) for f in _fields]
+
         rng = random.Random(group_id)  # Seeded random for reproducibility
         total_nodes = node_count
         node_ids: list[str] = []
@@ -429,6 +447,18 @@ async def materialize_node_group(group_id: str) -> dict:
                         "INSERT INTO node_attrs (node_id, field_key, value) VALUES (?, ?, ?)",
                         (nid, s.field_key, val),
                     )
+                # Auto-insert 1 default alarm per node when topology has alarm_schema bound
+                if alarm_schema_id:
+                    aid = f"alm_{uuid.uuid4().hex[:12]}"
+                    conn.execute(
+                        "INSERT INTO node_alarms (id, node_id, alarm_index) VALUES (?, ?, 1)",
+                        (aid, nid),
+                    )
+                    for fk, fv in alarm_default_fields:
+                        conn.execute(
+                            "INSERT INTO node_alarm_attrs (alarm_id, field_key, value) VALUES (?, ?, ?)",
+                            (aid, fk, fv),
+                        )
 
         buffer: list[tuple] = []  # (node_id, name)
         with transaction() as conn:
