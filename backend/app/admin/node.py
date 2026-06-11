@@ -4,6 +4,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from app.db.connection import connect, transaction
+from app.admin._alarm_utils import build_alarm_attrs
 from app.admin.schemas.node import (
     NodeCreate,
     NodeUpdate,
@@ -220,10 +221,10 @@ def create_node(topology_id: str, data: NodeCreate) -> dict:
         )
 
         # Auto-insert 1 default alarm if topology has alarm_schema bound
-        if topo["alarm_schema_id"]:  # use cached row from existence check
+        if topo["alarm_schema_id"]:
             sid = topo["alarm_schema_id"]
             fields = conn.execute(
-                "SELECT field_key, default_value FROM alarm_schema_fields "
+                "SELECT field_key, mapping_target, default_value FROM alarm_schema_fields "
                 "WHERE alarm_schema_id = ? ORDER BY sort_order, id",
                 (sid,),
             ).fetchall()
@@ -232,13 +233,12 @@ def create_node(topology_id: str, data: NodeCreate) -> dict:
                 "INSERT INTO node_alarms (id, node_id, alarm_index) VALUES (?, ?, 1)",
                 (aid, node_id),
             )
-            for f in fields:
-                if f["default_value"] is not None:
-                    conn.execute(
-                        "INSERT INTO node_alarm_attrs (alarm_id, field_key, value) "
-                        "VALUES (?, ?, ?)",
-                        (aid, f["field_key"], f["default_value"]),
-                    )
+            attrs = build_alarm_attrs(conn, node_id, fields)
+            for k, v in attrs.items():
+                conn.execute(
+                    "INSERT INTO node_alarm_attrs (alarm_id, field_key, value) VALUES (?, ?, ?)",
+                    (aid, k, v),
+                )
 
         row = conn.execute("SELECT * FROM nodes WHERE id = ?", (node_id,)).fetchone()
         detail = _build_node_detail(conn, row)

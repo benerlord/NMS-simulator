@@ -17,7 +17,7 @@ from app.admin.schemas import (
 router = APIRouter(prefix="/admin/api", tags=["告警模板"])
 
 _IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-_FIXED_COLS = {"id", "node_id", "node_name", "node_dn", "alarm_index", "created_at", "updated_at"}
+_FIXED_COLS = {"id", "node_id", "alarm_index", "created_at", "updated_at"}
 
 
 def _new_id() -> str:

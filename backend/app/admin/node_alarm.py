@@ -4,6 +4,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 
 from app.db.connection import connect, transaction
+from app.admin._alarm_utils import build_alarm_attrs
 from app.admin.schemas import (
     NodeAlarmAttrSet,
     NodeAlarmCreate,
@@ -28,7 +29,7 @@ def _get_alarm_schema_for_node(conn, node_id: str):
     if not row or not row["sid"]:
         return None, []
     fields = conn.execute(
-        "SELECT field_key, field_type, max_length, default_value, required "
+        "SELECT field_key, field_type, max_length, default_value, required, mapping_target "
         "FROM alarm_schema_fields WHERE alarm_schema_id = ? ORDER BY sort_order, id",
         (row["sid"],),
     ).fetchall()
@@ -107,15 +108,7 @@ def create_node_alarm(node_id: str, data: NodeAlarmCreate) -> dict:
                 detail={"code": 40901, "message": "本拓扑未配置告警模板"},
             )
 
-        # Merge user-provided attrs with default_value fallbacks
-        provided = data.attrs or {}
-        merged: dict[str, Any] = {}
-        for f in fields:
-            if f["field_key"] in provided:
-                merged[f["field_key"]] = provided[f["field_key"]]
-            elif f["default_value"] is not None:
-                merged[f["field_key"]] = f["default_value"]
-
+        merged = build_alarm_attrs(conn, node_id, fields, user_provided=data.attrs)
         _validate_attr_lengths(fields, merged)
 
         aid = _new_alarm_id()

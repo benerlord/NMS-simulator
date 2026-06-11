@@ -8,6 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 
 from app.db.connection import connect, transaction
+from app.admin._alarm_utils import build_alarm_attrs
 from app.admin.schemas._base import CamelModel
 from app.admin.schemas.node_group import (
     AttrStrategyItem,
@@ -411,7 +412,7 @@ async def materialize_node_group(group_id: str) -> dict:
 
         # Pre-query alarm schema for the topology (used per-node in flush)
         alarm_schema_id: Optional[str] = None
-        alarm_default_fields: list[tuple] = []  # [(field_key, default_value), ...]
+        alarm_fields: list[dict] = []
         with connect() as _ac:
             _row = _ac.execute(
                 "SELECT alarm_schema_id FROM topologies WHERE id = ?", (topology_id,)
@@ -419,12 +420,12 @@ async def materialize_node_group(group_id: str) -> dict:
             if _row and _row["alarm_schema_id"]:
                 alarm_schema_id = _row["alarm_schema_id"]
                 _fields = _ac.execute(
-                    "SELECT field_key, default_value FROM alarm_schema_fields "
-                    "WHERE alarm_schema_id = ? AND default_value IS NOT NULL "
+                    "SELECT field_key, mapping_target, default_value FROM alarm_schema_fields "
+                    "WHERE alarm_schema_id = ? "
                     "ORDER BY sort_order, id",
                     (alarm_schema_id,),
                 ).fetchall()
-                alarm_default_fields = [(f["field_key"], f["default_value"]) for f in _fields]
+                alarm_fields = [dict(f) for f in _fields]
 
         rng = random.Random(group_id)  # Seeded random for reproducibility
         total_nodes = node_count
@@ -454,10 +455,11 @@ async def materialize_node_group(group_id: str) -> dict:
                         "INSERT INTO node_alarms (id, node_id, alarm_index) VALUES (?, ?, 1)",
                         (aid, nid),
                     )
-                    for fk, fv in alarm_default_fields:
+                    attrs = build_alarm_attrs(conn, nid, alarm_fields)
+                    for k, v in attrs.items():
                         conn.execute(
                             "INSERT INTO node_alarm_attrs (alarm_id, field_key, value) VALUES (?, ?, ?)",
-                            (aid, fk, fv),
+                            (aid, k, v),
                         )
 
         buffer: list[tuple] = []  # (node_id, name)
