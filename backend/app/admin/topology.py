@@ -187,12 +187,14 @@ def get_topology(id: str) -> dict:
                 detail={"code": 40101, "message": "拓扑不存在", "details": {"topologyId": id}},
             )
         stats = _topology_stats(conn, id)
-        alarm_schema_id = row["alarm_schema_id"] if "alarm_schema_id" in row.keys() else None
-        node_alarm_count = conn.execute(
-            "SELECT COUNT(*) AS c FROM node_alarms a "
-            "JOIN nodes n ON n.id = a.node_id WHERE n.topology_id = ?",
-            (id,),
-        ).fetchone()["c"]
+        alarm_schema_id = row["alarm_schema_id"]
+        node_alarm_count = 0
+        if alarm_schema_id:
+            node_alarm_count = conn.execute(
+                "SELECT COUNT(*) AS c FROM node_alarms a "
+                "JOIN nodes n ON n.id = a.node_id WHERE n.topology_id = ?",
+                (id,),
+            ).fetchone()["c"]
         detail = _row_to_detail(row, stats, alarm_schema_id=alarm_schema_id, node_alarm_count=node_alarm_count)
     return DetailResponse(data=detail)
 
