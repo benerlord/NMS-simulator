@@ -68,6 +68,7 @@ def _get_fields(conn, schema_id: str) -> list[AlarmSchemaFieldItem]:
             options=r["options"],
             required=bool(r["required"]),
             sort_order=r["sort_order"],
+            mapping_target=r["mapping_target"],
         )
         for r in rows
     ]
@@ -81,6 +82,7 @@ def _row_to_detail(conn, row) -> AlarmSchemaDetail:
         description=row["description"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
+        display_field_key=row["display_field_key"],
         fields=_get_fields(conn, row["id"]),
     )
 
@@ -95,6 +97,7 @@ def list_alarm_schemas() -> dict:
             AlarmSchemaItem(
                 id=r["id"], code=r["code"], name=r["name"],
                 description=r["description"],
+                display_field_key=r["display_field_key"],
                 created_at=r["created_at"], updated_at=r["updated_at"],
             ).model_dump(mode="json", by_alias=True)
             for r in rows
@@ -128,17 +131,18 @@ def create_alarm_schema(data: AlarmSchemaCreate) -> dict:
                 detail={"code": 40901, "message": f"code 已存在: {data.code}"},
             )
         conn.execute(
-            "INSERT INTO alarm_schemas (id, code, name, description) VALUES (?, ?, ?, ?)",
-            (sid, data.code, data.name, data.description),
+            "INSERT INTO alarm_schemas (id, code, name, description, display_field_key) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (sid, data.code, data.name, data.description, data.display_field_key),
         )
         for f in data.fields:
             conn.execute(
                 "INSERT INTO alarm_schema_fields "
                 "(alarm_schema_id, field_key, field_label, field_type, max_length, "
-                " default_value, options, required, sort_order) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " default_value, options, required, sort_order, mapping_target) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (sid, f.field_key, f.field_label, f.field_type, f.max_length,
-                 f.default_value, f.options, int(f.required), f.sort_order),
+                 f.default_value, f.options, int(f.required), f.sort_order, f.mapping_target),
             )
         row = conn.execute("SELECT * FROM alarm_schemas WHERE id = ?", (sid,)).fetchone()
         d = _row_to_detail(conn, row)
@@ -162,6 +166,9 @@ def update_alarm_schema(schema_id: str, data: AlarmSchemaUpdate) -> dict:
         if data.description is not None:
             sets.append("description = ?")
             params.append(data.description)
+        if 'display_field_key' in data.model_fields_set:
+            sets.append("display_field_key = ?")
+            params.append(data.display_field_key)
         if sets:
             sets.append("updated_at = datetime('now')")
             params.append(schema_id)
@@ -173,10 +180,10 @@ def update_alarm_schema(schema_id: str, data: AlarmSchemaUpdate) -> dict:
                 conn.execute(
                     "INSERT INTO alarm_schema_fields "
                     "(alarm_schema_id, field_key, field_label, field_type, max_length, "
-                    " default_value, options, required, sort_order) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    " default_value, options, required, sort_order, mapping_target) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (schema_id, f.field_key, f.field_label, f.field_type, f.max_length,
-                     f.default_value, f.options, int(f.required), f.sort_order),
+                     f.default_value, f.options, int(f.required), f.sort_order, f.mapping_target),
                 )
 
         row = conn.execute("SELECT * FROM alarm_schemas WHERE id = ?", (schema_id,)).fetchone()
