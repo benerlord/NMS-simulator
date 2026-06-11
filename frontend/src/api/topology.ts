@@ -1,3 +1,5 @@
+import { apiPatch } from './http'
+
 export interface TopologyStats {
   nodeCount: number
   edgeCount: number
@@ -16,6 +18,8 @@ export interface TopologyListItem {
 
 export interface TopologyDetail extends TopologyListItem {
   stats: TopologyStats
+  alarmSchemaId?: string | null
+  nodeAlarmCount?: number
 }
 
 export interface TopologyCreate {
@@ -137,4 +141,14 @@ export interface TopologyImportResult {
   nodeCount: number
   edgeCount: number
   canvasCount: number
+}
+
+// --- Alarm Schema Binding ---
+export const topologyApi = {
+  bindAlarmSchema: (
+    id: string,
+    alarmSchemaId: string | null,
+    clearExisting = false,
+  ): Promise<{ alarmSchemaId: string | null }> =>
+    apiPatch(`/topologies/${id}/alarm-schema`, { alarmSchemaId, clearExisting }),
 }
