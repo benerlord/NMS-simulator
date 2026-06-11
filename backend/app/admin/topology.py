@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from app.db.connection import connect, transaction
 from app.admin.schemas import (
     TOPOLOGY_IO_SCHEMA_VERSION,
+    TopologyAlarmSchemaPatch,
     TopologyCreate,
     TopologyDetail,
     TopologyExportDoc,
@@ -49,7 +50,12 @@ def _row_to_list_item(row) -> TopologyListItem:
     )
 
 
-def _row_to_detail(row, stats: TopologyStats) -> TopologyDetail:
+def _row_to_detail(
+    row,
+    stats: TopologyStats,
+    alarm_schema_id: Optional[str] = None,
+    node_alarm_count: int = 0,
+) -> TopologyDetail:
     return TopologyDetail(
         id=row["id"],
         name=row["name"],
@@ -60,6 +66,8 @@ def _row_to_detail(row, stats: TopologyStats) -> TopologyDetail:
         created_at=row["created_at"],
         updated_at=row["updated_at"],
         stats=stats,
+        alarm_schema_id=alarm_schema_id,
+        node_alarm_count=node_alarm_count,
     )
 
 
@@ -179,7 +187,13 @@ def get_topology(id: str) -> dict:
                 detail={"code": 40101, "message": "拓扑不存在", "details": {"topologyId": id}},
             )
         stats = _topology_stats(conn, id)
-        detail = _row_to_detail(row, stats)
+        alarm_schema_id = row["alarm_schema_id"] if "alarm_schema_id" in row.keys() else None
+        node_alarm_count = conn.execute(
+            "SELECT COUNT(*) AS c FROM node_alarms a "
+            "JOIN nodes n ON n.id = a.node_id WHERE n.topology_id = ?",
+            (id,),
+        ).fetchone()["c"]
+        detail = _row_to_detail(row, stats, alarm_schema_id=alarm_schema_id, node_alarm_count=node_alarm_count)
     return DetailResponse(data=detail)
 
 
@@ -761,3 +775,57 @@ def import_topology(body: TopologyExportDoc) -> dict:
         "data": result.model_dump(mode="json", by_alias=True),
         "message": "ok",
     }
+
+
+# PATCH /admin/api/topologies/{topology_id}/alarm-schema
+@router.patch("/topologies/{topology_id}/alarm-schema")
+def bind_alarm_schema(topology_id: str, data: TopologyAlarmSchemaPatch) -> dict:
+    with transaction() as conn:
+        row = conn.execute(
+            "SELECT id, alarm_schema_id FROM topologies WHERE id = ?", (topology_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail={"code": 40404, "message": "拓扑不存在"})
+
+        new_sid = data.alarm_schema_id or None
+        current_sid = row["alarm_schema_id"]
+
+        # Verify schema exists if binding (not unbinding)
+        if new_sid:
+            schema = conn.execute(
+                "SELECT id FROM alarm_schemas WHERE id = ?", (new_sid,)
+            ).fetchone()
+            if not schema:
+                raise HTTPException(status_code=404, detail={"code": 40404, "message": "告警模板不存在"})
+
+        # Check alarm count when changing (incl. unbinding)
+        if new_sid != current_sid:
+            cnt_row = conn.execute(
+                "SELECT COUNT(*) AS c FROM node_alarms a "
+                "JOIN nodes n ON n.id = a.node_id "
+                "WHERE n.topology_id = ?",
+                (topology_id,),
+            ).fetchone()
+            alarm_cnt = cnt_row["c"]
+            if alarm_cnt > 0 and not data.clear_existing:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": 40902,
+                        "message": "拓扑下有告警数据，请确认是否清空",
+                        "details": {"nodeAlarmCount": alarm_cnt},
+                    },
+                )
+            if alarm_cnt > 0 and data.clear_existing:
+                conn.execute(
+                    "DELETE FROM node_alarms WHERE node_id IN "
+                    "(SELECT id FROM nodes WHERE topology_id = ?)",
+                    (topology_id,),
+                )
+
+        conn.execute(
+            "UPDATE topologies SET alarm_schema_id = ?, updated_at = datetime('now') WHERE id = ?",
+            (new_sid, topology_id),
+        )
+
+    return {"code": 0, "data": {"alarmSchemaId": new_sid}, "message": "ok"}

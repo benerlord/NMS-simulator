@@ -67,3 +67,21 @@ def test_create_alarm_schema_with_invalid_field_key_rejected(client):
         "fields": [{"fieldKey": "bad-key!", "fieldLabel": "X", "fieldType": "number"}],
     })
     assert r.status_code == 400
+
+
+def test_delete_referenced_alarm_schema_rejected(client):
+    # create alarm_schema and topology, bind
+    r = client.post("/admin/api/alarm-schemas", json={"code": "ref", "name": "Ref", "fields": []})
+    sid = r.json()["data"]["id"]
+    r = client.post("/admin/api/topologies", json={"name": "RefT1"})
+    tid = r.json()["data"]["id"]
+    r = client.patch(f"/admin/api/topologies/{tid}/alarm-schema",
+                     json={"alarmSchemaId": sid, "clearExisting": False})
+    assert r.status_code == 200
+
+    # delete attempt
+    r = client.delete(f"/admin/api/alarm-schemas/{sid}")
+    assert r.status_code == 409
+    detail = r.json()["detail"]
+    assert detail["code"] == 40901
+    assert "RefT1" in detail["details"]["referencedBy"]
