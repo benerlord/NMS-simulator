@@ -183,9 +183,9 @@ def create_node(topology_id: str, data: NodeCreate) -> dict:
     node_id = _new_id()
 
     with transaction() as conn:
-        # 检查拓扑存在
+        # 检查拓扑存在，同时取 alarm_schema_id 供后续自动告警使用
         topo = conn.execute(
-            "SELECT id FROM topologies WHERE id = ?", (topology_id,)
+            "SELECT id, alarm_schema_id FROM topologies WHERE id = ?", (topology_id,)
         ).fetchone()
         if not topo:
             raise HTTPException(
@@ -220,11 +220,8 @@ def create_node(topology_id: str, data: NodeCreate) -> dict:
         )
 
         # Auto-insert 1 default alarm if topology has alarm_schema bound
-        topo_full = conn.execute(
-            "SELECT alarm_schema_id FROM topologies WHERE id = ?", (topology_id,)
-        ).fetchone()
-        if topo_full and topo_full["alarm_schema_id"]:
-            sid = topo_full["alarm_schema_id"]
+        if topo["alarm_schema_id"]:  # use cached row from existence check
+            sid = topo["alarm_schema_id"]
             fields = conn.execute(
                 "SELECT field_key, default_value FROM alarm_schema_fields "
                 "WHERE alarm_schema_id = ? ORDER BY sort_order, id",
