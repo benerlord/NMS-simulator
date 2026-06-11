@@ -218,6 +218,31 @@ def create_node(topology_id: str, data: NodeCreate) -> dict:
                VALUES (?, ?, ?, ?, ?, ?)""",
             (node_id, topology_id, data.node_type_id, data.name, data.dn, data.status),
         )
+
+        # Auto-insert 1 default alarm if topology has alarm_schema bound
+        topo_full = conn.execute(
+            "SELECT alarm_schema_id FROM topologies WHERE id = ?", (topology_id,)
+        ).fetchone()
+        if topo_full and topo_full["alarm_schema_id"]:
+            sid = topo_full["alarm_schema_id"]
+            fields = conn.execute(
+                "SELECT field_key, default_value FROM alarm_schema_fields "
+                "WHERE alarm_schema_id = ? ORDER BY sort_order, id",
+                (sid,),
+            ).fetchall()
+            aid = f"alm_{uuid.uuid4().hex[:12]}"
+            conn.execute(
+                "INSERT INTO node_alarms (id, node_id, alarm_index) VALUES (?, ?, 1)",
+                (aid, node_id),
+            )
+            for f in fields:
+                if f["default_value"] is not None:
+                    conn.execute(
+                        "INSERT INTO node_alarm_attrs (alarm_id, field_key, value) "
+                        "VALUES (?, ?, ?)",
+                        (aid, f["field_key"], f["default_value"]),
+                    )
+
         row = conn.execute("SELECT * FROM nodes WHERE id = ?", (node_id,)).fetchone()
         detail = _build_node_detail(conn, row)
 
