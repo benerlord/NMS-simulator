@@ -11,7 +11,7 @@ Runtime behavior (per docs/数据库表设计.md §5):
 
 import re
 import sqlite3
-from typing import Any
+from typing import Any, Optional
 
 _IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -43,9 +43,9 @@ EDGE_JOIN_COLUMNS: list[str] = [
     "target_group_id",
 ]
 
-GENERIC_VIEW_NAMES: list[str] = ["gn_seq", "nodes", "edges", "children", "node_groups", "group_nodes", "group_edges", "topology_nodes", "topology_edges"]
+GENERIC_VIEW_NAMES: list[str] = ["gn_seq", "nodes", "edges", "children", "node_groups", "group_nodes", "group_edges", "topology_nodes", "topology_edges", "alarms"]
 
-_RESERVED_NAMES: set[str] = {"gn_seq", "nodes", "edges", "children", "node_groups", "group_nodes", "group_edges", "topology_nodes", "topology_edges"}
+_RESERVED_NAMES: set[str] = {"gn_seq", "nodes", "edges", "children", "node_groups", "group_nodes", "group_edges", "topology_nodes", "topology_edges", "alarms"}
 
 
 def is_valid_ident(s: str) -> bool:
@@ -467,6 +467,59 @@ def _build_topology_edges_cte() -> dict[str, Any]:
     }
 
 
+ALARM_FIXED_COLUMNS: list[str] = [
+    "id", "node_id", "node_name", "node_dn",
+    "alarm_index", "created_at", "updated_at",
+]
+
+
+def _build_alarms_cte(conn: sqlite3.Connection, topology_id: str) -> Optional[dict[str, Any]]:
+    """Alarms CTE — None if topology has no alarm_schema bound."""
+    row = conn.execute(
+        "SELECT alarm_schema_id FROM topologies WHERE id = ?", (topology_id,)
+    ).fetchone()
+    if not row or not row["alarm_schema_id"]:
+        return None
+    sid = row["alarm_schema_id"]
+
+    field_rows = conn.execute(
+        "SELECT field_key FROM alarm_schema_fields WHERE alarm_schema_id = ? "
+        "ORDER BY sort_order, id",
+        (sid,),
+    ).fetchall()
+
+    columns = list(ALARM_FIXED_COLUMNS)
+    pivots: list[str] = []
+    for r in field_rows:
+        key = r["field_key"]
+        if not is_valid_ident(key):
+            continue
+        if key in columns:
+            continue
+        columns.append(key)
+        pivots.append(f"MAX(CASE WHEN aa.field_key = '{key}' THEN aa.value END) AS {key}")
+
+    fixed_select = [
+        "a.id",
+        "a.node_id",
+        "n.name AS node_name",
+        "n.dn AS node_dn",
+        "a.alarm_index",
+        "a.created_at",
+        "a.updated_at",
+    ]
+    select_body = ",\n         ".join(fixed_select + pivots)
+    sql = (
+        f"SELECT {select_body}\n"
+        "  FROM main.node_alarms a\n"
+        "  JOIN main.nodes n ON n.id = a.node_id\n"
+        "  LEFT JOIN main.node_alarm_attrs aa ON aa.alarm_id = a.id\n"
+        "  WHERE n.topology_id = :__tid__\n"
+        "  GROUP BY a.id"
+    )
+    return {"name": "alarms", "columns": columns, "sql": sql}
+
+
 def build_generic_ctes() -> list[dict[str, Any]]:
     """Always-available CTEs: nodes / edges / children / node_groups / group_nodes / group_edges / topology_edges.
     """
@@ -565,10 +618,15 @@ def collect_views(
         fields = _fetch_edge_fields(conn, et["id"])
         edge_views.append(build_edge_type_cte(et["code"], et["id"], fields))
 
+    generic = build_generic_ctes()
+    alarms_cte = _build_alarms_cte(conn, topology_id)
+    if alarms_cte is not None:
+        generic.append(alarms_cte)
+
     return {
         # generic first: gn_seq and group_nodes must be defined before
         # type-specific views that reference them via UNION ALL.
-        "generic": build_generic_ctes(),
+        "generic": generic,
         "nodeViews": node_views,
         "edgeViews": edge_views,
     }
