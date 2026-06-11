@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import Field, model_validator
+from pydantic import Field, model_validator, field_validator
 
 from ._base import CamelModel
 
@@ -17,6 +17,17 @@ class AlarmSchemaFieldCreate(CamelModel):
     options: Optional[str] = Field(default=None, max_length=500)
     required: bool = Field(default=False)
     sort_order: int = Field(default=0)
+    mapping_target: Optional[str] = Field(default=None, max_length=50)
+
+    @field_validator('mapping_target')
+    @classmethod
+    def validate_mapping_target(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or v == '':
+            return None
+        import re
+        if not re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', v):
+            raise ValueError('mapping_target 必须是合法标识符（字母/数字/下划线，以字母或下划线开头）')
+        return v
 
     @model_validator(mode='after')
     def validate_max_length_for_text(self) -> 'AlarmSchemaFieldCreate':
@@ -40,6 +51,7 @@ class AlarmSchemaFieldItem(CamelModel):
     options: Optional[str]
     required: bool
     sort_order: int
+    mapping_target: Optional[str] = None
 
 
 # --- alarm_schemas ---
@@ -48,12 +60,14 @@ class AlarmSchemaCreate(CamelModel):
     code: str = Field(..., min_length=1, max_length=50)
     name: str = Field(..., min_length=1, max_length=100)
     description: Optional[str] = Field(default=None, max_length=500)
+    display_field_key: Optional[str] = Field(default=None, max_length=50)
     fields: list[AlarmSchemaFieldCreate] = Field(default_factory=list)
 
 
 class AlarmSchemaUpdate(CamelModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=100)
     description: Optional[str] = Field(default=None, max_length=500)
+    display_field_key: Optional[str] = Field(default=None, max_length=50)
     fields: Optional[list[AlarmSchemaFieldCreate]] = Field(default=None)
 
 
@@ -62,6 +76,7 @@ class AlarmSchemaItem(CamelModel):
     code: str
     name: str
     description: Optional[str]
+    display_field_key: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
