@@ -44,6 +44,8 @@ class TopologyDetail(CamelModel):
     created_at: datetime
     updated_at: datetime
     stats: TopologyStats
+    alarm_schema_id: Optional[str] = None
+    node_alarm_count: int = 0
 
 
 class TopologyListResponse(CamelModel):
