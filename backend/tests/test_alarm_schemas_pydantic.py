@@ -22,9 +22,17 @@ def test_field_non_text_no_max_length_needed():
 
 
 def test_alarm_schema_create_camel_alias():
-    a = AlarmSchemaCreate(code="huawei", name="华为告警")
-    dump = a.model_dump(by_alias=True)
-    assert "code" in dump and "name" in dump
+    f = AlarmSchemaFieldCreate(
+        fieldKey="alarm_id",
+        fieldLabel="告警ID",
+        fieldType="text",
+        maxLength=64,
+        sortOrder=1,
+    )
+    dump = f.model_dump(by_alias=True)
+    assert "fieldKey" in dump and "fieldLabel" in dump and "fieldType" in dump
+    assert "maxLength" in dump and "sortOrder" in dump
+    assert "field_key" not in dump
 
 
 def test_topology_alarm_schema_patch_clear_existing_default_false():

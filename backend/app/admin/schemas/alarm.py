@@ -22,8 +22,10 @@ class AlarmSchemaFieldCreate(CamelModel):
     def validate_max_length_for_text(self) -> 'AlarmSchemaFieldCreate':
         if self.field_type != 'text':
             return self
-        if self.max_length is None or self.max_length < 1:
-            raise ValueError('文本类型必须设置 max_length >= 1')
+        if self.max_length is None:
+            raise ValueError('文本类型必须设置 max_length')
+        if self.max_length < 1:
+            raise ValueError('max_length 必须 >= 1')
         return self
 
 
@@ -65,7 +67,7 @@ class AlarmSchemaItem(CamelModel):
 
 
 class AlarmSchemaDetail(AlarmSchemaItem):
-    fields: list[AlarmSchemaFieldItem] = []
+    fields: list[AlarmSchemaFieldItem] = Field(default_factory=list)
 
 
 # --- topology binding ---
@@ -89,6 +91,6 @@ class NodeAlarmItem(CamelModel):
     id: str
     node_id: str
     alarm_index: int
-    attrs: dict[str, Optional[str]] = {}
+    attrs: dict[str, Optional[str]] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
