@@ -3,7 +3,7 @@ import { ref, watch, nextTick, computed } from 'vue'
 import { Button, Collapse, Form, Input, InputNumber, Select, Switch, Spin, Empty, message, Popconfirm } from 'ant-design-vue'
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 import { nodeAlarmApi, type NodeAlarmItem } from '@/api/nodeAlarm'
-import { alarmSchemaApi, type AlarmSchemaFieldItem } from '@/api/alarmSchema'
+import { alarmSchemaApi, type AlarmSchemaFieldItem, type AlarmSchemaDetail } from '@/api/alarmSchema'
 import { apiGet } from '@/api/http'
 import type { TopologyDetail } from '@/api/topology'
 
@@ -17,6 +17,7 @@ const emit = defineEmits<{
 }>()
 
 const loading = ref(false)
+const schema = ref<AlarmSchemaDetail | null>(null)
 const schemaFields = ref<AlarmSchemaFieldItem[]>([])
 const alarms = ref<NodeAlarmItem[]>([])
 const alarmSchemaId = ref<string | null>(null)
@@ -33,8 +34,10 @@ async function loadAll() {
     alarmSchemaId.value = topo.alarmSchemaId ?? null
     if (alarmSchemaId.value) {
       const d = await alarmSchemaApi.get(alarmSchemaId.value)
+      schema.value = d
       schemaFields.value = [...d.fields].sort((a, b) => a.sortOrder - b.sortOrder)
     } else {
+      schema.value = null
       schemaFields.value = []
     }
     alarms.value = await nodeAlarmApi.listByNode(props.nodeId)
@@ -74,9 +77,14 @@ function markDirty(alarmId: string) {
 }
 
 function getCollapseHeader(alarm: NodeAlarmItem): string {
-  const firstField = schemaFields.value[0]
-  if (!firstField) return `告警 #${alarm.alarmIndex}`
-  const v = alarm.attrs[firstField.fieldKey] || ''
+  const displayKey = schema.value?.displayFieldKey
+  let field: AlarmSchemaFieldItem | null = null
+  if (displayKey) {
+    field = schemaFields.value.find(f => f.fieldKey === displayKey) ?? null
+  }
+  if (!field) field = schemaFields.value[0] ?? null
+  if (!field) return `告警 #${alarm.alarmIndex}`
+  const v = alarm.attrs[field.fieldKey] || ''
   return `${v || '(空)'}  #${alarm.alarmIndex}`
 }
 
