@@ -3,11 +3,10 @@ import { ref, computed } from 'vue'
 import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, ExportOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
 import EdgeTypeModal from './EdgeTypeModal.vue'
-import EdgeTypeFieldEditor from './EdgeTypeFieldEditor.vue'
 import { useEdgeTypes } from '@/composables/useTypes'
 import { edgeTypeApi } from '@/api/types'
 import { downloadJson, timestampFilename } from '@/utils/download'
-import type { EdgeTypeDetail, EdgeTypeCreate, EdgeTypeUpdate, EdgeTypeFieldCreate, EdgeTypeFieldUpdate } from '@/api/types'
+import type { EdgeTypeDetail, EdgeTypeCreate, EdgeTypeUpdate } from '@/api/types'
 
 const {
   edgeTypes,
@@ -17,9 +16,6 @@ const {
   updateEdgeType,
   deleteEdgeType,
   deleteEdgeTypes,
-  createEdgeTypeField,
-  updateEdgeTypeField,
-  deleteEdgeTypeField,
 } = useEdgeTypes()
 
 defineExpose({ refresh: fetchEdgeTypes })
@@ -67,28 +63,6 @@ async function handleDelete(item: EdgeTypeDetail) {
   } catch {}
 }
 
-async function handleCreateField(typeId: string, data: EdgeTypeFieldCreate) {
-  try {
-    await createEdgeTypeField(typeId, data)
-    message.success('字段添加成功')
-  } catch {}
-}
-
-async function handleUpdateField(typeId: string, fieldId: number, data: EdgeTypeFieldUpdate) {
-  try {
-    await updateEdgeTypeField(typeId, fieldId, data)
-    message.success('字段更新成功')
-  } catch {}
-}
-
-async function handleDeleteField(typeId: string, fieldId: number) {
-  try {
-    await deleteEdgeTypeField(typeId, fieldId)
-    message.success('字段删除成功')
-  } catch {}
-}
-
-const expandedRowKeys = ref<string[]>([])
 const selectedRowKeys = ref<string[]>([])
 const searchText = ref('')
 
@@ -168,8 +142,6 @@ fetchEdgeTypes()
       :pagination="{ pageSize: 10 }"
       rowKey="id"
       :rowSelection="{ selectedRowKeys, onChange: (keys: string[]) => { selectedRowKeys = keys } }"
-      :expandedRowKeys="expandedRowKeys"
-      @expand="(expanded: boolean, record: EdgeTypeDetail) => { if (expanded) expandedRowKeys = [record.id]; else expandedRowKeys = [] }"
     >
       <a-table-column title="代码" dataIndex="code" width="140" />
       <a-table-column title="名称" dataIndex="name" width="120" />
@@ -224,15 +196,6 @@ fetchEdgeTypes()
         </template>
       </a-table-column>
 
-      <template #expandedRowRender="{ record }">
-        <EdgeTypeFieldEditor
-          :fields="record.fields"
-          :loading="edgeTypesLoading"
-          @create="(data) => handleCreateField(record.id, data)"
-          @update="(fieldId, data) => handleUpdateField(record.id, fieldId, data)"
-          @delete="(fieldId) => handleDeleteField(record.id, fieldId)"
-        />
-      </template>
     </a-table>
 
     <EdgeTypeModal
