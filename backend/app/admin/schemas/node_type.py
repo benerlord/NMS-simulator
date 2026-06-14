@@ -9,7 +9,10 @@ from ._base import CamelModel
 # --- field input (整批同步用) ---
 
 class NodeTypeFieldInput(CamelModel):
-    """整批同步用 — 无 id；field_key 是稳定主键。"""
+    """整批同步用 — 无 id；field_key 是稳定主键。
+
+    注意：sort_order 由数组顺序决定，客户端传入的 sort_order 值会被服务端忽略并重写。
+    """
     field_key: str = Field(..., min_length=1, max_length=50)
     field_label: str = Field(..., min_length=1, max_length=100)
     field_type: str = Field(..., pattern="^(text|number|select|boolean)$")

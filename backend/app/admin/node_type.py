@@ -342,8 +342,12 @@ def update_node_type_domains(type_id: str, data: NodeTypeDomainsUpdate) -> dict:
 @router.put("/node-types/{type_id}")
 def update_node_type(type_id: str, data: NodeTypeUpdate) -> dict:
     raw = data.model_dump(exclude_unset=True)
-    fields_payload = data.fields  # 取出 fields 单独处理
+    fields_payload = data.fields if "fields" in raw else None  # 用户是否传入了 fields
     raw.pop("fields", None)  # 不放进 UPDATE SQL
+
+    # 防御：空 body {} 拒绝
+    if not raw and fields_payload is None:
+        raise HTTPException(status_code=400, detail={"code": 40203, "message": "无更新字段"})
 
     with transaction() as conn:
         existing = conn.execute(

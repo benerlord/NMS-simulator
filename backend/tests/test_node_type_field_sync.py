@@ -253,3 +253,15 @@ def test_legacy_single_field_endpoints_removed(client):
 
     r = client.delete(f"/admin/api/node-types/{tid}/fields/1")
     assert r.status_code in (404, 405)
+
+
+def test_update_empty_body_rejected(client):
+    """PUT 完全空 body → 400（原有 40203 防御保留）。"""
+    r = client.post("/admin/api/node-types", json={
+        "code": "empty_test", "name": "E", "category": "physical",
+    })
+    tid = r.json()["data"]["id"]
+
+    r = client.put(f"/admin/api/node-types/{tid}", json={})
+    assert r.status_code == 400
+    assert r.json()["detail"]["code"] == 40203
