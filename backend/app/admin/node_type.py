@@ -174,6 +174,75 @@ def _sync_node_type_fields(conn, node_type_id: str, incoming: list) -> None:
         )
 
 
+def _sync_edge_type_fields(conn, edge_type_id: str, incoming: list) -> None:
+    """整批同步 edge_type_fields，按 field_key 做 diff。
+
+    incoming: list[EdgeTypeFieldInput]
+    事务内顺序：delete → update → insert
+    删除字段时一并清理同类型边的孤儿 edge_attrs 行。
+    """
+    # 校验 incoming 内 field_key 不重复
+    seen_keys = set()
+    for f in incoming:
+        if f.field_key in seen_keys:
+            raise HTTPException(
+                status_code=400,
+                detail={"code": 40306, "message": f"字段 Key 重复: {f.field_key}"},
+            )
+        seen_keys.add(f.field_key)
+
+    existing_keys = {
+        r["field_key"]
+        for r in conn.execute(
+            "SELECT field_key FROM edge_type_fields WHERE edge_type_id = ?",
+            (edge_type_id,),
+        ).fetchall()
+    }
+
+    incoming_keys = {f.field_key for f in incoming}
+    to_delete = existing_keys - incoming_keys
+
+    # DELETE：先删字段定义，再清理孤儿 edge_attrs（仅同类型边）
+    for k in to_delete:
+        conn.execute(
+            "DELETE FROM edge_type_fields WHERE edge_type_id = ? AND field_key = ?",
+            (edge_type_id, k),
+        )
+        conn.execute(
+            """DELETE FROM edge_attrs
+               WHERE field_key = ?
+                 AND edge_id IN (SELECT id FROM edges WHERE edge_type_id = ?)""",
+            (k, edge_type_id),
+        )
+
+    # UPDATE：按 sort_order = 数组下标重写
+    for idx, f in enumerate(incoming):
+        if f.field_key not in existing_keys:
+            continue
+        conn.execute(
+            """UPDATE edge_type_fields
+               SET field_label = ?, field_type = ?, max_length = ?,
+                   default_value = ?, options = ?, required = ?, sort_order = ?
+               WHERE edge_type_id = ? AND field_key = ?""",
+            (f.field_label, f.field_type, f.max_length, f.default_value,
+             f.options, int(f.required), idx,
+             edge_type_id, f.field_key),
+        )
+
+    # INSERT：sort_order = 数组下标
+    for idx, f in enumerate(incoming):
+        if f.field_key in existing_keys:
+            continue
+        conn.execute(
+            """INSERT INTO edge_type_fields
+               (edge_type_id, field_key, field_label, field_type, max_length,
+                default_value, options, required, sort_order)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (edge_type_id, f.field_key, f.field_label, f.field_type,
+             f.max_length, f.default_value, f.options, int(f.required), idx),
+        )
+
+
 def _get_edge_type_fields(conn, edge_type_id: str) -> list[EdgeTypeFieldItem]:
     rows = conn.execute(
         "SELECT * FROM edge_type_fields WHERE edge_type_id = ? ORDER BY sort_order",
@@ -810,25 +879,38 @@ def create_edge_type(data: EdgeTypeCreate) -> dict:
              int(data.exclusive_target), data.allow_source_type_codes,
              data.allow_target_type_codes, data.line_style, data.color, data.description),
         )
+        if data.fields is not None:
+            _sync_edge_type_fields(conn, type_id, data.fields)
     return {"code": 0, "data": {"id": type_id}, "message": "ok"}
 
 
 @router.put("/edge-types/{type_id}")
 def update_edge_type(type_id: str, data: EdgeTypeUpdate) -> dict:
-    fields = data.model_dump(exclude_unset=True)
-    if not fields:
+    raw = data.model_dump(exclude_unset=True)
+    fields_payload = data.fields if "fields" in raw else None  # 用户是否传入了 fields
+    raw.pop("fields", None)  # 不放进 UPDATE SQL
+
+    # 防御：空 body {} 拒绝
+    if not raw and fields_payload is None:
         raise HTTPException(status_code=400, detail={"code": 40303, "message": "无更新字段"})
+
     with transaction() as conn:
         existing = conn.execute(
             "SELECT id FROM edge_types WHERE id = ?", (type_id,)
         ).fetchone()
         if not existing:
             raise HTTPException(status_code=404, detail={"code": 40301, "message": "类型不存在"})
-        set_clause = ", ".join(f"{k} = ?" for k in fields.keys())
-        conn.execute(
-            f"UPDATE edge_types SET {set_clause}, updated_at = datetime('now') WHERE id = ?",
-            (*fields.values(), type_id),
-        )
+
+        if raw:
+            set_clause = ", ".join(f"{k} = ?" for k in raw.keys())
+            conn.execute(
+                f"UPDATE edge_types SET {set_clause}, updated_at = datetime('now') WHERE id = ?",
+                (*raw.values(), type_id),
+            )
+
+        if fields_payload is not None:
+            _sync_edge_type_fields(conn, type_id, fields_payload)
+
     return {"code": 0, "data": {"id": type_id}, "message": "ok"}
 
 
@@ -908,65 +990,29 @@ def delete_edge_type(type_id: str) -> dict:
     return {"code": 0, "data": {"id": type_id}, "message": "ok"}
 
 
-# ============== edge_type_fields ==============
-
-@router.post("/edge-types/{type_id}/fields")
-def create_edge_type_field(type_id: str, data: EdgeTypeFieldCreate) -> dict:
-    with transaction() as conn:
+@router.post("/edge-types/{type_id}/fields/delete-impact")
+def get_edge_type_field_delete_impact(
+    type_id: str, payload: FieldDeleteImpactRequest
+) -> dict:
+    """统计若删除 fieldKeys 中的字段，会影响多少同类型边的 edge_attrs。"""
+    with connect() as conn:
         existing = conn.execute(
             "SELECT id FROM edge_types WHERE id = ?", (type_id,)
         ).fetchone()
         if not existing:
-            raise HTTPException(status_code=404, detail={"code": 40301, "message": "类型不存在"})
-        key_exists = conn.execute(
-            "SELECT id FROM edge_type_fields WHERE edge_type_id = ? AND field_key = ?",
-            (type_id, data.field_key),
-        ).fetchone()
-        if key_exists:
-            raise HTTPException(status_code=409, detail={"code": 40304, "message": "字段Key已存在"})
-        conn.execute(
-            """INSERT INTO edge_type_fields
-               (edge_type_id, field_key, field_label, field_type, max_length, default_value, options, required, sort_order)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (type_id, data.field_key, data.field_label, data.field_type,
-             data.max_length, data.default_value, data.options, int(data.required), data.sort_order),
-        )
-        row = conn.execute(
-            "SELECT last_insert_rowid() as id"
-        ).fetchone()
-    return {"code": 0, "data": {"id": row["id"]}, "message": "ok"}
-
-
-@router.put("/edge-types/{type_id}/fields/{field_id}")
-def update_edge_type_field(type_id: str, field_id: int, data: EdgeTypeFieldUpdate) -> dict:
-    fields = data.model_dump(exclude_unset=True)
-    if not fields:
-        raise HTTPException(status_code=400, detail={"code": 40303, "message": "无更新字段"})
-    with transaction() as conn:
-        existing = conn.execute(
-            "SELECT id FROM edge_type_fields WHERE id = ? AND edge_type_id = ?",
-            (field_id, type_id),
-        ).fetchone()
-        if not existing:
-            raise HTTPException(status_code=404, detail={"code": 40305, "message": "字段不存在"})
-        set_clause = ", ".join(f"{k} = ?" for k in fields.keys())
-        if "required" in fields:
-            fields["required"] = int(fields["required"])
-        conn.execute(
-            f"UPDATE edge_type_fields SET {set_clause} WHERE id = ?",
-            (*fields.values(), field_id),
-        )
-    return {"code": 0, "data": {"id": field_id}, "message": "ok"}
-
-
-@router.delete("/edge-types/{type_id}/fields/{field_id}")
-def delete_edge_type_field(type_id: str, field_id: int) -> dict:
-    with transaction() as conn:
-        existing = conn.execute(
-            "SELECT id FROM edge_type_fields WHERE id = ? AND edge_type_id = ?",
-            (field_id, type_id),
-        ).fetchone()
-        if not existing:
-            raise HTTPException(status_code=404, detail={"code": 40305, "message": "字段不存在"})
-        conn.execute("DELETE FROM edge_type_fields WHERE id = ?", (field_id,))
-    return {"code": 0, "data": {"id": field_id}, "message": "ok"}
+            raise HTTPException(
+                status_code=404, detail={"code": 40301, "message": "类型不存在"}
+            )
+        items = []
+        for k in payload.field_keys:
+            count = conn.execute(
+                """SELECT COUNT(*) AS cnt FROM edge_attrs a
+                   JOIN edges e ON a.edge_id = e.id
+                   WHERE e.edge_type_id = ? AND a.field_key = ?""",
+                (type_id, k),
+            ).fetchone()["cnt"]
+            items.append(
+                FieldDeleteImpactItem(field_key=k, affected_node_count=count)
+            )
+        resp = FieldDeleteImpactResponse(items=items)
+    return {"code": 0, "data": resp.model_dump(mode="json", by_alias=True), "message": "ok"}
