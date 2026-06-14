@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { Form, Input, InputNumber, Select, Switch, Button, Spin } from 'ant-design-vue'
+import { Form, Input, InputNumber, Select, Switch, Button, Spin, Tooltip } from 'ant-design-vue'
 import type { EdgeTypeFieldItem } from '@/api/types'
 import { edgeApi } from '@/api/edge'
 
@@ -93,12 +93,18 @@ function setFieldValue(key: string, value: string) {
         <template v-else>
           <div class="edge-id">ID: {{ edgeId }}</div>
 
-          <Form layout="vertical" class="attrs-form">
-            <Form.Item
-              v-for="field in fields"
-              :key="field.id"
-              :label="field.fieldLabel"
-            >
+          <Form
+            layout="horizontal"
+            class="attrs-form"
+            :label-col="{ flex: '100px' }"
+            :wrapper-col="{ flex: 'auto' }"
+          >
+            <Form.Item v-for="field in fields" :key="field.id">
+              <template #label>
+                <Tooltip :title="field.fieldLabel" placement="left">
+                  <span class="attr-label-text">{{ field.fieldLabel }}</span>
+                </Tooltip>
+              </template>
               <template v-if="field.fieldType === 'text'">
                 <Input
                   :value="getFieldValue(field.fieldKey)"
@@ -156,7 +162,7 @@ function setFieldValue(key: string, value: string) {
   position: absolute;
   top: 0;
   right: 0;
-  width: 320px;
+  width: 380px;
   height: 100%;
   background: #fff;
   border-left: 1px solid #e8e8e8;
@@ -196,6 +202,19 @@ function setFieldValue(key: string, value: string) {
 
 .attrs-form {
   margin-top: 8px;
+}
+
+.attrs-form :deep(.ant-form-item) {
+  margin-bottom: 12px;
+}
+
+.attr-label-text {
+  display: inline-block;
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
 }
 
 .panel-footer {
