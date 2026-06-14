@@ -1,14 +1,13 @@
 <script setup lang="ts">
-import { ref, computed, h, onMounted } from 'vue'
+import { ref, computed, h } from 'vue'
 import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, ExportOutlined, ImportOutlined, DownOutlined } from '@ant-design/icons-vue'
 import { message, Modal, Dropdown, Menu, MenuItem, Tag, Select } from 'ant-design-vue'
 import NodeTypeModal from './NodeTypeModal.vue'
-import NodeTypeFieldEditor from './NodeTypeFieldEditor.vue'
 import { useNodeTypes } from '@/composables/useTypes'
 import { nodeTypeApi } from '@/api/types'
 import { domainApi, type DomainItem } from '@/api/domain'
 import { downloadBlob, timestampExcelFilename } from '@/utils/download'
-import type { NodeTypeDetail, NodeTypeCreate, NodeTypeUpdate, NodeTypeFieldCreate, NodeTypeFieldUpdate, TypeImportPreview, TypeImportResult } from '@/api/types'
+import type { NodeTypeDetail, NodeTypeCreate, NodeTypeUpdate, TypeImportPreview, TypeImportResult } from '@/api/types'
 
 const {
   nodeTypes,
@@ -18,9 +17,6 @@ const {
   updateNodeType,
   deleteNodeType,
   deleteNodeTypes,
-  createNodeTypeField,
-  updateNodeTypeField,
-  deleteNodeTypeField,
 } = useNodeTypes()
 
 defineExpose({ refresh: fetchNodeTypes })
@@ -68,29 +64,6 @@ async function handleDelete(item: NodeTypeDetail) {
   } catch {}
 }
 
-async function handleCreateField(typeId: string, data: NodeTypeFieldCreate) {
-  try {
-    await createNodeTypeField(typeId, data)
-    message.success('字段添加成功')
-  } catch {}
-}
-
-async function handleUpdateField(typeId: string, fieldId: number, data: NodeTypeFieldUpdate) {
-  try {
-    await updateNodeTypeField(typeId, fieldId, data)
-    message.success('字段更新成功')
-  } catch {}
-}
-
-async function handleDeleteField(typeId: string, fieldId: number) {
-  try {
-    await deleteNodeTypeField(typeId, fieldId)
-    message.success('字段删除成功')
-  } catch {}
-}
-
-// Expanded rows for showing fields
-const expandedRowKeys = ref<string[]>([])
 const selectedRowKeys = ref<string[]>([])
 const fileInputRef = ref<HTMLInputElement>()
 const searchText = ref('')
@@ -356,8 +329,6 @@ loadDomains()
       :pagination="{ pageSize: 10 }"
       rowKey="id"
       :rowSelection="{ selectedRowKeys, onChange: (keys: string[]) => { selectedRowKeys = keys } }"
-      :expandedRowKeys="expandedRowKeys"
-      @expand="(expanded: boolean, record: NodeTypeDetail) => { if (expanded) expandedRowKeys = [record.id]; else expandedRowKeys = [] }"
     >
       <a-table-column title="代码" dataIndex="code" width="120" />
       <a-table-column title="名称" dataIndex="name" width="140" />
@@ -420,15 +391,6 @@ loadDomains()
         </template>
       </a-table-column>
 
-      <template #expandedRowRender="{ record }">
-        <NodeTypeFieldEditor
-          :fields="record.fields"
-          :loading="nodeTypesLoading"
-          @create="(data) => handleCreateField(record.id, data)"
-          @update="(fieldId, data) => handleUpdateField(record.id, fieldId, data)"
-          @delete="(fieldId) => handleDeleteField(record.id, fieldId)"
-        />
-      </template>
     </a-table>
 
     <NodeTypeModal
