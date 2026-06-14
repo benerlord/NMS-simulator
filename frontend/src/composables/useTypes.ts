@@ -4,13 +4,9 @@ import type {
   NodeTypeDetail,
   NodeTypeCreate,
   NodeTypeUpdate,
-  NodeTypeFieldCreate,
-  NodeTypeFieldUpdate,
   EdgeTypeDetail,
   EdgeTypeCreate,
   EdgeTypeUpdate,
-  EdgeTypeFieldCreate,
-  EdgeTypeFieldUpdate,
 } from '@/api/types'
 
 // ============ Node Types ============
@@ -57,24 +53,6 @@ export function useNodeTypes() {
     return result
   }
 
-  async function createNodeTypeField(typeId: string, data: NodeTypeFieldCreate) {
-    const result = await nodeTypeApi.createField(typeId, data)
-    await fetchNodeTypes()
-    return result
-  }
-
-  async function updateNodeTypeField(typeId: string, fieldId: number, data: NodeTypeFieldUpdate) {
-    const result = await nodeTypeApi.updateField(typeId, fieldId, data)
-    await fetchNodeTypes()
-    return result
-  }
-
-  async function deleteNodeTypeField(typeId: string, fieldId: number) {
-    const result = await nodeTypeApi.deleteField(typeId, fieldId)
-    await fetchNodeTypes()
-    return result
-  }
-
   const nodeTypesByCategory = computed(() => {
     const grouped: Record<string, NodeTypeDetail[]> = {}
     for (const nt of nodeTypes.value) {
@@ -94,9 +72,6 @@ export function useNodeTypes() {
     updateNodeType,
     deleteNodeType,
     deleteNodeTypes,
-    createNodeTypeField,
-    updateNodeTypeField,
-    deleteNodeTypeField,
   }
 }
 
@@ -144,24 +119,6 @@ export function useEdgeTypes() {
     return result
   }
 
-  async function createEdgeTypeField(typeId: string, data: EdgeTypeFieldCreate) {
-    const result = await edgeTypeApi.createField(typeId, data)
-    await fetchEdgeTypes()
-    return result
-  }
-
-  async function updateEdgeTypeField(typeId: string, fieldId: number, data: EdgeTypeFieldUpdate) {
-    const result = await edgeTypeApi.updateField(typeId, fieldId, data)
-    await fetchEdgeTypes()
-    return result
-  }
-
-  async function deleteEdgeTypeField(typeId: string, fieldId: number) {
-    const result = await edgeTypeApi.deleteField(typeId, fieldId)
-    await fetchEdgeTypes()
-    return result
-  }
-
   return {
     edgeTypes,
     edgeTypesLoading,
@@ -171,8 +128,5 @@ export function useEdgeTypes() {
     updateEdgeType,
     deleteEdgeType,
     deleteEdgeTypes,
-    createEdgeTypeField,
-    updateEdgeTypeField,
-    deleteEdgeTypeField,
   }
 }
