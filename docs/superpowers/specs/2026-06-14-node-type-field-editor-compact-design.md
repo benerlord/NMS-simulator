@@ -1,8 +1,10 @@
 # 节点/边类型字段编辑器紧凑化改造 — 设计文档
 
 - **日期**：2026-06-14
-- **范围**：类型管理页（`TypesView.vue`）的节点类型 / 边类型 Tab
-- **不在范围**：告警模板（V2 已紧凑）；字段编辑器抽公共组件；画布属性面板
+- **范围**：
+  1. 类型管理页（`TypesView.vue`）的节点类型 / 边类型 Tab — 字段定义编辑器（§1-§10）
+  2. 画布上的节点/边属性编辑 — 字段值编辑器（§11）
+- **不在范围**：告警模板（V2 已紧凑）；字段编辑器抽公共组件
 
 ## 1. 背景与动机
 
@@ -27,6 +29,8 @@
 | Q2 | 节点类型列表的展开行 | **A** — 直接删除展开行 |
 | Q3 | 删字段时已有 `node_attrs` 的处理 | **C** — 弹窗确认 + 影响数预扫描 |
 | Q4 | 范围 | **A** — 节点类型 + 边类型同步整改，不抽公共组件 |
+| Q5 | 画布字段值编辑紧凑化策略 | **B** — Modal 双列网格 + 抽屉水平 label |
+| Q6 | 编辑节点抽屉宽度 | **B** — 320 → 380px |
 
 ## 3. 后端 API 变更
 
@@ -299,4 +303,76 @@ async function submit() {
 - 三套字段编辑器抽公共组件（明确放弃，避免 prop 大杂烩反模式）
 - 字段拖拽排序（用 ↑↓ 即可）
 - 节点字段增加 mapping_target / display_field_key（告警特有概念）
-- 字段编辑器在画布属性面板的复用（属性面板不动）
+- `NodeAlarmsTab` 内的告警卡片 Collapse 布局（V1/V2 已合理）
+- 拖拽调整抽屉宽度（与本次紧凑化主线无关）
+- 后端 API（§11 是纯前端 UI 改造）
+
+## 11. 画布节点字段编辑紧凑化（新增范围）
+
+### 11.1 背景
+
+画布上有两处节点字段值编辑：
+
+1. **`NodeAttrsModal.vue`**（创建节点弹窗）—— 默认 Modal 宽度 520px，Form `layout="vertical"`，每字段两行（label 在上、input 在下）。字段一多就要纵向滚动。
+2. **`NodeAttrsPanel.vue`**（编辑节点右侧抽屉）—— 固定 320px 宽，同样 `vertical` layout，痛点相同。
+
+注意：本节与 §3-§10 的"字段定义编辑器"是**不同场景**：
+- 类型管理编辑"字段定义"（key/label/type/maxLen/options/required/sort，多列结构）→ 适合行内表格
+- 画布编辑"字段值"（label : value，一对一关系）→ 适合 Form 紧凑布局
+
+不能复用同一组件结构。
+
+### 11.2 NodeAttrsModal（创建节点）
+
+- **Modal 宽度**：520 → 720px
+- **Form layout**：`vertical` 改为**双列网格**（Antd Row + Col）
+  - 默认：`<a-col :span="12">`，每行两个字段
+  - 字段顺序：按 `node_type_fields.sort_order` 升序填充
+  - 节点名称行不参与双列（保持单行宽度，因为名称是关键字段）
+  - boolean 字段、超短字段也用 `span="12"`（避免特殊判断带来视觉跳动）
+- **Form.Item 间距**：默认 `margin-bottom: 24px` → 紧凑 `16px`
+- **响应式**：Modal 在小屏（< 720px）上 Antd 自动收缩 → 双列降级为单列（`<a-col :xs="24" :md="12">`）
+- **校验/必填星号**：保持 Antd Form.Item 现有方案不变
+- **节点名称必填校验 + 自动滚动**：保留现有逻辑
+
+### 11.3 NodeAttrsPanel（编辑节点抽屉）
+
+- **面板宽度**：320 → 380px
+- **Form layout**：`vertical` 改为 **`horizontal`** + `label-col={ flex: '100px' }` + `wrapper-col={ flex: 'auto' }`
+- **Form.Item 间距**：默认 `margin-bottom: 24px` → `12px`
+- **节点名称行**：保持当前的"label 上、input 下"独立块（突出关键信息）
+- **长 label 截断**：CSS `text-overflow: ellipsis; white-space: nowrap;` + 鼠标悬停显示完整 label（Antd Tooltip）
+- **告警 Tab**：完全不动（V1/V2 已是 Collapse 列表）
+- **底部按钮（删除/保存）**：保持现有 flex 固定底部
+
+### 11.4 EdgeAttrsPanel（编辑边属性，对称改造）
+
+- 与 `NodeAttrsPanel` 同步：320 → 380px，水平 label，紧凑间距
+- 不动其他功能（语义/方向等元数据展示）
+
+### 11.5 文件清单（追加）
+
+**前端：**
+- `frontend/src/components/canvas/NodeAttrsModal.vue` — Modal 宽度 720，字段区改双列网格 + 紧凑间距
+- `frontend/src/components/canvas/NodeAttrsPanel.vue` — 面板宽度 380，Form 水平 layout + 紧凑间距 + label 截断 tooltip
+- `frontend/src/components/canvas/EdgeAttrsPanel.vue` — 同 NodeAttrsPanel 改造
+
+**无后端文件改动。**
+
+### 11.6 测试（追加 smoke 步骤）
+
+11. 创建节点弹窗宽度 720px，字段两列摆放（窗口窄时降级单列）
+12. 字段顺序按 sort_order 填充（左到右、上到下）
+13. 必填校验仍生效，scroll-to-error 功能正常
+14. 编辑节点抽屉宽度 380px，字段 label 在左、input 在右
+15. 长 label 截断 + 悬停 tooltip 显示完整
+16. 抽屉切到告警 Tab 显示不变
+17. 边属性面板与节点同款紧凑布局
+
+### 11.7 风险（追加）
+
+| 风险 | 缓解 |
+|---|---|
+| 双列网格在某些字段（如长 select 选项）拥挤 | Antd Select 默认会撑满 Col 宽度，选项面板（dropdown）独立浮层不受影响 |
+| 抽屉加宽 60px 影响小屏笔记本（1366×768）的画布操作 | 380px 占 1366 屏的 27.8%，仍有 986px 画布；可接受 |
+| 现有"必填字段未填 → scroll + focus"在双列网格下定位是否准确 | `querySelector('.ant-form-item-has-error')` 仍能找到 DOM 元素，无影响 |
