@@ -129,6 +129,7 @@ async function handleCreate() {
   <Modal
     :open="visible"
     title="创建节点"
+    :width="720"
     :confirm-loading="creating"
     @cancel="emit('close')"
     @ok="handleCreate"
@@ -152,50 +153,57 @@ async function handleCreate() {
         />
       </Form.Item>
 
-      <Form.Item
-        v-for="field in fields"
-        :key="field.id"
-        :label="field.fieldLabel"
-        :required="field.required"
-        :validate-status="fieldErrors[field.fieldKey] ? 'error' : ''"
-        :help="fieldErrors[field.fieldKey]"
-      >
-        <template v-if="field.fieldType === 'text'">
-          <Input
-            :value="getFieldValue(field.fieldKey)"
-            @input="(e: any) => setFieldValue(field.fieldKey, e.target.value)"
-            :maxlength="field.maxLength || undefined"
-            :showCount="!!field.maxLength"
-          />
-        </template>
-        <template v-else-if="field.fieldType === 'number'">
-          <InputNumber
-            :value="Number(getFieldValue(field.fieldKey))"
-            @change="(v: any) => setFieldValue(field.fieldKey, String(v ?? ''))"
-            style="width: 100%"
-          />
-        </template>
-        <template v-else-if="field.fieldType === 'select'">
-          <Select
-            :value="getFieldValue(field.fieldKey)"
-            @change="(v: any) => setFieldValue(field.fieldKey, String(v))"
+      <a-row :gutter="16">
+        <a-col
+          v-for="field in fields"
+          :key="field.id"
+          :xs="24"
+          :md="12"
+        >
+          <Form.Item
+            :label="field.fieldLabel"
+            :required="field.required"
+            :validate-status="fieldErrors[field.fieldKey] ? 'error' : ''"
+            :help="fieldErrors[field.fieldKey]"
           >
-            <Select.Option
-              v-for="opt in (field.options || '').split(',')"
-              :key="opt.trim()"
-              :value="opt.trim()"
-            >
-              {{ opt.trim() }}
-            </Select.Option>
-          </Select>
-        </template>
-        <template v-else-if="field.fieldType === 'boolean'">
-          <Switch
-            :checked="getFieldValue(field.fieldKey) === 'true'"
-            @change="(v: any) => setFieldValue(field.fieldKey, String(v))"
-          />
-        </template>
-      </Form.Item>
+            <template v-if="field.fieldType === 'text'">
+              <Input
+                :value="getFieldValue(field.fieldKey)"
+                @input="(e: any) => setFieldValue(field.fieldKey, e.target.value)"
+                :maxlength="field.maxLength || undefined"
+                :showCount="!!field.maxLength"
+              />
+            </template>
+            <template v-else-if="field.fieldType === 'number'">
+              <InputNumber
+                :value="Number(getFieldValue(field.fieldKey))"
+                @change="(v: any) => setFieldValue(field.fieldKey, String(v ?? ''))"
+                style="width: 100%"
+              />
+            </template>
+            <template v-else-if="field.fieldType === 'select'">
+              <Select
+                :value="getFieldValue(field.fieldKey)"
+                @change="(v: any) => setFieldValue(field.fieldKey, String(v))"
+              >
+                <Select.Option
+                  v-for="opt in (field.options || '').split(',')"
+                  :key="opt.trim()"
+                  :value="opt.trim()"
+                >
+                  {{ opt.trim() }}
+                </Select.Option>
+              </Select>
+            </template>
+            <template v-else-if="field.fieldType === 'boolean'">
+              <Switch
+                :checked="getFieldValue(field.fieldKey) === 'true'"
+                @change="(v: any) => setFieldValue(field.fieldKey, String(v))"
+              />
+            </template>
+          </Form.Item>
+        </a-col>
+      </a-row>
       </Form>
     </div>
   </Modal>
@@ -212,6 +220,10 @@ async function handleCreate() {
 
 .attrs-form {
   margin-top: 8px;
+}
+
+.attrs-form :deep(.ant-form-item) {
+  margin-bottom: 16px;
 }
 
 .no-required {
