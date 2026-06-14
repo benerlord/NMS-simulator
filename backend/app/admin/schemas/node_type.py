@@ -6,6 +6,30 @@ from pydantic import BaseModel, Field, model_validator
 from ._base import CamelModel
 
 
+# --- field input (整批同步用) ---
+
+class NodeTypeFieldInput(CamelModel):
+    """整批同步用 — 无 id；field_key 是稳定主键。"""
+    field_key: str = Field(..., min_length=1, max_length=50)
+    field_label: str = Field(..., min_length=1, max_length=100)
+    field_type: str = Field(..., pattern="^(text|number|select|boolean)$")
+    max_length: Optional[int] = Field(default=None, ge=1)
+    default_value: Optional[str] = Field(default=None, max_length=200)
+    options: Optional[str] = Field(default=None, max_length=500)
+    required: bool = Field(default=False)
+    sort_order: int = Field(default=0)
+
+    @model_validator(mode='after')
+    def validate_max_length_for_text(self) -> 'NodeTypeFieldInput':
+        if self.field_type != 'text':
+            return self
+        if self.max_length is None:
+            raise ValueError('文本类型必须设置 max_length')
+        if self.max_length < 1:
+            raise ValueError('max_length 必须 >= 1')
+        return self
+
+
 # --- node_types ---
 
 class NodeTypeCreate(CamelModel):
@@ -18,6 +42,7 @@ class NodeTypeCreate(CamelModel):
     render_mode: str = Field(default="none", pattern="^(none|flat)$")
     dn_template: Optional[str] = Field(default=None, max_length=200)
     description: Optional[str] = Field(default=None, max_length=500)
+    fields: Optional[list[NodeTypeFieldInput]] = Field(default=None)
 
 
 class NodeTypeUpdate(CamelModel):
@@ -28,6 +53,7 @@ class NodeTypeUpdate(CamelModel):
     render_mode: Optional[str] = Field(default=None, pattern="^(none|flat)$")
     dn_template: Optional[str] = Field(default=None, max_length=200)
     description: Optional[str] = Field(default=None, max_length=500)
+    fields: Optional[list[NodeTypeFieldInput]] = Field(default=None)
 
 
 class NodeTypeFieldCreate(CamelModel):
@@ -145,6 +171,30 @@ class NodeTypeBatchDomainsUpdate(CamelModel):
     domain_ids: list[str] = []  # 空数组 = 解除所有域关联
 
 
+# --- edge field input (整批同步用) ---
+
+class EdgeTypeFieldInput(CamelModel):
+    """整批同步用 — 无 id；field_key 是稳定主键。"""
+    field_key: str = Field(..., min_length=1, max_length=50)
+    field_label: str = Field(..., min_length=1, max_length=100)
+    field_type: str = Field(..., pattern="^(text|number|select|boolean)$")
+    max_length: Optional[int] = Field(default=None, ge=1)
+    default_value: Optional[str] = Field(default=None, max_length=200)
+    options: Optional[str] = Field(default=None, max_length=500)
+    required: bool = Field(default=False)
+    sort_order: int = Field(default=0)
+
+    @model_validator(mode='after')
+    def validate_max_length_for_text(self) -> 'EdgeTypeFieldInput':
+        if self.field_type != 'text':
+            return self
+        if self.max_length is None:
+            raise ValueError('文本类型必须设置 max_length')
+        if self.max_length < 1:
+            raise ValueError('max_length 必须 >= 1')
+        return self
+
+
 # --- edge_types ---
 
 class EdgeTypeCreate(CamelModel):
@@ -158,6 +208,7 @@ class EdgeTypeCreate(CamelModel):
     line_style: Optional[str] = Field(default=None, max_length=20)
     color: Optional[str] = Field(default=None, max_length=20)
     description: Optional[str] = Field(default=None, max_length=500)
+    fields: Optional[list[EdgeTypeFieldInput]] = Field(default=None)
 
 
 class EdgeTypeUpdate(CamelModel):
@@ -170,6 +221,7 @@ class EdgeTypeUpdate(CamelModel):
     line_style: Optional[str] = Field(default=None, max_length=20)
     color: Optional[str] = Field(default=None, max_length=20)
     description: Optional[str] = Field(default=None, max_length=500)
+    fields: Optional[list[EdgeTypeFieldInput]] = Field(default=None)
 
 
 class EdgeTypeFieldCreate(CamelModel):
@@ -244,3 +296,18 @@ class EdgeTypeItem(CamelModel):
 
 class EdgeTypeDetail(EdgeTypeItem):
     fields: list[EdgeTypeFieldItem] = []
+
+
+# --- delete-impact (共用) ---
+
+class FieldDeleteImpactRequest(CamelModel):
+    field_keys: list[str] = Field(..., min_length=1, max_length=200)
+
+
+class FieldDeleteImpactItem(CamelModel):
+    field_key: str
+    affected_node_count: int = 0
+
+
+class FieldDeleteImpactResponse(CamelModel):
+    items: list[FieldDeleteImpactItem]
