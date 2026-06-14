@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
-import { Form, Input, InputNumber, Select, Switch, Button, Spin, Tabs } from 'ant-design-vue'
+import { Form, Input, InputNumber, Select, Switch, Button, Spin, Tabs, Tooltip } from 'ant-design-vue'
 import type { NodeTypeFieldItem } from '@/api/types'
 import { nodeApi } from '@/api/node'
 import { useRoute } from 'vue-router'
@@ -163,12 +163,21 @@ function setFieldValue(key: string, value: string) {
                 />
               </div>
 
-              <Form layout="vertical" class="attrs-form">
+              <Form
+                layout="horizontal"
+                class="attrs-form"
+                :label-col="{ flex: '100px' }"
+                :wrapper-col="{ flex: 'auto' }"
+              >
                 <Form.Item
                   v-for="field in fields"
                   :key="field.id"
-                  :label="field.fieldLabel"
                 >
+                  <template #label>
+                    <Tooltip :title="field.fieldLabel" placement="left">
+                      <span class="attr-label-text">{{ field.fieldLabel }}</span>
+                    </Tooltip>
+                  </template>
                   <template v-if="field.fieldType === 'text'">
                     <Input
                       :value="getFieldValue(field.fieldKey)"
@@ -237,7 +246,7 @@ function setFieldValue(key: string, value: string) {
   position: absolute;
   top: 0;
   right: 0;
-  width: 320px;
+  width: 380px;
   height: 100%;
   background: #fff;
   border-left: 1px solid #e8e8e8;
@@ -281,6 +290,19 @@ function setFieldValue(key: string, value: string) {
 
 .attrs-form {
   margin-top: 8px;
+}
+
+.attrs-form :deep(.ant-form-item) {
+  margin-bottom: 12px;
+}
+
+.attr-label-text {
+  display: inline-block;
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
 }
 
 .panel-footer {
