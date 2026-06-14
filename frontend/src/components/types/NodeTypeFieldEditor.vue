@@ -59,7 +59,7 @@ function updateField(index: number, key: keyof NodeTypeFieldInput, value: any) {
   emit('update:fields', next)
 }
 
-// field_key 已填则禁止编辑（不可变约束，与后端单字段端点的历史行为一致）
+// field_key 已填则禁止编辑（不可变约束 — rename 需"删旧+加新"）
 function isFieldKeyLocked(field: NodeTypeFieldInput): boolean {
   return !!field.fieldKey && field.fieldKey.length > 0
 }

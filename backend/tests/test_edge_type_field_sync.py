@@ -145,6 +145,37 @@ def test_update_edge_sync_fields_delete_cleans_orphan_attrs(client):
     assert keys == ["speed"]
 
 
+def test_update_edge_sync_fields_delete_keeps_other_type_attrs(client):
+    """同名 field_key 在不同 edge_type 的边 attrs 不受波及。"""
+    tid_a = _create_edge_type(client, "edge_type_a", "A", fields=[
+        {"fieldKey": "speed", "fieldLabel": "速率", "fieldType": "number"},
+    ])
+    tid_b = _create_edge_type(client, "edge_type_b", "B", fields=[
+        {"fieldKey": "speed", "fieldLabel": "速率", "fieldType": "number"},
+    ])
+
+    nt_id = _create_node_type(client, code="dev_iso", name="设备")
+    topo_id = _create_topology(client, "T-iso")
+    n1 = _create_node(client, topo_id, nt_id, "n1")
+    n2 = _create_node(client, topo_id, nt_id, "n2")
+    edge_b = _create_edge(client, topo_id, tid_b, n1, n2)
+    _set_edge_attrs(client, edge_b, [{"fieldKey": "speed", "value": "1G"}])
+
+    # 删除 type_a 的 speed 字段
+    r = client.put(f"/admin/api/edge-types/{tid_a}", json={"fields": []})
+    assert r.status_code == 200
+
+    # type_b 边的 speed attr 必须还在
+    from app.db.connection import connect
+    with connect() as c:
+        row = c.execute(
+            "SELECT value FROM edge_attrs WHERE edge_id = ? AND field_key = 'speed'",
+            (edge_b,),
+        ).fetchone()
+    assert row is not None
+    assert row["value"] == "1G"
+
+
 def test_update_edge_sync_fields_duplicate_field_key_rejected(client):
     """incoming 重复 field_key → 400。"""
     tid = _create_edge_type(client, "dup_edge_test", "重复测试", fields=[])
