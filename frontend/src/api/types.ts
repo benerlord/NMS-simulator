@@ -1,6 +1,39 @@
 import http from './http'
 import { apiGet, apiPost, apiPut, apiDelete } from './http'
 
+// ============ 整批同步用字段输入（无 id） ============
+
+export interface NodeTypeFieldInput {
+  fieldKey: string
+  fieldLabel: string
+  fieldType: 'text' | 'number' | 'select' | 'boolean'
+  maxLength?: number | null
+  defaultValue?: string | null
+  options?: string | null
+  required?: boolean
+  sortOrder?: number
+}
+
+export interface EdgeTypeFieldInput {
+  fieldKey: string
+  fieldLabel: string
+  fieldType: 'text' | 'number' | 'select' | 'boolean'
+  maxLength?: number | null
+  defaultValue?: string | null
+  options?: string | null
+  required?: boolean
+  sortOrder?: number
+}
+
+export interface FieldDeleteImpactItem {
+  fieldKey: string
+  affectedNodeCount: number  // 节点类型/边类型共用，边类型语义为"受影响的边数"
+}
+
+export interface FieldDeleteImpactResponse {
+  items: FieldDeleteImpactItem[]
+}
+
 // ============ Node Types ============
 
 export interface NodeTypeFieldItem {
@@ -47,6 +80,7 @@ export interface NodeTypeCreate {
   renderMode?: string
   dnTemplate?: string | null
   description?: string | null
+  fields?: NodeTypeFieldInput[] | null
 }
 
 export interface NodeTypeUpdate {
@@ -57,27 +91,7 @@ export interface NodeTypeUpdate {
   renderMode?: string | null
   dnTemplate?: string | null
   description?: string | null
-}
-
-export interface NodeTypeFieldCreate {
-  fieldKey: string
-  fieldLabel: string
-  fieldType: 'text' | 'number' | 'select' | 'boolean'
-  maxLength?: number | null
-  defaultValue?: string | null
-  options?: string | null
-  required?: boolean
-  sortOrder?: number
-}
-
-export interface NodeTypeFieldUpdate {
-  fieldLabel?: string | null
-  fieldType?: 'text' | 'number' | 'select' | 'boolean' | null
-  maxLength?: number | null
-  defaultValue?: string | null
-  options?: string | null
-  required?: boolean | null
-  sortOrder?: number | null
+  fields?: NodeTypeFieldInput[] | null
 }
 
 // ============ Edge Types ============
@@ -126,6 +140,7 @@ export interface EdgeTypeCreate {
   lineStyle?: string | null
   color?: string | null
   description?: string | null
+  fields?: EdgeTypeFieldInput[] | null
 }
 
 export interface EdgeTypeUpdate {
@@ -138,27 +153,7 @@ export interface EdgeTypeUpdate {
   lineStyle?: string | null
   color?: string | null
   description?: string | null
-}
-
-export interface EdgeTypeFieldCreate {
-  fieldKey: string
-  fieldLabel: string
-  fieldType: 'text' | 'number' | 'select' | 'boolean'
-  maxLength?: number | null
-  defaultValue?: string | null
-  options?: string | null
-  required?: boolean
-  sortOrder?: number
-}
-
-export interface EdgeTypeFieldUpdate {
-  fieldLabel?: string | null
-  fieldType?: 'text' | 'number' | 'select' | 'boolean' | null
-  maxLength?: number | null
-  defaultValue?: string | null
-  options?: string | null
-  required?: boolean | null
-  sortOrder?: number | null
+  fields?: EdgeTypeFieldInput[] | null
 }
 
 export interface TypeImportPreviewItem {
@@ -219,14 +214,8 @@ export const nodeTypeApi = {
   delete: (id: string): Promise<{ id: string }> =>
     apiDelete(`/node-types/${id}`),
 
-  createField: (typeId: string, data: NodeTypeFieldCreate): Promise<{ id: number }> =>
-    apiPost(`/node-types/${typeId}/fields`, data),
-
-  updateField: (typeId: string, fieldId: number, data: NodeTypeFieldUpdate): Promise<{ id: number }> =>
-    apiPut(`/node-types/${typeId}/fields/${fieldId}`, data),
-
-  deleteField: (typeId: string, fieldId: number): Promise<{ id: number }> =>
-    apiDelete(`/node-types/${typeId}/fields/${fieldId}`),
+  getFieldDeleteImpact: (typeId: string, fieldKeys: string[]): Promise<FieldDeleteImpactResponse> =>
+    apiPost(`/node-types/${typeId}/fields/delete-impact`, { fieldKeys }),
 
   batchDelete: (ids: string[]): Promise<BatchDeleteResult> =>
     apiPost('/node-types/batch-delete', { ids }),
@@ -257,14 +246,8 @@ export const edgeTypeApi = {
   delete: (id: string): Promise<{ id: string }> =>
     apiDelete(`/edge-types/${id}`),
 
-  createField: (typeId: string, data: EdgeTypeFieldCreate): Promise<{ id: number }> =>
-    apiPost(`/edge-types/${typeId}/fields`, data),
-
-  updateField: (typeId: string, fieldId: number, data: EdgeTypeFieldUpdate): Promise<{ id: number }> =>
-    apiPut(`/edge-types/${typeId}/fields/${fieldId}`, data),
-
-  deleteField: (typeId: string, fieldId: number): Promise<{ id: number }> =>
-    apiDelete(`/edge-types/${typeId}/fields/${fieldId}`),
+  getFieldDeleteImpact: (typeId: string, fieldKeys: string[]): Promise<FieldDeleteImpactResponse> =>
+    apiPost(`/edge-types/${typeId}/fields/delete-impact`, { fieldKeys }),
 
   batchDelete: (ids: string[]): Promise<BatchDeleteResult> =>
     apiPost('/edge-types/batch-delete', { ids }),
