@@ -261,6 +261,7 @@ InterfaceTest/
   - `instance_app.py` 子进程入口：按 topology_id 过滤接口，不暴露管理 API
 - ✅ 接口导出/导入：JSON 格式导出（全部/按目录/按勾选）+ 导入预览确认框
 - ✅ SQL 列名格式统一：SqlRunner 测试运行后自动提取 snake_case 列名，响应模板提示列名格式，参数映射 bindTo 改为 AutoComplete
+- ✅ 修复接口页面切其他页时旧视图锁死：`ApiConfigTable.vue` 的 `groupedDomains` computed 在 `domainMap.get(dId)!` 处用非空断言，当 api 引用的 domain 不在 `props.domains`（数据不一致 / fetchApis 早于 fetchDomains 返回的竞态）时抛 `Cannot read properties of undefined (reading 'totalCount')`，污染 Vue patch 队列导致后续 RouterView 切换全部失败（`emitsOptions/parentNode is null`）。改为 `dg` 取不到时与 `!dId` 走同一条兜底路径，归入"未归类"
 
 ### 待开发
 - 编辑组定义打开 GroupCreateModal（目前右键"编辑组定义"已 emit 事件但 CanvasView 尚未接入 editGroupId）

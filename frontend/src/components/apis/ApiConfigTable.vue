@@ -458,14 +458,14 @@ const groupedDomains = computed(() => {
     const dId = resolveDomainId(api, domainNameToId)
     const matchesKw = !kw || api.name.toLowerCase().includes(kw) || api.path.toLowerCase().includes(kw)
 
-    if (!dId) {
+    const dg = dId ? domainMap.get(dId) : undefined
+    if (!dg) {
       noneGroup.totalCount++
       noneGroup.allIds.push(api.id)
       if (matchesKw) noneGroup.apis.push(api)
       continue
     }
 
-    const dg = domainMap.get(dId)!
     dg.totalCount++
     dg.allIds.push(api.id)
 
