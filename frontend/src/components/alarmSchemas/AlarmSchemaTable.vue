@@ -64,7 +64,12 @@ onMounted(refresh)
       :columns="columns"
       :data-source="schemas"
       :loading="loading"
-      :pagination="false"
+      :pagination="{
+        defaultPageSize: 10,
+        pageSizeOptions: ['10', '20', '50'],
+        showSizeChanger: true,
+        showTotal: (total: number) => `共 ${total} 条`,
+      }"
       row-key="id"
     >
       <template #bodyCell="{ column, record }">

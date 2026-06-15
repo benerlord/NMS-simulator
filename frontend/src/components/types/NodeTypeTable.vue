@@ -326,7 +326,12 @@ loadDomains()
     <a-table
       :dataSource="filteredNodeTypes"
       :loading="nodeTypesLoading"
-      :pagination="{ pageSize: 10 }"
+      :pagination="{
+        defaultPageSize: 10,
+        pageSizeOptions: ['10', '20', '50'],
+        showSizeChanger: true,
+        showTotal: (total: number) => `共 ${total} 条`,
+      }"
       rowKey="id"
       :rowSelection="{ selectedRowKeys, onChange: (keys: string[]) => { selectedRowKeys = keys } }"
     >
