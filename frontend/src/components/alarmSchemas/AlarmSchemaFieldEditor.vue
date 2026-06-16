@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import {
-  Table, Input, InputNumber, Select, Switch, Button, Tooltip, Affix,
+  Table, Input, InputNumber, Select, Switch, Button, Tooltip, Affix, message,
 } from 'ant-design-vue'
 import {
   PlusOutlined, DeleteOutlined, ArrowUpOutlined, ArrowDownOutlined,
@@ -72,6 +72,18 @@ function updateField(index: number, key: keyof AlarmSchemaFieldInput, value: any
   emit('update:fields', next)
 }
 
+function validateArrayDefault(field: AlarmSchemaFieldInput) {
+  if (field.fieldType !== 'array' || !field.defaultValue) return
+  try {
+    const v = JSON.parse(field.defaultValue)
+    if (!Array.isArray(v)) {
+      message.warning('默认值必须是 JSON array')
+    }
+  } catch {
+    message.warning('默认值 JSON 语法错误')
+  }
+}
+
 const columns = [
   { title: 'Key', dataIndex: 'fieldKey', key: 'fieldKey', width: 100 },
   { title: 'Label', dataIndex: 'fieldLabel', key: 'fieldLabel', width: 120 },
@@ -133,6 +145,7 @@ const columns = [
             <Select.Option value="number">number</Select.Option>
             <Select.Option value="select">select</Select.Option>
             <Select.Option value="boolean">boolean</Select.Option>
+            <Select.Option value="array">array</Select.Option>
           </Select>
         </template>
         <template v-else-if="column.key === 'maxLength'">
@@ -149,8 +162,9 @@ const columns = [
           <Input
             :value="record.defaultValue || ''"
             size="small"
-            placeholder="默认值"
+            :placeholder="record.fieldType === 'array' ? 'JSON: [&quot;a&quot;,&quot;b&quot;]' : '默认值'"
             @update:value="(v: string) => updateField(index, 'defaultValue', v || null)"
+            @blur="() => validateArrayDefault(record)"
           />
         </template>
         <template v-else-if="column.key === 'options'">
