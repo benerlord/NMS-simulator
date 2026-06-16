@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, watch, nextTick } from 'vue'
 import { Modal, Form, Input, InputNumber, Select, Switch } from 'ant-design-vue'
+import ArrayJsonInput from './ArrayJsonInput.vue'
+import { validateFields } from '@/utils/fieldValidation'
 import type { NodeTypeFieldItem } from '@/api/types'
 import { nodeApi } from '@/api/node'
 
@@ -85,13 +87,8 @@ async function handleCreate() {
   }
   nodeNameError.value = ''
 
-  // 校验必填字段
-  const newErrors: Record<string, string> = {}
-  for (const field of fields.value) {
-    if (field.required && !formData.value[field.fieldKey]) {
-      newErrors[field.fieldKey] = '此字段为必填项'
-    }
-  }
+  // 校验必填 + array JSON 合法性
+  const newErrors = validateFields(fields.value, formData.value)
 
   if (Object.keys(newErrors).length > 0) {
     fieldErrors.value = newErrors
@@ -199,6 +196,13 @@ async function handleCreate() {
               <Switch
                 :checked="getFieldValue(field.fieldKey) === 'true'"
                 @change="(v: any) => setFieldValue(field.fieldKey, String(v))"
+              />
+            </template>
+            <template v-else-if="field.fieldType === 'array'">
+              <ArrayJsonInput
+                :value="getFieldValue(field.fieldKey)"
+                @update:value="(v: string) => setFieldValue(field.fieldKey, v)"
+                :placeholder="field.defaultValue || '[]'"
               />
             </template>
           </Form.Item>
