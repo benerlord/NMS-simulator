@@ -6,7 +6,7 @@ import { apiGet, apiPost, apiPut, apiDelete } from './http'
 export interface NodeTypeFieldInput {
   fieldKey: string
   fieldLabel: string
-  fieldType: 'text' | 'number' | 'select' | 'boolean'
+  fieldType: 'text' | 'number' | 'select' | 'boolean' | 'array'
   maxLength?: number | null
   defaultValue?: string | null
   options?: string | null
@@ -17,7 +17,7 @@ export interface NodeTypeFieldInput {
 export interface EdgeTypeFieldInput {
   fieldKey: string
   fieldLabel: string
-  fieldType: 'text' | 'number' | 'select' | 'boolean'
+  fieldType: 'text' | 'number' | 'select' | 'boolean' | 'array'
   maxLength?: number | null
   defaultValue?: string | null
   options?: string | null
@@ -41,7 +41,7 @@ export interface NodeTypeFieldItem {
   nodeTypeId: string
   fieldKey: string
   fieldLabel: string
-  fieldType: 'text' | 'number' | 'select' | 'boolean'
+  fieldType: 'text' | 'number' | 'select' | 'boolean' | 'array'
   maxLength: number | null
   defaultValue: string | null
   options: string | null
@@ -101,7 +101,7 @@ export interface EdgeTypeFieldItem {
   edgeTypeId: string
   fieldKey: string
   fieldLabel: string
-  fieldType: 'text' | 'number' | 'select' | 'boolean'
+  fieldType: 'text' | 'number' | 'select' | 'boolean' | 'array'
   maxLength: number | null
   defaultValue: string | null
   options: string | null

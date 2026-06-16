@@ -5,7 +5,7 @@ export interface AlarmSchemaFieldItem {
   alarmSchemaId: string
   fieldKey: string
   fieldLabel: string
-  fieldType: 'text' | 'number' | 'select' | 'boolean'
+  fieldType: 'text' | 'number' | 'select' | 'boolean' | 'array'
   maxLength?: number | null
   defaultValue?: string | null
   options?: string | null
@@ -17,7 +17,7 @@ export interface AlarmSchemaFieldItem {
 export interface AlarmSchemaFieldInput {
   fieldKey: string
   fieldLabel: string
-  fieldType: 'text' | 'number' | 'select' | 'boolean'
+  fieldType: 'text' | 'number' | 'select' | 'boolean' | 'array'
   maxLength?: number | null
   defaultValue?: string | null
   options?: string | null
