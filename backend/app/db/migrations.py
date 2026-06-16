@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS node_type_fields (
   node_type_id    TEXT NOT NULL,
   field_key       TEXT NOT NULL,
   field_label     TEXT NOT NULL,
-  field_type      TEXT NOT NULL CHECK (field_type IN ('text','number','select','boolean')),
+  field_type      TEXT NOT NULL CHECK (field_type IN ('text','number','select','boolean','array')),
   default_value   TEXT,
   options         TEXT,
   required        INTEGER NOT NULL DEFAULT 0,
@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS edge_type_fields (
   edge_type_id    TEXT NOT NULL,
   field_key       TEXT NOT NULL,
   field_label     TEXT NOT NULL,
-  field_type      TEXT NOT NULL CHECK (field_type IN ('text','number','select','boolean')),
+  field_type      TEXT NOT NULL CHECK (field_type IN ('text','number','select','boolean','array')),
   default_value   TEXT,
   options         TEXT,
   required        INTEGER NOT NULL DEFAULT 0,
@@ -254,7 +254,7 @@ CREATE TABLE IF NOT EXISTS alarm_schema_fields (
   alarm_schema_id TEXT NOT NULL,
   field_key       TEXT NOT NULL,
   field_label     TEXT NOT NULL,
-  field_type      TEXT NOT NULL CHECK (field_type IN ('text','number','select','boolean')),
+  field_type      TEXT NOT NULL CHECK (field_type IN ('text','number','select','boolean','array')),
   default_value   TEXT,
   options         TEXT,
   required        INTEGER NOT NULL DEFAULT 0,
@@ -283,6 +283,104 @@ CREATE TABLE IF NOT EXISTS node_alarm_attrs (
 );
 CREATE INDEX IF NOT EXISTS idx_node_alarm_attrs_key ON node_alarm_attrs(field_key);
 """
+
+
+def _expand_field_type_check(
+    conn: sqlite3.Connection,
+    table: str,
+    fk_col: str,
+    fk_clause: str,
+    unique_clause: str,
+) -> None:
+    """幂等地将 field_type CHECK 约束扩展为包含 'array'。
+
+    SQLite 不支持 ALTER TABLE MODIFY CONSTRAINT，因此采用
+    rename → create new → copy → drop old 模式。
+    若当前表的 SQL 定义已包含 'array'，则跳过。
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+        (table,),
+    ).fetchone()
+    if row is None:
+        return  # 表不存在，等 SCHEMA_SQL 创建
+    table_sql = row[0] or ""
+    if "'array'" in table_sql or "\"array\"" in table_sql:
+        return  # 已是新约束，无需重建
+
+    # 暂时关闭外键约束以允许重命名
+    conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        # 确定实际列（通过 PRAGMA）
+        cols_info = conn.execute(f"PRAGMA table_info({table})").fetchall()
+        col_names = [c[1] for c in cols_info]  # c[1] = name
+        cols_csv = ", ".join(col_names)
+
+        tmp = f"{table}_bak_array_migration"
+        conn.execute(f"ALTER TABLE {table} RENAME TO {tmp}")
+
+        # 从 SCHEMA_SQL 中找到新建表语句（已包含 'array'）已更新
+        # 直接内联建表，使用已知列结构
+        if table == "node_type_fields":
+            conn.execute(f"""
+                CREATE TABLE {table} (
+                  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                  node_type_id    TEXT NOT NULL,
+                  field_key       TEXT NOT NULL,
+                  field_label     TEXT NOT NULL,
+                  field_type      TEXT NOT NULL
+                                  CHECK (field_type IN ('text','number','select','boolean','array')),
+                  default_value   TEXT,
+                  options         TEXT,
+                  required        INTEGER NOT NULL DEFAULT 0,
+                  sort_order      INTEGER NOT NULL DEFAULT 0,
+                  max_length      INTEGER,
+                  {fk_clause},
+                  {unique_clause}
+                )
+            """)
+        elif table == "edge_type_fields":
+            conn.execute(f"""
+                CREATE TABLE {table} (
+                  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                  edge_type_id    TEXT NOT NULL,
+                  field_key       TEXT NOT NULL,
+                  field_label     TEXT NOT NULL,
+                  field_type      TEXT NOT NULL
+                                  CHECK (field_type IN ('text','number','select','boolean','array')),
+                  default_value   TEXT,
+                  options         TEXT,
+                  required        INTEGER NOT NULL DEFAULT 0,
+                  sort_order      INTEGER NOT NULL DEFAULT 0,
+                  max_length      INTEGER,
+                  {fk_clause},
+                  {unique_clause}
+                )
+            """)
+        elif table == "alarm_schema_fields":
+            conn.execute(f"""
+                CREATE TABLE {table} (
+                  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                  alarm_schema_id TEXT NOT NULL,
+                  field_key       TEXT NOT NULL,
+                  field_label     TEXT NOT NULL,
+                  field_type      TEXT NOT NULL
+                                  CHECK (field_type IN ('text','number','select','boolean','array')),
+                  default_value   TEXT,
+                  options         TEXT,
+                  required        INTEGER NOT NULL DEFAULT 0,
+                  max_length      INTEGER,
+                  sort_order      INTEGER NOT NULL DEFAULT 0,
+                  mapping_target  TEXT,
+                  {fk_clause},
+                  {unique_clause}
+                )
+            """)
+
+        conn.execute(f"INSERT INTO {table} ({cols_csv}) SELECT {cols_csv} FROM {tmp}")
+        conn.execute(f"DROP TABLE {tmp}")
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
 
 
 def run_migrations(conn: sqlite3.Connection) -> None:
@@ -354,3 +452,16 @@ def run_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE alarm_schemas ADD COLUMN display_field_key TEXT")
     except sqlite3.OperationalError:
         pass
+    # 扩展 field_type CHECK 约束以支持 'array'（SQLite 须重建表）
+    # node_type_fields
+    _expand_field_type_check(conn, "node_type_fields", "node_type_id",
+                             "FOREIGN KEY (node_type_id) REFERENCES node_types(id) ON DELETE CASCADE",
+                             "UNIQUE (node_type_id, field_key)")
+    # edge_type_fields
+    _expand_field_type_check(conn, "edge_type_fields", "edge_type_id",
+                             "FOREIGN KEY (edge_type_id) REFERENCES edge_types(id) ON DELETE CASCADE",
+                             "UNIQUE (edge_type_id, field_key)")
+    # alarm_schema_fields
+    _expand_field_type_check(conn, "alarm_schema_fields", "alarm_schema_id",
+                             "FOREIGN KEY (alarm_schema_id) REFERENCES alarm_schemas(id) ON DELETE CASCADE",
+                             "UNIQUE (alarm_schema_id, field_key)")

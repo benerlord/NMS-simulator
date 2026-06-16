@@ -15,7 +15,7 @@ class NodeTypeFieldInput(CamelModel):
     """
     field_key: str = Field(..., min_length=1, max_length=50)
     field_label: str = Field(..., min_length=1, max_length=100)
-    field_type: str = Field(..., pattern="^(text|number|select|boolean)$")
+    field_type: str = Field(..., pattern="^(text|number|select|boolean|array)$")
     max_length: Optional[int] = Field(default=None, ge=1)
     default_value: Optional[str] = Field(default=None, max_length=200)
     options: Optional[str] = Field(default=None, max_length=500)
@@ -30,6 +30,19 @@ class NodeTypeFieldInput(CamelModel):
             raise ValueError('文本类型必须设置 max_length')
         if self.max_length < 1:
             raise ValueError('max_length 必须 >= 1')
+        return self
+
+    @model_validator(mode='after')
+    def validate_array_default(self) -> 'NodeTypeFieldInput':
+        if self.field_type != 'array' or not self.default_value:
+            return self
+        import json
+        try:
+            v = json.loads(self.default_value)
+        except json.JSONDecodeError:
+            raise ValueError('array 类型的 default_value 必须是合法 JSON')
+        if not isinstance(v, list):
+            raise ValueError('array 类型的 default_value 必须是 JSON array')
         return self
 
 
@@ -62,7 +75,7 @@ class NodeTypeUpdate(CamelModel):
 class NodeTypeFieldCreate(CamelModel):
     field_key: str = Field(..., min_length=1, max_length=50)
     field_label: str = Field(..., min_length=1, max_length=100)
-    field_type: str = Field(..., pattern="^(text|number|select|boolean)$")
+    field_type: str = Field(..., pattern="^(text|number|select|boolean|array)$")
     max_length: Optional[int] = Field(default=None, ge=1)
     default_value: Optional[str] = Field(default=None, max_length=200)
     options: Optional[str] = Field(default=None, max_length=500)
@@ -79,10 +92,23 @@ class NodeTypeFieldCreate(CamelModel):
             raise ValueError('max_length 必须 >= 1')
         return self
 
+    @model_validator(mode='after')
+    def validate_array_default(self) -> 'NodeTypeFieldCreate':
+        if self.field_type != 'array' or not self.default_value:
+            return self
+        import json
+        try:
+            v = json.loads(self.default_value)
+        except json.JSONDecodeError:
+            raise ValueError('array 类型的 default_value 必须是合法 JSON')
+        if not isinstance(v, list):
+            raise ValueError('array 类型的 default_value 必须是 JSON array')
+        return self
+
 
 class NodeTypeFieldUpdate(CamelModel):
     field_label: Optional[str] = Field(default=None, min_length=1, max_length=100)
-    field_type: Optional[str] = Field(default=None, pattern="^(text|number|select|boolean)$")
+    field_type: Optional[str] = Field(default=None, pattern="^(text|number|select|boolean|array)$")
     max_length: Optional[int] = Field(default=None, ge=1)
     default_value: Optional[str] = Field(default=None, max_length=200)
     options: Optional[str] = Field(default=None, max_length=500)
@@ -97,6 +123,19 @@ class NodeTypeFieldUpdate(CamelModel):
             raise ValueError('文本类型必须设置 max_length')
         if self.max_length < 1:
             raise ValueError('max_length 必须 >= 1')
+        return self
+
+    @model_validator(mode='after')
+    def validate_array_default(self) -> 'NodeTypeFieldUpdate':
+        if self.field_type != 'array' or not self.default_value:
+            return self
+        import json
+        try:
+            v = json.loads(self.default_value)
+        except json.JSONDecodeError:
+            raise ValueError('array 类型的 default_value 必须是合法 JSON')
+        if not isinstance(v, list):
+            raise ValueError('array 类型的 default_value 必须是 JSON array')
         return self
 
 
@@ -180,7 +219,7 @@ class EdgeTypeFieldInput(CamelModel):
     """整批同步用 — 无 id；field_key 是稳定主键。"""
     field_key: str = Field(..., min_length=1, max_length=50)
     field_label: str = Field(..., min_length=1, max_length=100)
-    field_type: str = Field(..., pattern="^(text|number|select|boolean)$")
+    field_type: str = Field(..., pattern="^(text|number|select|boolean|array)$")
     max_length: Optional[int] = Field(default=None, ge=1)
     default_value: Optional[str] = Field(default=None, max_length=200)
     options: Optional[str] = Field(default=None, max_length=500)
@@ -195,6 +234,19 @@ class EdgeTypeFieldInput(CamelModel):
             raise ValueError('文本类型必须设置 max_length')
         if self.max_length < 1:
             raise ValueError('max_length 必须 >= 1')
+        return self
+
+    @model_validator(mode='after')
+    def validate_array_default(self) -> 'EdgeTypeFieldInput':
+        if self.field_type != 'array' or not self.default_value:
+            return self
+        import json
+        try:
+            v = json.loads(self.default_value)
+        except json.JSONDecodeError:
+            raise ValueError('array 类型的 default_value 必须是合法 JSON')
+        if not isinstance(v, list):
+            raise ValueError('array 类型的 default_value 必须是 JSON array')
         return self
 
 
@@ -230,7 +282,7 @@ class EdgeTypeUpdate(CamelModel):
 class EdgeTypeFieldCreate(CamelModel):
     field_key: str = Field(..., min_length=1, max_length=50)
     field_label: str = Field(..., min_length=1, max_length=100)
-    field_type: str = Field(..., pattern="^(text|number|select|boolean)$")
+    field_type: str = Field(..., pattern="^(text|number|select|boolean|array)$")
     max_length: Optional[int] = Field(default=None, ge=1)
     default_value: Optional[str] = Field(default=None, max_length=200)
     options: Optional[str] = Field(default=None, max_length=500)
@@ -247,10 +299,23 @@ class EdgeTypeFieldCreate(CamelModel):
             raise ValueError('max_length 必须 >= 1')
         return self
 
+    @model_validator(mode='after')
+    def validate_array_default(self) -> 'EdgeTypeFieldCreate':
+        if self.field_type != 'array' or not self.default_value:
+            return self
+        import json
+        try:
+            v = json.loads(self.default_value)
+        except json.JSONDecodeError:
+            raise ValueError('array 类型的 default_value 必须是合法 JSON')
+        if not isinstance(v, list):
+            raise ValueError('array 类型的 default_value 必须是 JSON array')
+        return self
+
 
 class EdgeTypeFieldUpdate(CamelModel):
     field_label: Optional[str] = Field(default=None, min_length=1, max_length=100)
-    field_type: Optional[str] = Field(default=None, pattern="^(text|number|select|boolean)$")
+    field_type: Optional[str] = Field(default=None, pattern="^(text|number|select|boolean|array)$")
     max_length: Optional[int] = Field(default=None, ge=1)
     default_value: Optional[str] = Field(default=None, max_length=200)
     options: Optional[str] = Field(default=None, max_length=500)
@@ -265,6 +330,19 @@ class EdgeTypeFieldUpdate(CamelModel):
             raise ValueError('文本类型必须设置 max_length')
         if self.max_length < 1:
             raise ValueError('max_length 必须 >= 1')
+        return self
+
+    @model_validator(mode='after')
+    def validate_array_default(self) -> 'EdgeTypeFieldUpdate':
+        if self.field_type != 'array' or not self.default_value:
+            return self
+        import json
+        try:
+            v = json.loads(self.default_value)
+        except json.JSONDecodeError:
+            raise ValueError('array 类型的 default_value 必须是合法 JSON')
+        if not isinstance(v, list):
+            raise ValueError('array 类型的 default_value 必须是 JSON array')
         return self
 
 

@@ -721,9 +721,9 @@ async def import_node_types(file: UploadFile = File(...)):
                         continue
                     seen_fields.add(fkey)
                     ftype = ftype_raw.strip().lower()
-                    if ftype not in ('text', 'number', 'select', 'boolean'):
+                    if ftype not in ('text', 'number', 'select', 'boolean', 'array'):
                         result.errors.append(
-                            f"[{code}] 字段 {fkey} 类型 '{ftype_raw}' 无效，仅支持 text/number/select/boolean，跳过"
+                            f"[{code}] 字段 {fkey} 类型 '{ftype_raw}' 无效，仅支持 text/number/select/boolean/array，跳过"
                         )
                         continue
                     maxlen = _col(fheaders, "最大长度", frow)
@@ -733,6 +733,22 @@ async def import_node_types(file: UploadFile = File(...)):
                     req = 1 if req_raw == "是" else 0
                     sort_raw = _col(fheaders, "排序", frow)
                     sort = int(sort_raw) if sort_raw and sort_raw.isdigit() else 0
+
+                    # array 类型：default_value 必须是合法 JSON array
+                    if ftype == 'array' and defval:
+                        import json as _json
+                        try:
+                            _parsed = _json.loads(defval)
+                            if not isinstance(_parsed, list):
+                                result.errors.append(
+                                    f"[{code}] 字段 {fkey} 的默认值必须是 JSON array，跳过"
+                                )
+                                continue
+                        except _json.JSONDecodeError:
+                            result.errors.append(
+                                f"[{code}] 字段 {fkey} 的默认值不是合法 JSON，跳过"
+                            )
+                            continue
 
                     conn.execute(
                         """INSERT INTO node_type_fields

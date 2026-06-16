@@ -11,7 +11,7 @@ from ._base import CamelModel
 class AlarmSchemaFieldCreate(CamelModel):
     field_key: str = Field(..., min_length=1, max_length=50)
     field_label: str = Field(..., min_length=1, max_length=100)
-    field_type: str = Field(..., pattern="^(text|number|select|boolean)$")
+    field_type: str = Field(..., pattern="^(text|number|select|boolean|array)$")
     max_length: Optional[int] = Field(default=None, ge=1)
     default_value: Optional[str] = Field(default=None, max_length=200)
     options: Optional[str] = Field(default=None, max_length=500)
@@ -37,6 +37,19 @@ class AlarmSchemaFieldCreate(CamelModel):
             raise ValueError('文本类型必须设置 max_length')
         if self.max_length < 1:
             raise ValueError('max_length 必须 >= 1')
+        return self
+
+    @model_validator(mode='after')
+    def validate_array_default(self) -> 'AlarmSchemaFieldCreate':
+        if self.field_type != 'array' or not self.default_value:
+            return self
+        import json
+        try:
+            v = json.loads(self.default_value)
+        except json.JSONDecodeError:
+            raise ValueError('array 类型的 default_value 必须是合法 JSON')
+        if not isinstance(v, list):
+            raise ValueError('array 类型的 default_value 必须是 JSON array')
         return self
 
 
