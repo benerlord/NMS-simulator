@@ -288,7 +288,6 @@ CREATE INDEX IF NOT EXISTS idx_node_alarm_attrs_key ON node_alarm_attrs(field_ke
 def _expand_field_type_check(
     conn: sqlite3.Connection,
     table: str,
-    fk_col: str,
     fk_clause: str,
     unique_clause: str,
 ) -> None:
@@ -454,14 +453,14 @@ def run_migrations(conn: sqlite3.Connection) -> None:
         pass
     # 扩展 field_type CHECK 约束以支持 'array'（SQLite 须重建表）
     # node_type_fields
-    _expand_field_type_check(conn, "node_type_fields", "node_type_id",
+    _expand_field_type_check(conn, "node_type_fields",
                              "FOREIGN KEY (node_type_id) REFERENCES node_types(id) ON DELETE CASCADE",
                              "UNIQUE (node_type_id, field_key)")
     # edge_type_fields
-    _expand_field_type_check(conn, "edge_type_fields", "edge_type_id",
+    _expand_field_type_check(conn, "edge_type_fields",
                              "FOREIGN KEY (edge_type_id) REFERENCES edge_types(id) ON DELETE CASCADE",
                              "UNIQUE (edge_type_id, field_key)")
     # alarm_schema_fields
-    _expand_field_type_check(conn, "alarm_schema_fields", "alarm_schema_id",
+    _expand_field_type_check(conn, "alarm_schema_fields",
                              "FOREIGN KEY (alarm_schema_id) REFERENCES alarm_schemas(id) ON DELETE CASCADE",
                              "UNIQUE (alarm_schema_id, field_key)")
