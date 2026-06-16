@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
 import { Form, Input, InputNumber, Select, Switch, Button, Spin, Tabs, Tooltip } from 'ant-design-vue'
+import ArrayJsonInput from './ArrayJsonInput.vue'
+import { validateFields } from '@/utils/fieldValidation'
 import type { NodeTypeFieldItem } from '@/api/types'
 import { nodeApi } from '@/api/node'
 import { useRoute } from 'vue-router'
@@ -30,6 +32,7 @@ const formData = ref<Record<string, string>>({})
 const loading = ref(false)
 const saving = ref(false)
 const editingName = ref('')
+const fieldErrors = ref<Record<string, string>>({})
 
 const activeTab = ref<'attrs' | 'alarms'>('attrs')
 const alarmCount = ref(0)
@@ -102,6 +105,12 @@ watch(
 
 async function handleSave() {
   if (!props.nodeId) return
+  const errs = validateFields(fields.value, formData.value)
+  if (Object.keys(errs).length > 0) {
+    fieldErrors.value = errs
+    return
+  }
+  fieldErrors.value = {}
   saving.value = true
   try {
     const attrs: Record<string, string | null> = {}
@@ -172,6 +181,8 @@ function setFieldValue(key: string, value: string) {
                 <Form.Item
                   v-for="field in fields"
                   :key="field.id"
+                  :validate-status="fieldErrors[field.fieldKey] ? 'error' : ''"
+                  :help="fieldErrors[field.fieldKey]"
                 >
                   <template #label>
                     <Tooltip :title="field.fieldLabel" placement="left">
@@ -211,6 +222,13 @@ function setFieldValue(key: string, value: string) {
                     <Switch
                       :checked="getFieldValue(field.fieldKey) === 'true'"
                       @change="(v: any) => setFieldValue(field.fieldKey, String(v))"
+                    />
+                  </template>
+                  <template v-else-if="field.fieldType === 'array'">
+                    <ArrayJsonInput
+                      :value="getFieldValue(field.fieldKey)"
+                      @update:value="(v: string) => setFieldValue(field.fieldKey, v)"
+                      placeholder="[]"
                     />
                   </template>
                 </Form.Item>
