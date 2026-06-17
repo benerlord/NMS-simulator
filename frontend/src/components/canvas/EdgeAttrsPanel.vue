@@ -3,6 +3,8 @@ import { ref, watch } from 'vue'
 import { Form, Input, InputNumber, Select, Switch, Button, Spin, Tooltip } from 'ant-design-vue'
 import type { EdgeTypeFieldItem } from '@/api/types'
 import { edgeApi } from '@/api/edge'
+import ArrayJsonInput from './ArrayJsonInput.vue'
+import { validateFields } from '@/utils/fieldValidation'
 
 interface Props {
   visible: boolean
@@ -22,6 +24,7 @@ const fields = ref<EdgeTypeFieldItem[]>([])
 const formData = ref<Record<string, string>>({})
 const loading = ref(false)
 const saving = ref(false)
+const fieldErrors = ref<Record<string, string>>({})
 
 watch(
   () => props.edgeTypeId,
@@ -56,6 +59,12 @@ watch(
 
 async function handleSave() {
   if (!props.edgeId) return
+  const errs = validateFields(fields.value, formData.value)
+  if (Object.keys(errs).length > 0) {
+    fieldErrors.value = errs
+    return
+  }
+  fieldErrors.value = {}
   saving.value = true
   try {
     const attrs: Record<string, string | null> = {}
@@ -99,7 +108,12 @@ function setFieldValue(key: string, value: string) {
             :label-col="{ flex: '100px' }"
             :wrapper-col="{ flex: 'auto' }"
           >
-            <Form.Item v-for="field in fields" :key="field.id">
+            <Form.Item
+              v-for="field in fields"
+              :key="field.id"
+              :validate-status="fieldErrors[field.fieldKey] ? 'error' : ''"
+              :help="fieldErrors[field.fieldKey]"
+            >
               <template #label>
                 <Tooltip :title="field.fieldLabel" placement="left">
                   <span class="attr-label-text">{{ field.fieldLabel }}</span>
@@ -138,6 +152,13 @@ function setFieldValue(key: string, value: string) {
                 <Switch
                   :checked="getFieldValue(field.fieldKey) === 'true'"
                   @change="(v: any) => setFieldValue(field.fieldKey, String(v))"
+                />
+              </template>
+              <template v-else-if="field.fieldType === 'array'">
+                <ArrayJsonInput
+                  :value="getFieldValue(field.fieldKey)"
+                  @update:value="(v: string) => setFieldValue(field.fieldKey, v)"
+                  placeholder="[]"
                 />
               </template>
             </Form.Item>
