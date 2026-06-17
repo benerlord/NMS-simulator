@@ -228,7 +228,7 @@ function setFieldValue(key: string, value: string) {
                     <ArrayJsonInput
                       :value="getFieldValue(field.fieldKey)"
                       @update:value="(v: string) => setFieldValue(field.fieldKey, v)"
-                      placeholder="[]"
+                      :placeholder="field.defaultValue || '[]'"
                     />
                   </template>
                 </Form.Item>

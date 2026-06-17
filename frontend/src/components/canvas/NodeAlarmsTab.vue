@@ -206,7 +206,7 @@ defineExpose({ saveDirty })
               <ArrayJsonInput
                 :value="a.attrs[f.fieldKey] || ''"
                 @update:value="(v: string) => { a.attrs[f.fieldKey] = v || null; markDirty(a.id) }"
-                placeholder="[]"
+                :placeholder="f.defaultValue || '[]'"
               />
             </template>
           </Form.Item>

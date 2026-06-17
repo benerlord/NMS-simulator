@@ -214,6 +214,32 @@ def test_excel_export_array_field_default_preserved(client):
     assert default_cell.value == '["a","b"]'
 
 
+def test_excel_export_numeric_array_field_default_preserved(client):
+    """导出 → 纯数字数组 [1,2,3] 也以原 JSON 字符串保留（不被 openpyxl 识别为数字）。"""
+    from io import BytesIO
+    from openpyxl import load_workbook
+
+    r = client.post("/admin/api/node-types", json={
+        "code": "arr_xl_num", "name": "XLNum", "category": "physical",
+        "fields": [
+            {"fieldKey": "ports", "fieldLabel": "端口", "fieldType": "array",
+             "defaultValue": "[1,2,3]"},
+        ],
+    })
+    tid = r.json()["data"]["id"]
+
+    r = client.post("/admin/api/node-types/export", json={"ids": [tid]})
+    assert r.status_code == 200
+
+    wb = load_workbook(BytesIO(r.content))
+    sheet = wb["arr_xl_num"]
+    headers = {cell.value: idx for idx, cell in enumerate(sheet[1], start=1)}
+    default_cell = sheet[2][headers["默认值"] - 1]
+    # cell 值应保持为字符串 "[1,2,3]"，不被识别为数字
+    assert default_cell.value == "[1,2,3]"
+    assert isinstance(default_cell.value, str), f"expected str, got {type(default_cell.value).__name__}"
+
+
 def test_excel_import_array_field_default_parsed(client):
     """导入 cell '[\"a\",\"b\"]'（fieldType=array）→ 默认值落库。"""
     from io import BytesIO
