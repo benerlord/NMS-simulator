@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, computed } from 'vue'
 import { Button, Collapse, Form, Input, InputNumber, Select, Switch, Spin, Empty, message, Popconfirm } from 'ant-design-vue'
+import ArrayJsonInput from './ArrayJsonInput.vue'
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 import { nodeAlarmApi, type NodeAlarmItem } from '@/api/nodeAlarm'
 import { alarmSchemaApi, type AlarmSchemaFieldItem, type AlarmSchemaDetail } from '@/api/alarmSchema'
@@ -98,6 +99,16 @@ function validateAlarm(alarm: NodeAlarmItem): boolean {
     if (f.fieldType === 'text' && f.maxLength && v && String(v).length > f.maxLength) {
       errs[f.fieldKey] = `不能超过 ${f.maxLength} 字符`
     }
+    if (f.fieldType === 'array' && v) {
+      try {
+        const parsed = JSON.parse(String(v))
+        if (!Array.isArray(parsed)) {
+          errs[f.fieldKey] = '必须是 JSON array'
+        }
+      } catch {
+        errs[f.fieldKey] = 'JSON 语法错误'
+      }
+    }
   }
   fieldErrors.value[alarm.id] = errs
   return Object.keys(errs).length === 0
@@ -189,6 +200,13 @@ defineExpose({ saveDirty })
               <Switch
                 :checked="a.attrs[f.fieldKey] === 'true'"
                 @change="(v: any) => { a.attrs[f.fieldKey] = String(v); markDirty(a.id) }"
+              />
+            </template>
+            <template v-else-if="f.fieldType === 'array'">
+              <ArrayJsonInput
+                :value="a.attrs[f.fieldKey] || ''"
+                @update:value="(v: string) => { a.attrs[f.fieldKey] = v || null; markDirty(a.id) }"
+                placeholder="[]"
               />
             </template>
           </Form.Item>
