@@ -72,6 +72,14 @@ function filterByNameOrCode(input: string, option: { label?: string }): boolean 
   return String(option.label ?? '').toLowerCase().includes(input.toLowerCase())
 }
 
+const validCodes = computed<Set<string>>(() => {
+  return new Set(props.nodeTypes.map(nt => nt.code))
+})
+
+function isStaleCode(code: string): boolean {
+  return !validCodes.value.has(code)
+}
+
 const defaultForm = (): EdgeTypeForm => ({
   code: '',
   name: '',
@@ -275,7 +283,18 @@ async function submit() {
               :filter-option="filterByNameOrCode"
               :options="groupedNodeTypeOptions"
               option-label-prop="label"
-            />
+            >
+              <template #tagRender="{ value, label, closable, onClose }">
+                <a-tooltip v-if="isStaleCode(value)" title="该节点类型已不存在">
+                  <a-tag color="error" :closable="closable" @close="onClose" style="margin-right: 3px;">
+                    {{ value }}
+                  </a-tag>
+                </a-tooltip>
+                <a-tag v-else :closable="closable" @close="onClose" style="margin-right: 3px;">
+                  {{ label }}
+                </a-tag>
+              </template>
+            </a-select>
           </a-form-item>
         </a-col>
       </a-row>
@@ -294,7 +313,18 @@ async function submit() {
               :filter-option="filterByNameOrCode"
               :options="groupedNodeTypeOptions"
               option-label-prop="label"
-            />
+            >
+              <template #tagRender="{ value, label, closable, onClose }">
+                <a-tooltip v-if="isStaleCode(value)" title="该节点类型已不存在">
+                  <a-tag color="error" :closable="closable" @close="onClose" style="margin-right: 3px;">
+                    {{ value }}
+                  </a-tag>
+                </a-tooltip>
+                <a-tag v-else :closable="closable" @close="onClose" style="margin-right: 3px;">
+                  {{ label }}
+                </a-tag>
+              </template>
+            </a-select>
           </a-form-item>
         </a-col>
         <a-col :span="12">
