@@ -12,6 +12,7 @@ import {
   CollapsePanel,
   Alert,
   Checkbox,
+  Tabs,
 } from 'ant-design-vue'
 import { apiGet } from '@/api/http'
 import {
@@ -270,12 +271,22 @@ async function loadDetail(id: string) {
 
 watch(
   () => props.open,
-  (open) => {
+  async (open) => {
     if (!open) return
     loadTopologies()
     loadDomains()
     if (props.apiId) {
-      loadDetail(props.apiId)
+      await loadDetail(props.apiId)
+      // Task 3: Tab 默认选中：第一个有数据的；都没有则 header
+      if (formState.value.requestHeaders.length > 0) {
+        requestSpecActiveTab.value = 'header'
+      } else if (formState.value.requestQuery.length > 0) {
+        requestSpecActiveTab.value = 'query'
+      } else if (formState.value.requestBody) {
+        requestSpecActiveTab.value = 'body'
+      } else {
+        requestSpecActiveTab.value = 'header'
+      }
     } else {
       formState.value = emptyForm()
       if (props.presetDomainId) {
@@ -465,6 +476,15 @@ const templateParseError = computed<string | null>(() => {
     return (e as Error).message
   }
 })
+
+// Task 3: 请求规格 Tab 状态 + 计数徽章
+const requestSpecActiveTab = ref<'header' | 'query' | 'body'>('header')
+
+const headerCount = computed(() => formState.value.requestHeaders.length)
+const queryCount = computed(() => formState.value.requestQuery.length)
+const bodyTabLabel = computed(() =>
+  formState.value.requestBody ? '请求体 ✓' : '请求体',
+)
 
 const requestPanelHeader = computed(() => {
   const parts: string[] = []
@@ -814,13 +834,17 @@ async function handleSubmit() {
 
         <Collapse :bordered="false" class="fault-collapse">
           <CollapsePanel key="request" :header="requestPanelHeader">
-            <div class="request-spec-stack">
-              <HeaderSpecTable v-model="formState.requestHeaders" />
-
-              <QuerySpecTable v-model="formState.requestQuery" />
-
-              <BodySpecPanel v-model="formState.requestBody" />
-            </div>
+            <a-tabs v-model:active-key="requestSpecActiveTab" type="card">
+              <a-tab-pane key="header" :tab="`请求头 (${headerCount})`">
+                <HeaderSpecTable v-model="formState.requestHeaders" />
+              </a-tab-pane>
+              <a-tab-pane key="query" :tab="`请求 Query (${queryCount})`">
+                <QuerySpecTable v-model="formState.requestQuery" />
+              </a-tab-pane>
+              <a-tab-pane key="body" :tab="bodyTabLabel">
+                <BodySpecPanel v-model="formState.requestBody" />
+              </a-tab-pane>
+            </a-tabs>
           </CollapsePanel>
 
           <CollapsePanel key="fault" :header="faultPanelHeader">
@@ -990,11 +1014,5 @@ async function handleSubmit() {
 
 .fault-row {
   margin-top: 4px;
-}
-
-.request-spec-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
 }
 </style>
