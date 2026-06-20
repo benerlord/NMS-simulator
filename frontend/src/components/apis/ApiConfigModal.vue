@@ -12,7 +12,6 @@ import {
   CollapsePanel,
   Alert,
   Checkbox,
-  Tabs,
 } from 'ant-design-vue'
 import { apiGet } from '@/api/http'
 import {
@@ -102,9 +101,8 @@ interface FormState {
   // M5：请求规格（headers / query / body）+ 鉴权
   requestHeaders: HeaderSpec[]
   requestQuery: QuerySpec[]
-  // requestQueryStrict 决定是否把 query 段写进 config（白名单触发条件）
-  // true  → 写 cfg.request.query，启用严格白名单（即便数组为空也意味着"零 query 允许"）
-  // false → 不写 cfg.request.query，自由模式（任意 query 放过）
+  // 旧字段：仅从 loadDetail 读入做兼容，buildConfig 不再使用（改为
+  // 按 requestQuery.length > 0 派生）。Task 2 重构后保留仅为状态层兼容。
   requestQueryStrict: boolean
   requestBody: BodySpec | null
   authConfig: AuthConfig
@@ -437,7 +435,7 @@ function buildConfig(): Record<string, unknown> {
     }
   }
 
-  // M5: 写 cfg.request（headers 非空 / query 严格白名单启用 / body 非 null 任一满足）
+  // M5: 写 cfg.request（headers 非空 / query 非空 / body 非 null 任一满足）
   const request: Record<string, unknown> = {}
   if (formState.value.requestHeaders.length > 0) {
     request.headers = formState.value.requestHeaders
