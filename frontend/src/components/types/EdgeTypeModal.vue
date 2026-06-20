@@ -25,8 +25,8 @@ interface EdgeTypeForm {
   semantic: string
   directed: boolean
   exclusiveTarget: boolean
-  allowSourceTypeCodes: string
-  allowTargetTypeCodes: string
+  allowSourceTypeCodes: string[]
+  allowTargetTypeCodes: string[]
   lineStyle: string
   color: string
   description: string
@@ -48,19 +48,49 @@ const emit = defineEmits<{
 
 const isEdit = computed(() => !!props.editing)
 
+const groupedNodeTypeOptions = computed(() => {
+  const byCategory = new Map<string, { label: string; value: string }[]>()
+  for (const nt of props.nodeTypes) {
+    const list = byCategory.get(nt.category) ?? []
+    list.push({
+      label: `${nt.name} (${nt.code})`,
+      value: nt.code,
+    })
+    byCategory.set(nt.category, list)
+  }
+  const sortedCategories = [...byCategory.keys()].sort()
+  return sortedCategories.map(category => ({
+    label: category,
+    options: byCategory.get(category)!.sort((a, b) =>
+      a.label.localeCompare(b.label, 'zh-CN')
+    ),
+  }))
+})
+
+function filterByNameOrCode(input: string, option: { label?: string }): boolean {
+  if (!input) return true
+  return String(option.label ?? '').toLowerCase().includes(input.toLowerCase())
+}
+
 const defaultForm = (): EdgeTypeForm => ({
   code: '',
   name: '',
   semantic: 'connect',
   directed: true,
   exclusiveTarget: false,
-  allowSourceTypeCodes: '',
-  allowTargetTypeCodes: '',
+  allowSourceTypeCodes: [],
+  allowTargetTypeCodes: [],
   lineStyle: '',
   color: '',
   description: '',
   fields: [],
 })
+
+function parseCsvCodes(csv: string | null | undefined): string[] {
+  if (!csv) return []
+  const parts = csv.split(',').map(s => s.trim()).filter(Boolean)
+  return [...new Set(parts)]
+}
 
 const form = ref<EdgeTypeForm>(defaultForm())
 const originalFieldKeys = ref<Set<string>>(new Set())
@@ -74,8 +104,8 @@ watch(() => props.open, (open) => {
       semantic: props.editing.semantic,
       directed: props.editing.directed,
       exclusiveTarget: props.editing.exclusiveTarget,
-      allowSourceTypeCodes: props.editing.allowSourceTypeCodes ?? '',
-      allowTargetTypeCodes: props.editing.allowTargetTypeCodes ?? '',
+      allowSourceTypeCodes: parseCsvCodes(props.editing.allowSourceTypeCodes),
+      allowTargetTypeCodes: parseCsvCodes(props.editing.allowTargetTypeCodes),
       lineStyle: props.editing.lineStyle ?? '',
       color: props.editing.color ?? '',
       description: props.editing.description ?? '',
@@ -150,8 +180,8 @@ async function submit() {
       semantic: form.value.semantic,
       directed: form.value.directed,
       exclusiveTarget: form.value.exclusiveTarget,
-      allowSourceTypeCodes: form.value.allowSourceTypeCodes || null,
-      allowTargetTypeCodes: form.value.allowTargetTypeCodes || null,
+      allowSourceTypeCodes: form.value.allowSourceTypeCodes.length ? form.value.allowSourceTypeCodes.join(',') : null,
+      allowTargetTypeCodes: form.value.allowTargetTypeCodes.length ? form.value.allowTargetTypeCodes.join(',') : null,
       lineStyle: form.value.lineStyle || null,
       color: form.value.color || null,
       description: form.value.description || null,
@@ -164,8 +194,8 @@ async function submit() {
       semantic: form.value.semantic,
       directed: form.value.directed,
       exclusiveTarget: form.value.exclusiveTarget,
-      allowSourceTypeCodes: form.value.allowSourceTypeCodes || null,
-      allowTargetTypeCodes: form.value.allowTargetTypeCodes || null,
+      allowSourceTypeCodes: form.value.allowSourceTypeCodes.length ? form.value.allowSourceTypeCodes.join(',') : null,
+      allowTargetTypeCodes: form.value.allowTargetTypeCodes.length ? form.value.allowTargetTypeCodes.join(',') : null,
       lineStyle: form.value.lineStyle || null,
       color: form.value.color || null,
       description: form.value.description || null,
@@ -234,7 +264,18 @@ async function submit() {
         </a-col>
         <a-col :span="12">
           <a-form-item label="允许源类型">
-            <a-input v-model:value="form.allowSourceTypeCodes" placeholder="逗号分隔，如: switch,router" />
+            <a-select
+              v-model:value="form.allowSourceTypeCodes"
+              mode="multiple"
+              placeholder="留空 = 不限制"
+              :max-tag-count="3"
+              :max-tag-text-length="12"
+              allow-clear
+              show-search
+              :filter-option="filterByNameOrCode"
+              :options="groupedNodeTypeOptions"
+              option-label-prop="label"
+            />
           </a-form-item>
         </a-col>
       </a-row>
@@ -242,7 +283,18 @@ async function submit() {
       <a-row :gutter="16">
         <a-col :span="12">
           <a-form-item label="允许目标类型">
-            <a-input v-model:value="form.allowTargetTypeCodes" placeholder="逗号分隔，如: switch,router" />
+            <a-select
+              v-model:value="form.allowTargetTypeCodes"
+              mode="multiple"
+              placeholder="留空 = 不限制"
+              :max-tag-count="3"
+              :max-tag-text-length="12"
+              allow-clear
+              show-search
+              :filter-option="filterByNameOrCode"
+              :options="groupedNodeTypeOptions"
+              option-label-prop="label"
+            />
           </a-form-item>
         </a-col>
         <a-col :span="12">
