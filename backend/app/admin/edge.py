@@ -208,30 +208,30 @@ def create_edge(topology_id: str, data: EdgeCreate) -> dict:
                 detail={"code": 40107, "message": "源节点和目标节点不在同一拓扑"},
             )
 
-        # 检查节点类型是否在允许列表中
+        # 检查节点类型是否在允许列表中（存储为逗号分隔字符串，如 "switch,router"）
         if edge_type["allow_source_type_codes"]:
-            import json
-            allowed_sources = json.loads(edge_type["allow_source_type_codes"])
-            source_type = conn.execute(
-                "SELECT code FROM node_types WHERE id = ?", (source["node_type_id"],)
-            ).fetchone()
-            if source_type and source_type["code"] not in allowed_sources:
-                raise HTTPException(
-                    status_code=400,
-                    detail={"code": 40109, "message": "源节点类型不在允许范围内"},
-                )
+            allowed_sources = [c.strip() for c in edge_type["allow_source_type_codes"].split(",") if c.strip()]
+            if allowed_sources:
+                source_type = conn.execute(
+                    "SELECT code FROM node_types WHERE id = ?", (source["node_type_id"],)
+                ).fetchone()
+                if source_type and source_type["code"] not in allowed_sources:
+                    raise HTTPException(
+                        status_code=400,
+                        detail={"code": 40109, "message": "源节点类型不在允许范围内"},
+                    )
 
         if edge_type["allow_target_type_codes"]:
-            import json
-            allowed_targets = json.loads(edge_type["allow_target_type_codes"])
-            target_type = conn.execute(
-                "SELECT code FROM node_types WHERE id = ?", (target["node_type_id"],)
-            ).fetchone()
-            if target_type and target_type["code"] not in allowed_targets:
-                raise HTTPException(
-                    status_code=400,
-                    detail={"code": 40109, "message": "目标节点类型不在允许范围内"},
-                )
+            allowed_targets = [c.strip() for c in edge_type["allow_target_type_codes"].split(",") if c.strip()]
+            if allowed_targets:
+                target_type = conn.execute(
+                    "SELECT code FROM node_types WHERE id = ?", (target["node_type_id"],)
+                ).fetchone()
+                if target_type and target_type["code"] not in allowed_targets:
+                    raise HTTPException(
+                        status_code=400,
+                        detail={"code": 40109, "message": "目标节点类型不在允许范围内"},
+                    )
 
         # 检查 exclusive_target 约束：同一目标节点只能有一条此类入边
         if edge_type["exclusive_target"]:
