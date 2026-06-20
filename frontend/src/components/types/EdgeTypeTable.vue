@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, ExportOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
 import EdgeTypeModal from './EdgeTypeModal.vue'
-import { useEdgeTypes } from '@/composables/useTypes'
+import { useEdgeTypes, useNodeTypes } from '@/composables/useTypes'
 import { edgeTypeApi } from '@/api/types'
 import { downloadJson, timestampFilename } from '@/utils/download'
 import type { EdgeTypeDetail, EdgeTypeCreate, EdgeTypeUpdate } from '@/api/types'
@@ -17,6 +17,8 @@ const {
   deleteEdgeType,
   deleteEdgeTypes,
 } = useEdgeTypes()
+
+const { nodeTypes, fetchNodeTypes } = useNodeTypes()
 
 defineExpose({ refresh: fetchEdgeTypes })
 
@@ -100,6 +102,7 @@ async function handleBatchDelete() {
 }
 
 fetchEdgeTypes()
+fetchNodeTypes()
 </script>
 
 <template>
@@ -207,6 +210,7 @@ fetchEdgeTypes()
       v-model:open="modalOpen"
       :editing="modalEditing"
       :loading="modalLoading"
+      :node-types="nodeTypes"
       @create="handleCreate"
       @update="handleUpdate"
     />

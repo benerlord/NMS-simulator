@@ -5,6 +5,7 @@ import EdgeTypeFieldEditor from './EdgeTypeFieldEditor.vue'
 import { edgeTypeApi } from '@/api/types'
 import type {
   EdgeTypeCreate, EdgeTypeUpdate, EdgeTypeDetail, EdgeTypeFieldInput,
+  NodeTypeDetail,
 } from '@/api/types'
 
 const SEMANTICS = [
@@ -36,6 +37,7 @@ const props = defineProps<{
   open: boolean
   editing?: EdgeTypeDetail | null
   loading?: boolean
+  nodeTypes: NodeTypeDetail[]
 }>()
 
 const emit = defineEmits<{
