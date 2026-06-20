@@ -478,6 +478,37 @@ const templateParseError = computed<string | null>(() => {
   }
 })
 
+const responseTemplateTooltip = () => h('div', { style: 'font-size:12px;line-height:1.6' }, [
+  h('div', { style: 'font-weight:500;margin-bottom:4px' }, '内置占位符'),
+  h('div', null, [
+    h('code', null, '{{items}}'), ' 当前页行数组 / ',
+    h('code', null, '{{total}}'), ' 总数 / ',
+    h('code', null, '{{count}}'), ' 本页行数',
+  ]),
+  h('div', null, [
+    h('code', null, '{{page}}'), ' = ',
+    h('code', null, '{{pageNo}}'), ' / ',
+    h('code', null, '{{pageSize}}'), ' / ',
+    h('code', null, '{{offset}}'),
+  ]),
+  h('div', null, [
+    h('code', null, '{{totalPageNo}}'), ' = ',
+    h('code', null, '{{totalPages}}'), ' / ',
+    h('code', null, '{{hasNext}}'), ' / ',
+    h('code', null, '{{hasPrev}}'),
+  ]),
+  h('div', null, [
+    h('code', null, '{{uuid}}'), ' / ',
+    h('code', null, '{{now}}'), '（ISO-8601 UTC）',
+  ]),
+  h('div', { style: 'margin-top:6px;font-weight:500' }, '表达式（{{ }} 内可写算术）'),
+  h('div', null, '+ - * / %，函数：ceil/floor/round/abs/min/max/int'),
+  h('div', null, [h('code', null, '"total": "{{total + 1}}"')]),
+  h('div', { style: 'margin-top:6px;font-weight:500' }, '注入规则'),
+  h('div', null, [h('code', null, '"data": "{{items}}"'), ' 整串匹配 → 注入原数组（不加引号）']),
+  h('div', null, [h('code', null, '"msg": "共{{total}}条"'), ' 子串 → 文本替换']),
+])
+
 // Task 3: 请求规格 Tab 状态 + 计数徽章
 const requestSpecActiveTab = ref<'header' | 'query' | 'body'>('header')
 
@@ -780,6 +811,7 @@ async function handleSubmit() {
           v-if="formState.dataSource === 'sql'"
           label="响应模板"
           name="responseTemplate"
+          :tooltip="{ title: responseTemplateTooltip, overlayStyle: { maxWidth: '420px' } }"
         >
           <Input.TextArea
             v-model:value="formState.responseTemplate"
@@ -790,10 +822,6 @@ async function handleSubmit() {
           />
           <div v-if="templateParseError" class="hint hint-error">
             JSON 解析失败：{{ templateParseError }}
-          </div>
-          <div v-else class="hint" v-pre>
-            占位符：{{items}} / {{total}} / {{page}} 或 {{pageNo}} / {{pageSize}} / {{uuid}} / {{now}}。
-            整串匹配（如 "data": "{{items}}"）注入原值保持数组/对象类型；子串匹配做文本替换。留空走默认模板。
           </div>
           <div v-if="sqlColumnNames.length > 0" class="hint hint-columns">
             查询列名（snake_case）：{{ columnNamesHint }}

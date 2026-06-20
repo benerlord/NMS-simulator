@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { Table, Input, AutoComplete, Select, Switch, Button, Space } from 'ant-design-vue'
-import { PlusOutlined, DeleteOutlined } from '@ant-design/icons-vue'
-import { computed } from 'vue'
+import { Table, Input, AutoComplete, Select, Switch, Button, Space, Tooltip } from 'ant-design-vue'
+import { PlusOutlined, DeleteOutlined, InfoCircleOutlined } from '@ant-design/icons-vue'
+import { computed, h } from 'vue'
 
 export interface ParamMapping {
   name: string
@@ -20,6 +20,20 @@ const props = defineProps<Props>()
 const emit = defineEmits<{
   (e: 'update:modelValue', v: ParamMapping[]): void
 }>()
+
+const paramMappingTooltip = () => h('div', { style: 'font-size:12px;line-height:1.6' }, [
+  h('div', { style: 'font-weight:500;margin-bottom:4px' }, '用途'),
+  h('div', null, '把请求里 query/path/body 字段的值绑定到 SQL 的 :命名参数'),
+  h('div', { style: 'margin-top:6px;font-weight:500' }, '字段说明'),
+  h('div', null, [h('code', null, '参数名'), ' 请求里的字段名（如 pageNo）']),
+  h('div', null, [h('code', null, '位置'), ' query / path / body（path 用 /api/{id} 的 {id}）']),
+  h('div', null, [h('code', null, '类型'), ' 自动转 int/bool 失败时 → 400 + 40023']),
+  h('div', null, [h('code', null, '必填'), ' 缺失时 → 400 + 40022']),
+  h('div', null, [h('code', null, 'SQL 绑定名'), ' SQL 里 ', h('code', null, ':xxx'), ' 的 xxx（snake_case）']),
+  h('div', { style: 'margin-top:6px;font-weight:500' }, '示例'),
+  h('div', null, 'SQL: WHERE topology_id = :topology_id'),
+  h('div', null, '映射: 参数名=topologyId, 位置=query, SQL 绑定名=topology_id'),
+])
 
 const inOptions = [
   { label: 'query', value: 'query' },
@@ -77,7 +91,12 @@ const columns = [
 <template>
   <div class="param-mapping">
     <div class="header">
-      <span class="title">参数映射</span>
+      <span class="title">
+        参数映射
+        <Tooltip :title="paramMappingTooltip" :overlay-style="{ maxWidth: '420px' }">
+          <InfoCircleOutlined class="info-icon" />
+        </Tooltip>
+      </span>
       <Button size="small" @click="addRow">
         <template #icon><PlusOutlined /></template>
         新增参数
@@ -176,5 +195,14 @@ const columns = [
 .title {
   font-weight: 500;
   color: #595959;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.info-icon {
+  color: #8c8c8c;
+  font-size: 13px;
+  cursor: help;
 }
 </style>
