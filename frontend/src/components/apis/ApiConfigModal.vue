@@ -289,6 +289,7 @@ watch(
       }
     } else {
       formState.value = emptyForm()
+      requestSpecActiveTab.value = 'header'
       if (props.presetDomainId) {
         formState.value.domainId = props.presetDomainId
         loadCategories(props.presetDomainId)
