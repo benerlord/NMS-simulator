@@ -48,6 +48,8 @@ const emit = defineEmits<{
 const methodFilter = ref<HttpMethod | undefined>(undefined)
 const enabledFilter = ref<'true' | 'false' | undefined>(undefined)
 const collapsedGroups = ref(new Set<string>())
+// 已被处理过的目录 key（用于区分"新出现"vs"已存在"）
+const seenKeys = ref(new Set<string>())
 const searchKeyword = ref('')
 const selectedApiIds = ref<Set<string>>(new Set())
 const fileInputRef = ref<HTMLInputElement>()
@@ -60,74 +62,102 @@ function toggleGroup(key: string) {
   }
 }
 
-// Auto-collapse all groups by default whenever items or domains change
-// When searching, expand groups that contain matching results
+// 计算当前快照下所有目录 key（domain names + sub-categories + '__none__'）
+function computeAllGroupKeys(): Set<string> {
+  const keys = new Set<string>()
+  const domainKeys = new Set(props.domains.map(d => d.name))
+  for (const dk of domainKeys) keys.add(dk)
+
+  const subGroupKeysByDomain = new Map<string, Set<string>>()
+  for (const d of props.domains) subGroupKeysByDomain.set(d.id, new Set())
+
+  for (const api of props.items) {
+    const dId = api.domainId || null
+    const cat = api.category
+    if (dId && cat && cat !== props.domains.find(d => d.id === dId)?.name) {
+      subGroupKeysByDomain.get(dId)?.add(cat)
+    }
+  }
+  for (const set of subGroupKeysByDomain.values()) {
+    for (const sg of set) keys.add(sg)
+  }
+  keys.add('__none__')
+  return keys
+}
+
+// Watch A：仅 items / domains 变化 → 增量补默认折叠 + 清理已消失的 key
 watch(
-  [() => props.items, () => props.domains, searchKeyword],
+  [() => props.items, () => props.domains],
   () => {
-    const kw = searchKeyword.value.trim().toLowerCase()
-    const domainKeys = new Set(props.domains.map(d => d.name))
-    const subGroupKeysByDomain = new Map<string, Set<string>>()
-
-    for (const d of props.domains) {
-      subGroupKeysByDomain.set(d.id, new Set())
-    }
-
-    for (const api of props.items) {
-      const dId = api.domainId || null
-      const cat = api.category
-      if (dId && cat && cat !== props.domains.find(d => d.id === dId)?.name) {
-        subGroupKeysByDomain.get(dId)?.add(cat)
+    const newKeys = computeAllGroupKeys()
+    for (const k of newKeys) {
+      if (!seenKeys.value.has(k)) {
+        collapsedGroups.value.add(k)
+        seenKeys.value.add(k)
       }
     }
-
-    if (kw) {
-      const hasDomainMatch = new Map<string, boolean>()
-      const hasSubGroupMatch = new Map<string, boolean>()
-      for (const dk of domainKeys) {
-        hasDomainMatch.set(dk, false)
+    for (const k of [...collapsedGroups.value]) {
+      if (!newKeys.has(k)) {
+        collapsedGroups.value.delete(k)
+        seenKeys.value.delete(k)
       }
-
-      for (const api of props.items) {
-        if (!api.name.toLowerCase().includes(kw) && !api.path.toLowerCase().includes(kw)) continue
-        const dk = api.domainName || null
-        const cat = api.category
-        if (dk && domainKeys.has(dk)) {
-          if (!cat || cat === dk) {
-            hasDomainMatch.set(dk, true)
-          } else {
-            hasSubGroupMatch.set(`${dk}::${cat}`, true)
-          }
-        }
-      }
-
-      for (const dk of domainKeys) {
-        const subKeys = subGroupKeysByDomain.get(props.domains.find(d => d.name === dk)?.id || '') || new Set()
-        const anySubMatch = [...subKeys].some(sg => hasSubGroupMatch.get(`${dk}::${sg}`))
-        if (hasDomainMatch.get(dk) || anySubMatch) {
-          collapsedGroups.value.delete(dk)
-        } else {
-          collapsedGroups.value.add(dk)
-        }
-        for (const sg of subKeys) {
-          if (hasSubGroupMatch.get(`${dk}::${sg}`)) {
-            collapsedGroups.value.delete(sg)
-          } else {
-            collapsedGroups.value.add(sg)
-          }
-        }
-      }
-    } else {
-      const allKeys = new Set(domainKeys)
-      for (const sgs of subGroupKeysByDomain.values()) {
-        for (const sg of sgs) allKeys.add(sg)
-      }
-      allKeys.add('__none__')
-      collapsedGroups.value = allKeys
     }
   },
   { immediate: true },
 )
+
+// Watch B：仅搜索词变化 → 匹配的展开，未匹配的折叠（不影响 seenKeys）
+watch(searchKeyword, () => {
+  const kw = searchKeyword.value.trim().toLowerCase()
+  const domainKeys = new Set(props.domains.map(d => d.name))
+  const subGroupKeysByDomain = new Map<string, Set<string>>()
+  for (const d of props.domains) {
+    subGroupKeysByDomain.set(d.id, new Set())
+  }
+  for (const api of props.items) {
+    const dId = api.domainId || null
+    const cat = api.category
+    if (dId && cat && cat !== props.domains.find(d => d.id === dId)?.name) {
+      subGroupKeysByDomain.get(dId)?.add(cat)
+    }
+  }
+
+  if (!kw) return // 清空搜索词时不重置（保留用户折叠状态）
+
+  const hasDomainMatch = new Map<string, boolean>()
+  const hasSubGroupMatch = new Map<string, boolean>()
+  for (const dk of domainKeys) hasDomainMatch.set(dk, false)
+
+  for (const api of props.items) {
+    if (!api.name.toLowerCase().includes(kw) && !api.path.toLowerCase().includes(kw)) continue
+    const dk = api.domainName || null
+    const cat = api.category
+    if (dk && domainKeys.has(dk)) {
+      if (!cat || cat === dk) {
+        hasDomainMatch.set(dk, true)
+      } else {
+        hasSubGroupMatch.set(`${dk}::${cat}`, true)
+      }
+    }
+  }
+
+  for (const dk of domainKeys) {
+    const subKeys = subGroupKeysByDomain.get(props.domains.find(d => d.name === dk)?.id || '') || new Set()
+    const anySubMatch = [...subKeys].some(sg => hasSubGroupMatch.get(`${dk}::${sg}`))
+    if (hasDomainMatch.get(dk) || anySubMatch) {
+      collapsedGroups.value.delete(dk)
+    } else {
+      collapsedGroups.value.add(dk)
+    }
+    for (const sg of subKeys) {
+      if (hasSubGroupMatch.get(`${dk}::${sg}`)) {
+        collapsedGroups.value.delete(sg)
+      } else {
+        collapsedGroups.value.add(sg)
+      }
+    }
+  }
+})
 
 const METHOD_COLORS: Record<HttpMethod, string> = {
   GET: 'green',
