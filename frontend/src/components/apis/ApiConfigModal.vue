@@ -430,8 +430,7 @@ function buildConfig(): Record<string, unknown> {
   if (formState.value.requestHeaders.length > 0) {
     request.headers = formState.value.requestHeaders
   }
-  if (formState.value.requestQueryStrict) {
-    // 即使 query 数组为空也写入：[] 表示"严格模式 + 零 query 允许"
+  if (formState.value.requestQuery.length > 0) {
     request.query = formState.value.requestQuery
   }
   if (formState.value.requestBody) {
@@ -472,7 +471,7 @@ const requestPanelHeader = computed(() => {
   if (formState.value.requestHeaders.length > 0) {
     parts.push(`headers ${formState.value.requestHeaders.length}`)
   }
-  if (formState.value.requestQueryStrict) {
+  if (formState.value.requestQuery.length > 0) {
     parts.push(`query 严格 ${formState.value.requestQuery.length}`)
   }
   if (formState.value.requestBody) {
@@ -818,25 +817,7 @@ async function handleSubmit() {
             <div class="request-spec-stack">
               <HeaderSpecTable v-model="formState.requestHeaders" />
 
-              <div class="query-strict-row">
-                <span class="query-strict-label">启用 Query 严格白名单</span>
-                <Switch
-                  v-model:checked="formState.requestQueryStrict"
-                  checked-children="启用"
-                  un-checked-children="未启用"
-                />
-                <span class="hint hint-inline">
-                  {{
-                    formState.requestQueryStrict
-                      ? '启用后未声明的 query 字段会被 400 + 40025 拒绝（即使本表为空）'
-                      : '未启用：调用方可传任意 query；启用后转为白名单语义'
-                  }}
-                </span>
-              </div>
-              <QuerySpecTable
-                v-if="formState.requestQueryStrict"
-                v-model="formState.requestQuery"
-              />
+              <QuerySpecTable v-model="formState.requestQuery" />
 
               <BodySpecPanel v-model="formState.requestBody" />
             </div>
@@ -1015,26 +996,5 @@ async function handleSubmit() {
   display: flex;
   flex-direction: column;
   gap: 12px;
-}
-
-.query-strict-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 12px;
-  border: 1px dashed #e8e8e8;
-  border-radius: 6px;
-  background: #fff;
-}
-
-.query-strict-label {
-  font-weight: 500;
-  color: #595959;
-  font-size: 13px;
-}
-
-.hint-inline {
-  margin-top: 0;
-  flex: 1;
 }
 </style>

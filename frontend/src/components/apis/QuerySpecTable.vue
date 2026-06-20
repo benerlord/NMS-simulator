@@ -60,7 +60,7 @@ const columns = [
     <div class="header">
       <span class="title">
         Query 参数声明
-        <Tooltip title="严格白名单：只要本表存在（哪怕空），调用方传入未声明字段就会被 400 拒绝（错误码 40025）。如要允许任意 query，移除整段声明。">
+        <Tooltip title="白名单：表中存在任意一行时，所有未声明的 query 字段会被 400 (40025) 拒绝；表空则不限制。">
           <InfoCircleOutlined class="info-icon" />
         </Tooltip>
       </span>
@@ -134,7 +134,7 @@ const columns = [
 
       <template #emptyText>
         <span style="color: #999; font-size: 12px">
-          暂无声明 query 参数，点击右上"新增 Query 参数"
+          暂无声明 → 当前不启用白名单。添加第一行后即启用严格模式
         </span>
       </template>
     </Table>
