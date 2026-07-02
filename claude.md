@@ -262,6 +262,15 @@ InterfaceTest/
 - ✅ 接口导出/导入：JSON 格式导出（全部/按目录/按勾选）+ 导入预览确认框
 - ✅ SQL 列名格式统一：SqlRunner 测试运行后自动提取 snake_case 列名，响应模板提示列名格式，参数映射 bindTo 改为 AutoComplete
 - ✅ 修复接口页面切其他页时旧视图锁死：`ApiConfigTable.vue` 的 `groupedDomains` computed 在 `domainMap.get(dId)!` 处用非空断言，当 api 引用的 domain 不在 `props.domains`（数据不一致 / fetchApis 早于 fetchDomains 返回的竞态）时抛 `Cannot read properties of undefined (reading 'totalCount')`，污染 Vue patch 队列导致后续 RouterView 切换全部失败（`emitsOptions/parentNode is null`）。改为 `dg` 取不到时与 `!dId` 走同一条兜底路径，归入"未归类"
+- ✅ 实例管理支持 HTTPS 协议（commit f10a45f..8d34370，共 9 个 commit）：
+  - `mock_instances` 新增 `ssl_enabled` 列（幂等 ALTER，默认 0 兼容既有）
+  - `InstanceRunner` 全套方法加 `ssl_enabled` 参数；父进程 `ensure_cert` 提前生成证书，避免子进程并发竞态；`_check_and_restart` 从单阶段改成"锁内收集 to_restart + 锁外重启"两阶段，修 Lock 非可重入的潜在死锁
+  - `except BaseException` 兜底 cert_utils 的 `sys.exit` 逃逸，避免单实例证书问题拖垮 admin 父进程
+  - `instance_app.py` argparse +2 参数，uvicorn 按需 `ssl_certfile/ssl_keyfile`
+  - CRUD 端点 `_build_url(port, ssl_enabled)` 拼 `http/https://localhost:port`，list 响应带 `url` 字段
+  - Modal 加 `Radio.Group` 协议字段（HTTP/HTTPS，选 HTTPS 显示"客户端需跳过证书校验"提示）
+  - 列表加协议 Tag 列 + 可复制访问地址列（`Typography.Text copyable code`，禁用态灰色 + tooltip）
+  - 设计方案：`docs/superpowers/specs/2026-07-02-mock-instance-https-design.md`；实施计划：`docs/superpowers/plans/2026-07-02-mock-instance-https.md`
 
 ### 待开发
 - 编辑组定义打开 GroupCreateModal（目前右键"编辑组定义"已 emit 事件但 CanvasView 尚未接入 editGroupId）
