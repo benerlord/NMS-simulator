@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { Card, Button, Space, Table, Tag, Switch, Popconfirm, message } from 'ant-design-vue'
+import { Card, Button, Space, Table, Tag, Switch, Popconfirm, Typography, Tooltip, message } from 'ant-design-vue'
 import { PlusOutlined, EditOutlined, DeleteOutlined, FileTextOutlined } from '@ant-design/icons-vue'
 import { mockInstanceApi, type MockInstanceItem } from '@/api/mockInstance'
 import MockInstanceModal from '@/components/mockInstance/MockInstanceModal.vue'
@@ -38,14 +38,14 @@ function openEdit(item: MockInstanceItem) {
   modalOpen.value = true
 }
 
-async function handleCreate(data: { name: string; topologyId: string; port: number; description?: string | null }) {
+async function handleCreate(data: { name: string; topologyId: string; port: number; description?: string | null; sslEnabled: boolean }) {
   await mockInstanceApi.create(data)
   message.success('实例创建成功')
   modalOpen.value = false
   fetchInstances()
 }
 
-async function handleUpdate(data: { name?: string | null; topologyId?: string | null; port?: number; description?: string | null }) {
+async function handleUpdate(data: { name?: string | null; topologyId?: string | null; port?: number; description?: string | null; sslEnabled?: boolean }) {
   if (!editingInstance.value) return
   await mockInstanceApi.update(editingInstance.value.id, data)
   message.success('实例更新成功')
@@ -66,15 +66,13 @@ async function handleToggleEnabled(item: MockInstanceItem, checked: boolean) {
 }
 
 const columns = [
-  { title: '名称', dataIndex: 'name', key: 'name', width: 200 },
+  { title: '名称', dataIndex: 'name', key: 'name', width: 180 },
   { title: '端口', dataIndex: 'port', key: 'port', width: 80 },
-  { title: '所属拓扑', dataIndex: 'topologyName', key: 'topologyName', width: 180 },
-  {
-    title: '启用', key: 'enabled', width: 90, align: 'center' as const,
-  },
-  {
-    title: '接口数', key: 'apiCount', width: 80, align: 'center' as const,
-  },
+  { title: '协议', key: 'protocol', width: 80, align: 'center' as const },
+  { title: '访问地址', key: 'url', width: 240 },
+  { title: '所属拓扑', dataIndex: 'topologyName', key: 'topologyName', width: 160 },
+  { title: '启用', key: 'enabled', width: 90, align: 'center' as const },
+  { title: '接口数', key: 'apiCount', width: 80, align: 'center' as const },
   { title: '创建时间', dataIndex: 'createdAt', key: 'createdAt', width: 180 },
   { title: '操作', key: 'action', width: 150, fixed: 'right' as const },
 ]
@@ -107,6 +105,17 @@ onMounted(fetchInstances)
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'topologyName'">
           <Tag color="blue">{{ record.topologyName }}</Tag>
+        </template>
+        <template v-else-if="column.key === 'protocol'">
+          <Tag :color="record.sslEnabled ? 'green' : 'blue'">
+            {{ record.sslEnabled ? 'HTTPS' : 'HTTP' }}
+          </Tag>
+        </template>
+        <template v-else-if="column.key === 'url'">
+          <Tooltip v-if="!record.enabled" title="实例未启用，当前不可访问">
+            <Typography.Text copyable code type="secondary">{{ record.url }}</Typography.Text>
+          </Tooltip>
+          <Typography.Text v-else copyable code>{{ record.url }}</Typography.Text>
         </template>
         <template v-else-if="column.key === 'enabled'">
           <Switch
