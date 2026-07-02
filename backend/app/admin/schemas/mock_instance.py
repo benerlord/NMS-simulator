@@ -11,6 +11,7 @@ class MockInstanceCreate(CamelModel):
     port: int = Field(..., ge=1, le=65535)
     description: Optional[str] = Field(default=None, max_length=200)
     enabled: bool = True
+    ssl_enabled: bool = False
 
 
 class MockInstanceUpdate(CamelModel):
@@ -19,6 +20,7 @@ class MockInstanceUpdate(CamelModel):
     port: Optional[int] = Field(default=None, ge=1, le=65535)
     description: Optional[str] = Field(default=None, max_length=200)
     enabled: Optional[bool] = None
+    ssl_enabled: Optional[bool] = None
 
 
 class MockInstanceItem(CamelModel):
@@ -29,6 +31,8 @@ class MockInstanceItem(CamelModel):
     port: int
     description: Optional[str]
     enabled: bool
+    ssl_enabled: bool
+    url: str
     api_count: int = 0
     created_at: str
     updated_at: str
