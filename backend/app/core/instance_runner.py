@@ -41,7 +41,9 @@ class InstanceRunner:
                 try:
                     cert, key = ensure_cert(settings.ssl_certfile, settings.ssl_keyfile)
                     ssl_args = ["--ssl-certfile", cert, "--ssl-keyfile", key]
-                except Exception:
+                except BaseException:
+                    # 用 BaseException：cert_utils 在 openssl 缺失时会 sys.exit()（抛 SystemExit），
+                    # 若只 catch Exception 会让整个 admin 父进程被单个实例的证书问题连带杀掉。
                     _update_status(inst_id, "error")
                     return
             try:
