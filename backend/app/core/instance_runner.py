@@ -3,6 +3,8 @@ import sys
 import time
 from threading import Lock, Thread
 
+from app.core.cert_utils import ensure_cert
+from app.core.config import settings
 from app.db.connection import connect
 
 
@@ -24,16 +26,24 @@ class InstanceRunner:
     def sync_all(self):
         with connect() as conn:
             rows = conn.execute(
-                "SELECT id, port, topology_id FROM mock_instances WHERE enabled = 1"
+                "SELECT id, port, topology_id, ssl_enabled FROM mock_instances WHERE enabled = 1"
             ).fetchall()
         for r in rows:
-            self.start_instance(r["id"], r["port"], r["topology_id"])
+            self.start_instance(r["id"], r["port"], r["topology_id"], bool(r["ssl_enabled"]))
 
-    def start_instance(self, inst_id: str, port: int, topology_id: str):
+    def start_instance(self, inst_id: str, port: int, topology_id: str, ssl_enabled: bool):
         with self._lock:
             if inst_id in self._processes:
                 return
             _update_status(inst_id, "starting")
+            ssl_args: list[str] = []
+            if ssl_enabled:
+                try:
+                    cert, key = ensure_cert(settings.ssl_certfile, settings.ssl_keyfile)
+                    ssl_args = ["--ssl-certfile", cert, "--ssl-keyfile", key]
+                except Exception:
+                    _update_status(inst_id, "error")
+                    return
             try:
                 kwargs = {}
                 if sys.platform == 'win32':
@@ -44,6 +54,7 @@ class InstanceRunner:
                         "--topology-id", topology_id,
                         "--port", str(port),
                         "--instance-id", inst_id,
+                        *ssl_args,
                     ],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
@@ -62,9 +73,9 @@ class InstanceRunner:
                 proc.wait(timeout=3)
             _update_status(inst_id, "stopped")
 
-    def restart_instance(self, inst_id: str, port: int, topology_id: str):
+    def restart_instance(self, inst_id: str, port: int, topology_id: str, ssl_enabled: bool):
         self.stop_instance(inst_id)
-        self.start_instance(inst_id, port, topology_id)
+        self.start_instance(inst_id, port, topology_id, ssl_enabled)
 
     def shutdown_all(self):
         with self._lock:
@@ -73,29 +84,29 @@ class InstanceRunner:
         self._stop_monitor = True
 
     def _check_and_restart(self):
+        to_restart: list[tuple[str, int, str, bool]] = []
         with self._lock:
             for inst_id, proc in list(self._processes.items()):
                 if proc.poll() is None:
                     continue
-                # 限流：1 分钟内超过 3 次重启则标记 error
                 now = time.time()
                 self._restart_counts.setdefault(inst_id, []).append(now)
                 self._restart_counts[inst_id] = [
                     t for t in self._restart_counts[inst_id] if now - t < 60
                 ]
+                self._processes.pop(inst_id, None)
                 if len(self._restart_counts[inst_id]) > 3:
                     _update_status(inst_id, "error")
-                    self._processes.pop(inst_id, None)
                     continue
-                self._processes.pop(inst_id, None)
-                # 从 DB 读取最新配置后重启
                 with connect() as conn:
                     row = conn.execute(
-                        "SELECT port, topology_id FROM mock_instances WHERE id = ? AND enabled = 1",
+                        "SELECT port, topology_id, ssl_enabled FROM mock_instances WHERE id = ? AND enabled = 1",
                         (inst_id,),
                     ).fetchone()
                 if row:
-                    self.start_instance(inst_id, row["port"], row["topology_id"])
+                    to_restart.append((inst_id, row["port"], row["topology_id"], bool(row["ssl_enabled"])))
+        for inst_id, port, topo, ssl_enabled in to_restart:
+            self.start_instance(inst_id, port, topo, ssl_enabled)
 
     def start_monitor(self):
         """后台线程：每 15 秒检查子进程健康状态"""

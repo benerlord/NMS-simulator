@@ -1,6 +1,6 @@
 """
 每实例子进程的入口模块。
-用法: python -m app.mock.instance_app --topology-id topo_xxx --port 8081 --instance-id inst_xxx
+用法: python -m app.mock.instance_app --topology-id topo_xxx --port 8081 --instance-id inst_xxx [--ssl-certfile cert.pem --ssl-keyfile key.pem]
 """
 
 
@@ -46,8 +46,15 @@ if __name__ == "__main__":
     parser.add_argument("--topology-id", required=True)
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--instance-id", default=None)
+    parser.add_argument("--ssl-certfile", default=None)
+    parser.add_argument("--ssl-keyfile", default=None)
     args = parser.parse_args()
 
     init_db()
     app = create_app(args.topology_id, instance_id=args.instance_id)
-    uvicorn.run(app, host="0.0.0.0", port=args.port, log_level="warning")
+
+    kwargs = {"host": "0.0.0.0", "port": args.port, "log_level": "warning"}
+    if args.ssl_certfile and args.ssl_keyfile:
+        kwargs["ssl_certfile"] = args.ssl_certfile
+        kwargs["ssl_keyfile"] = args.ssl_keyfile
+    uvicorn.run(app, **kwargs)
