@@ -89,6 +89,7 @@ class InstanceRunner:
             for inst_id, proc in list(self._processes.items()):
                 if proc.poll() is None:
                     continue
+                # 限流：1 分钟内超过 3 次重启则标记 error
                 now = time.time()
                 self._restart_counts.setdefault(inst_id, []).append(now)
                 self._restart_counts[inst_id] = [
@@ -98,6 +99,7 @@ class InstanceRunner:
                 if len(self._restart_counts[inst_id]) > 3:
                     _update_status(inst_id, "error")
                     continue
+                # 从 DB 读取最新配置后重启
                 with connect() as conn:
                     row = conn.execute(
                         "SELECT port, topology_id, ssl_enabled FROM mock_instances WHERE id = ? AND enabled = 1",
