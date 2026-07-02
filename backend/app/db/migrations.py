@@ -430,6 +430,11 @@ def run_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE mock_instances ADD COLUMN status TEXT NOT NULL DEFAULT 'running'")
     except sqlite3.OperationalError:
         pass
+    # 实例协议：mock_instances 新增 ssl_enabled 列
+    try:
+        conn.execute("ALTER TABLE mock_instances ADD COLUMN ssl_enabled INTEGER NOT NULL DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
     # 请求日志：request_logs 新增 instance_id 列
     try:
         conn.execute("ALTER TABLE request_logs ADD COLUMN instance_id TEXT")
