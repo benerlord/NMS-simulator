@@ -8,6 +8,8 @@ export interface MockInstanceItem {
   port: number
   description: string | null
   enabled: boolean
+  sslEnabled: boolean
+  url: string
   apiCount: number
   createdAt: string
   updatedAt: string
@@ -19,6 +21,7 @@ export interface MockInstanceCreate {
   port: number
   description?: string | null
   enabled?: boolean
+  sslEnabled?: boolean
 }
 
 export interface MockInstanceUpdate {
@@ -27,6 +30,7 @@ export interface MockInstanceUpdate {
   port?: number
   description?: string | null
   enabled?: boolean
+  sslEnabled?: boolean
 }
 
 export const mockInstanceApi = {
