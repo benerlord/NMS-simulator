@@ -22,6 +22,11 @@ def _get_runner(request: Request):
     return request.app.state.instance_runner
 
 
+def _build_url(port: int, ssl_enabled: bool) -> str:
+    proto = "https" if ssl_enabled else "http"
+    return f"{proto}://localhost:{port}"
+
+
 @router.get("/mock-instances")
 def list_mock_instances() -> dict:
     with connect() as conn:
@@ -41,6 +46,8 @@ def list_mock_instances() -> dict:
                 port=r["port"],
                 description=r["description"],
                 enabled=bool(r["enabled"]),
+                ssl_enabled=bool(r["ssl_enabled"]),
+                url=_build_url(r["port"], bool(r["ssl_enabled"])),
                 api_count=r["api_count"],
                 created_at=r["created_at"],
                 updated_at=r["updated_at"],
@@ -63,12 +70,13 @@ def create_mock_instance(data: MockInstanceCreate, request: Request) -> dict:
             )
         inst_id = _new_id()
         conn.execute(
-            "INSERT INTO mock_instances (id, name, topology_id, port, description, enabled, status) "
-            "VALUES (?, ?, ?, ?, ?, ?, 'stopped')",
-            (inst_id, data.name, data.topology_id, data.port, data.description, 1 if data.enabled else 0),
+            "INSERT INTO mock_instances (id, name, topology_id, port, description, enabled, ssl_enabled, status) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 'stopped')",
+            (inst_id, data.name, data.topology_id, data.port, data.description,
+             1 if data.enabled else 0, 1 if data.ssl_enabled else 0),
         )
     if data.enabled:
-        _get_runner(request).start_instance(inst_id, data.port, data.topology_id)
+        _get_runner(request).start_instance(inst_id, data.port, data.topology_id, data.ssl_enabled)
     return {"code": 0, "data": {"id": inst_id}, "message": "ok"}
 
 
@@ -104,16 +112,18 @@ def update_mock_instance(inst_id: str, data: MockInstanceUpdate, request: Reques
             updates.append("description = ?"); params.append(data.description)
         if data.enabled is not None:
             updates.append("enabled = ?"); params.append(1 if data.enabled else 0)
+        if data.ssl_enabled is not None:
+            updates.append("ssl_enabled = ?"); params.append(1 if data.ssl_enabled else 0)
         if updates:
             updates.append("updated_at = datetime('now')")
             params.append(inst_id)
             conn.execute(f"UPDATE mock_instances SET {', '.join(updates)} WHERE id = ?", params)
         # 读取更新后的配置，决定是否重启
         row = conn.execute(
-            "SELECT port, topology_id, enabled FROM mock_instances WHERE id = ?", (inst_id,)
+            "SELECT port, topology_id, enabled, ssl_enabled FROM mock_instances WHERE id = ?", (inst_id,)
         ).fetchone()
     if row and row["enabled"]:
-        _get_runner(request).restart_instance(inst_id, row["port"], row["topology_id"])
+        _get_runner(request).restart_instance(inst_id, row["port"], row["topology_id"], bool(row["ssl_enabled"]))
     else:
         _get_runner(request).stop_instance(inst_id)
     return {"code": 0, "data": {"id": inst_id}, "message": "ok"}
@@ -152,11 +162,11 @@ def patch_instance_enabled(inst_id: str, data: dict, request: Request) -> dict:
             (1 if enabled else 0, inst_id),
         )
         row = conn.execute(
-            "SELECT port, topology_id FROM mock_instances WHERE id = ?", (inst_id,)
+            "SELECT port, topology_id, ssl_enabled FROM mock_instances WHERE id = ?", (inst_id,)
         ).fetchone()
     if row:
         if enabled:
-            _get_runner(request).start_instance(inst_id, row["port"], row["topology_id"])
+            _get_runner(request).start_instance(inst_id, row["port"], row["topology_id"], bool(row["ssl_enabled"]))
         else:
             _get_runner(request).stop_instance(inst_id)
     return {"code": 0, "data": {"id": inst_id}, "message": "ok"}
