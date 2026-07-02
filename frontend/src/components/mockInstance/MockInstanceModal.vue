@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
-import { Modal, Form, Input, InputNumber, Select } from 'ant-design-vue'
+import { Modal, Form, Input, InputNumber, Select, Radio } from 'ant-design-vue'
 import { apiGet } from '@/api/http'
 import type { MockInstanceItem } from '@/api/mockInstance'
 import type { TopologyListItem } from '@/api/topology'
@@ -13,19 +13,20 @@ interface Props {
 const props = defineProps<Props>()
 const emit = defineEmits<{
   (e: 'update:open', v: boolean): void
-  (e: 'create', data: { name: string; topologyId: string; port: number; description?: string | null }): void
-  (e: 'update', data: { name?: string | null; topologyId?: string | null; port?: number; description?: string | null }): void
+  (e: 'create', data: { name: string; topologyId: string; port: number; description?: string | null; sslEnabled: boolean }): void
+  (e: 'update', data: { name?: string | null; topologyId?: string | null; port?: number; description?: string | null; sslEnabled?: boolean }): void
 }>()
 
 const loading = ref(false)
 const formRef = ref<{ validateFields?: () => Promise<void> } | null>(null)
 const topologies = ref<TopologyListItem[]>([])
 
-const formState = ref<{ name: string; topologyId: string; port: number | undefined; description: string }>({
+const formState = ref<{ name: string; topologyId: string; port: number | undefined; description: string; sslEnabled: boolean }>({
   name: '',
   topologyId: '',
   port: undefined,
   description: '',
+  sslEnabled: false,
 })
 
 const isEdit = computed(() => !!props.editing)
@@ -47,6 +48,7 @@ watch(
         topologyId: props.editing?.topologyId ?? '',
         port: props.editing?.port ?? undefined,
         description: props.editing?.description ?? '',
+        sslEnabled: props.editing?.sslEnabled ?? false,
       }
     }
   },
@@ -105,6 +107,17 @@ async function handleSubmit() {
           placeholder="1 ~ 65535"
           style="width: 100%"
         />
+      </Form.Item>
+
+      <Form.Item
+        label="协议"
+        name="sslEnabled"
+        :extra="formState.sslEnabled ? '使用系统自签证书，客户端需跳过证书校验' : undefined"
+      >
+        <Radio.Group v-model:value="formState.sslEnabled">
+          <Radio :value="false">HTTP</Radio>
+          <Radio :value="true">HTTPS</Radio>
+        </Radio.Group>
       </Form.Item>
 
       <Form.Item
