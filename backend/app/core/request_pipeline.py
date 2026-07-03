@@ -90,6 +90,7 @@ class _RequestCtx:
 class PipelineContext:
     api_id: str
     request: Request
+    instance_id: Optional[str] = None
     req_ctx: Optional[_RequestCtx] = None
     detail: Any = None
     exec_result: Optional[dict] = None
@@ -131,7 +132,7 @@ async def run(api_id: str, request: Request, instance_id: Optional[str] = None) 
     )
 
     start_ts = _time.time()
-    ctx = PipelineContext(api_id=api_id, request=request)
+    ctx = PipelineContext(api_id=api_id, request=request, instance_id=instance_id)
     error_message: Optional[str] = None
     try:
         with connect() as conn:
@@ -436,7 +437,17 @@ async def _step4_inject_fault(ctx: PipelineContext) -> None:
 def _step5_execute(conn, ctx: PipelineContext, build_params, resolve_page) -> None:
     detail = ctx.detail
     if detail.data_source == "sql":
-        if not detail.topology_id:
+        # Topology 解析降级：API 显式绑定优先；否则回退到实例的 topology_id
+        # （域级共享接口场景：api_configs.topology_id=NULL 但 instance 绑定了同域的一个拓扑）。
+        topology_id = detail.topology_id
+        if not topology_id and ctx.instance_id:
+            inst_row = conn.execute(
+                "SELECT topology_id FROM mock_instances WHERE id = ?",
+                (ctx.instance_id,),
+            ).fetchone()
+            if inst_row:
+                topology_id = inst_row["topology_id"]
+        if not topology_id:
             raise PipelineError(400, 40001, "接口未绑定拓扑")
         if not (detail.sql_text and detail.sql_text.strip()):
             raise PipelineError(400, 40001, "sqlText 为空")
@@ -446,7 +457,7 @@ def _step5_execute(conn, ctx: PipelineContext, build_params, resolve_page) -> No
         try:
             ctx.exec_result = execute_paged(
                 conn,
-                detail.topology_id,
+                topology_id,
                 detail.sql_text,
                 sql_params,
                 page,
