@@ -101,3 +101,34 @@ def parse_cell_list(cell_text: str, columns: list[str], row_hint: str) -> list[d
                 raise ExcelValidationError(f"{row_hint}：{e}") from e
         records.append(record)
     return records
+
+
+def sanitize_sheet_name(name: str, used: set[str]) -> str:
+    """把 domain 名清洗成 Excel 合法 sheet 名并防重名。
+
+    - 非法字符（`: \\ / ? * [ ]`）替换为下划线
+    - 超过 31 字符从右截断
+    - 与 used 中已存在的名字冲突时追加 `~2`、`~3`... 后缀，最终长度仍 ≤ 31
+    - 每次调用会把返回的名字加入 used
+
+    副作用：修改传入的 used 集合。
+    """
+    sanitized = name
+    for ch in INVALID_SHEET_CHARS:
+        sanitized = sanitized.replace(ch, "_")
+    if len(sanitized) > SHEET_NAME_MAX_LEN:
+        sanitized = sanitized[:SHEET_NAME_MAX_LEN]
+
+    if sanitized not in used:
+        used.add(sanitized)
+        return sanitized
+
+    suffix = 2
+    while True:
+        tag = f"~{suffix}"
+        base_max = SHEET_NAME_MAX_LEN - len(tag)
+        candidate = sanitized[:base_max] + tag
+        if candidate not in used:
+            used.add(candidate)
+            return candidate
+        suffix += 1

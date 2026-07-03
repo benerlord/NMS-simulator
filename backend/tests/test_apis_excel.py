@@ -87,3 +87,49 @@ def test_parse_cell_list_value_with_pipe_raises():
     with pytest.raises(ExcelValidationError) as exc:
         parse_cell_list("A|是|foo|bar||", HEADER_COLUMNS, row_hint="第 5 行 请求头")
     assert "第 5 行" in str(exc.value)
+
+
+from app.admin._api_excel import sanitize_sheet_name
+
+
+def test_sanitize_sheet_name_passthrough_valid():
+    used: set[str] = set()
+    assert sanitize_sheet_name("网管A", used) == "网管A"
+    assert "网管A" in used
+
+
+def test_sanitize_sheet_name_replaces_invalid_chars():
+    used: set[str] = set()
+    assert sanitize_sheet_name("A/B", used) == "A_B"
+    assert sanitize_sheet_name(r"C\D", used) == "C_D"
+    assert sanitize_sheet_name("E?F*G", used) == "E_F_G"
+    assert sanitize_sheet_name("H[I]J", used) == "H_I_J"
+    assert sanitize_sheet_name("K:L", used) == "K_L"
+
+
+def test_sanitize_sheet_name_truncates_to_31_chars():
+    used: set[str] = set()
+    long_name = "网" * 40
+    result = sanitize_sheet_name(long_name, used)
+    assert len(result) == 31
+
+
+def test_sanitize_sheet_name_appends_dedupe_suffix():
+    used: set[str] = set()
+    a = sanitize_sheet_name("A/B", used)
+    b = sanitize_sheet_name("A_B", used)
+    c = sanitize_sheet_name("A_B", used)
+    assert a == "A_B"
+    assert b == "A_B~2"
+    assert c == "A_B~3"
+
+
+def test_sanitize_sheet_name_dedupe_after_truncation():
+    used: set[str] = set()
+    long_a = "X" * 40
+    long_b = "X" * 40
+    assert sanitize_sheet_name(long_a, used) == "X" * 31
+    # 第二次被截断成同名 → 追加后缀，且总长仍 ≤ 31
+    result = sanitize_sheet_name(long_b, used)
+    assert result.endswith("~2")
+    assert len(result) <= 31
