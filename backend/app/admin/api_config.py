@@ -823,6 +823,7 @@ async def import_apis(file: UploadFile = File(...)) -> dict:
             detail={"code": 40410, "message": "仅支持 .xlsx 文件"},
         )
 
+    import io as _io
     from app.admin._api_excel import parse_workbook, ExcelValidationError
 
     contents = await file.read()
@@ -834,11 +835,10 @@ async def import_apis(file: UploadFile = File(...)) -> dict:
             existing_topologies = [dict(r) for r in conn.execute(
                 "SELECT id, name, created_at FROM topologies"
             ).fetchall()]
-    except Exception as e:
+    except sqlite3.Error as e:
         raise HTTPException(status_code=500, detail={"code": 50001, "message": f"读取参考数据失败: {e}"})
 
     try:
-        import io as _io
         result = parse_workbook(_io.BytesIO(contents), existing_domains, existing_topologies)
     except ExcelValidationError as e:
         raise HTTPException(status_code=400, detail={"code": 40411, "message": str(e)})
@@ -881,6 +881,9 @@ async def import_apis(file: UploadFile = File(...)) -> dict:
                     old_config = json.loads(existing["config"]) if existing["config"] else {}
                 except json.JSONDecodeError:
                     old_config = {}
+                # 浅合并：表格里的 20 列代表 request/auth/fault/responseTemplate/staticBody/params
+                # 这些顶层 composite 键，Excel 是"权威视图"——命中的键完整替换。
+                # 只有未建模的未来字段（例如 customFuture）通过 old_config 保留下来。
                 merged_config = {**old_config, **new_config}
                 conn.execute(
                     """UPDATE api_configs SET name=?, data_source=?, topology_id=?,

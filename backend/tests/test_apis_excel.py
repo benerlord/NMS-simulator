@@ -731,3 +731,51 @@ def test_import_endpoint_fatal_error_on_empty_workbook(client):
     r = _upload_xlsx_bytes(client, data)
     assert r.status_code == 400
     assert "未找到" in r.json()["detail"]["message"]
+
+
+def test_import_endpoint_composite_key_fully_replaced(client):
+    """锁定 spec 的"Excel 权威视图"语义：Excel 里的 request/auth/fault 等 composite 键
+    整体覆盖 DB 里对应键；空 cell 表示"该字段应被清除"，而不是"保留旧值"。
+    只有真正未建模的顶层键（如 customFuture）在 UPDATE 时保留。"""
+    # 预造：一个 request 里有 headers + query 两个数组的接口
+    r = client.post("/admin/api/apis", json={
+        "method": "GET",
+        "path": "/api/replace-me",
+        "name": "replace",
+        "dataSource": "static",
+        "config": {
+            "request": {
+                "headers": [{"name": "H1", "required": True}],
+                "query": [{"name": "q1", "type": "string", "required": True}],
+            },
+            "customFuture": "keep_me",
+        },
+    })
+    assert r.status_code == 200
+    api_id = r.json()["data"]["id"]
+
+    # Excel 只填 headers cell（覆盖为 H2），query cell 留空 → 期望 query 被清除
+    def build(wb):
+        ws = wb.create_sheet(UNCATEGORIZED_SHEET_NAME)
+        for col_idx, h in enumerate(MAIN_HEADERS, start=1):
+            ws.cell(row=1, column=col_idx, value=h)
+        ws.cell(row=2, column=1, value="GET")
+        ws.cell(row=2, column=2, value="/api/replace-me")
+        ws.cell(row=2, column=3, value="replace")
+        ws.cell(row=2, column=7, value="static")
+        # 请求头列 = 11：只写一个新 header
+        ws.cell(row=2, column=11, value="H2|是|||")
+        # Query 参数列 = 12：留空
+    data = _build_test_workbook_bytes(build)
+
+    r = _upload_xlsx_bytes(client, data)
+    assert r.status_code == 200
+    assert r.json()["data"]["updated"] == 1
+
+    detail = client.get(f"/admin/api/apis/{api_id}").json()["data"]
+    # request 整块被替换：headers 是新的 H2，query 因为 cell 空而不存在
+    assert detail["config"]["request"] == {
+        "headers": [{"name": "H2", "required": True, "expectValue": "", "example": "", "description": ""}]
+    }
+    # customFuture 是"未建模"的顶层键，保留
+    assert detail["config"]["customFuture"] == "keep_me"
