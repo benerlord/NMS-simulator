@@ -2,7 +2,8 @@
 import { ref, watch, nextTick, computed } from 'vue'
 import { Button, Collapse, Form, Input, InputNumber, Select, Switch, Spin, Empty, message, Popconfirm } from 'ant-design-vue'
 import ArrayJsonInput from './ArrayJsonInput.vue'
-import { PlusOutlined, DeleteOutlined } from '@ant-design/icons-vue'
+import { PlusOutlined, DeleteOutlined, ImportOutlined } from '@ant-design/icons-vue'
+import JsonFillValuesModal from '@/components/shared/JsonFillValuesModal.vue'
 import { nodeAlarmApi, type NodeAlarmItem } from '@/api/nodeAlarm'
 import { alarmSchemaApi, type AlarmSchemaFieldItem, type AlarmSchemaDetail } from '@/api/alarmSchema'
 import { apiGet } from '@/api/http'
@@ -139,6 +140,34 @@ async function saveDirty(): Promise<boolean> {
   return true
 }
 
+const jsonModalOpen = ref(false)
+const jsonTargetAlarmId = ref<string | null>(null)
+
+const jsonTargetAlarm = computed(() =>
+  alarms.value.find((a) => a.id === jsonTargetAlarmId.value) ?? null,
+)
+
+const jsonCurrentValues = computed<Record<string, string>>(() => {
+  const src = jsonTargetAlarm.value?.attrs ?? {}
+  const r: Record<string, string> = {}
+  for (const k in src) r[k] = src[k] ?? ''
+  return r
+})
+
+function openJsonModal(alarmId: string) {
+  jsonTargetAlarmId.value = alarmId
+  jsonModalOpen.value = true
+}
+
+function handleJsonApply(values: Record<string, string>) {
+  const a = jsonTargetAlarm.value
+  if (!a) return
+  for (const [k, v] of Object.entries(values)) {
+    a.attrs[k] = v
+  }
+  markDirty(a.id)
+}
+
 defineExpose({ saveDirty })
 </script>
 
@@ -162,6 +191,12 @@ defineExpose({ saveDirty })
             <DeleteOutlined class="danger-icon" @click.stop />
           </Popconfirm>
         </template>
+        <div class="alarm-json-toolbar">
+          <Button size="small" @click="openJsonModal(a.id)">
+            <template #icon><ImportOutlined /></template>
+            从 JSON 填充
+          </Button>
+        </div>
         <Form layout="vertical">
           <Form.Item
             v-for="f in schemaFields"
@@ -214,6 +249,12 @@ defineExpose({ saveDirty })
       </Collapse.Panel>
     </Collapse>
   </div>
+  <JsonFillValuesModal
+    v-model:open="jsonModalOpen"
+    :fields="schemaFields"
+    :current-values="jsonCurrentValues"
+    @apply="handleJsonApply"
+  />
 </template>
 
 <style scoped>
@@ -221,4 +262,7 @@ defineExpose({ saveDirty })
 .alarm-empty .hint { color: #999; font-size: 12px; margin-top: 8px; }
 .alarms-toolbar { margin-bottom: 12px; }
 .danger-icon { color: #f5222d; cursor: pointer; }
+.alarm-json-toolbar {
+  margin-bottom: 8px;
+}
 </style>
