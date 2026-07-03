@@ -118,6 +118,8 @@ def sanitize_sheet_name(name: str, used: set[str]) -> str:
         sanitized = sanitized.replace(ch, "_")
     if len(sanitized) > SHEET_NAME_MAX_LEN:
         sanitized = sanitized[:SHEET_NAME_MAX_LEN]
+    if not sanitized.strip():
+        sanitized = "未命名"
 
     if sanitized not in used:
         used.add(sanitized)

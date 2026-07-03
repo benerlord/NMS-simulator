@@ -4,6 +4,7 @@ from app.admin._api_excel import (
     ExcelValidationError,
     format_cell_list,
     parse_cell_list,
+    sanitize_sheet_name,
     HEADER_COLUMNS,
 )
 
@@ -89,9 +90,6 @@ def test_parse_cell_list_value_with_pipe_raises():
     assert "第 5 行" in str(exc.value)
 
 
-from app.admin._api_excel import sanitize_sheet_name
-
-
 def test_sanitize_sheet_name_passthrough_valid():
     used: set[str] = set()
     assert sanitize_sheet_name("网管A", used) == "网管A"
@@ -133,3 +131,13 @@ def test_sanitize_sheet_name_dedupe_after_truncation():
     result = sanitize_sheet_name(long_b, used)
     assert result.endswith("~2")
     assert len(result) <= 31
+
+
+def test_sanitize_sheet_name_empty_or_whitespace_falls_back():
+    used: set[str] = set()
+    assert sanitize_sheet_name("", used) == "未命名"
+    # 第二次调用同样触发 fallback，然后走 dedupe
+    assert sanitize_sheet_name("   ", used) == "未命名~2"
+    # 全非法字符也走 fallback（清洗后只剩 _ 也算"非空白"，仍然是 _；这个测保底空白路径）
+    used2: set[str] = set()
+    assert sanitize_sheet_name(" \t\n", used2) == "未命名"
