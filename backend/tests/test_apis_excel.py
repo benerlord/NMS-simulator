@@ -563,3 +563,171 @@ def test_export_endpoint_filter_by_ids(client):
     ws = wb[UNCATEGORIZED_SHEET_NAME]
     assert ws.cell(row=2, column=2).value == "/api/one"
     assert ws.cell(row=3, column=2).value is None  # 只有一行
+
+
+def _upload_xlsx_bytes(client, xlsx_bytes: bytes):
+    return client.post(
+        "/admin/api/apis/import",
+        files={"file": ("test.xlsx", xlsx_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+
+
+def test_import_endpoint_rejects_non_xlsx(client):
+    r = client.post(
+        "/admin/api/apis/import",
+        files={"file": ("test.json", b'{"apis":[]}', "application/json")},
+    )
+    assert r.status_code == 400
+    assert r.json()["detail"]["code"] == 40410
+
+
+def test_import_endpoint_creates_new_api(client):
+    def build(wb):
+        ws = wb.create_sheet("新网管")
+        for col_idx, h in enumerate(MAIN_HEADERS, start=1):
+            ws.cell(row=1, column=col_idx, value=h)
+        ws.cell(row=2, column=1, value="GET")
+        ws.cell(row=2, column=2, value="/api/imported")
+        ws.cell(row=2, column=3, value="导入接口")
+        ws.cell(row=2, column=7, value="static")
+    data = _build_test_workbook_bytes(build)
+
+    r = _upload_xlsx_bytes(client, data)
+    assert r.status_code == 200, r.text
+    result = r.json()["data"]
+    assert result["created"] == 1
+    assert result["updated"] == 0
+    assert "新网管" in result["autoCreatedDomains"]
+
+    # 校验 DB 里出现了
+    r2 = client.get("/admin/api/apis")
+    apis = r2.json()["data"]["items"]
+    assert any(a["path"] == "/api/imported" for a in apis)
+
+
+def test_import_endpoint_updates_existing_api(client):
+    r = client.post("/admin/api/apis", json={
+        "method": "GET", "path": "/api/exists", "name": "原名字",
+        "dataSource": "static", "config": {},
+    })
+    original_id = r.json()["data"]["id"]
+
+    def build(wb):
+        ws = wb.create_sheet(UNCATEGORIZED_SHEET_NAME)
+        for col_idx, h in enumerate(MAIN_HEADERS, start=1):
+            ws.cell(row=1, column=col_idx, value=h)
+        ws.cell(row=2, column=1, value="GET")
+        ws.cell(row=2, column=2, value="/api/exists")
+        ws.cell(row=2, column=3, value="新名字")
+        ws.cell(row=2, column=7, value="static")
+    data = _build_test_workbook_bytes(build)
+
+    r = _upload_xlsx_bytes(client, data)
+    assert r.status_code == 200
+    assert r.json()["data"]["updated"] == 1
+    assert r.json()["data"]["created"] == 0
+
+    r2 = client.get(f"/admin/api/apis/{original_id}")
+    assert r2.json()["data"]["name"] == "新名字"
+
+
+def test_import_endpoint_preserves_unknown_config_keys(client):
+    # 预先造一个带未来字段的接口
+    r = client.post("/admin/api/apis", json={
+        "method": "POST", "path": "/api/keep-me", "name": "keep",
+        "dataSource": "static",
+        "config": {"customFuture": "x", "auth": {"type": "none"}},
+    })
+
+    # 用 Excel 更新它（只碰鉴权）
+    def build(wb):
+        ws = wb.create_sheet(UNCATEGORIZED_SHEET_NAME)
+        for col_idx, h in enumerate(MAIN_HEADERS, start=1):
+            ws.cell(row=1, column=col_idx, value=h)
+        ws.cell(row=2, column=1, value="POST")
+        ws.cell(row=2, column=2, value="/api/keep-me")
+        ws.cell(row=2, column=3, value="keep")
+        ws.cell(row=2, column=7, value="static")
+        # 鉴权类型 = 第 9 列
+        ws.cell(row=2, column=9, value="xtoken")
+        # 鉴权头名 = 第 10 列
+        ws.cell(row=2, column=10, value="X-New-Token")
+    data = _build_test_workbook_bytes(build)
+
+    r = _upload_xlsx_bytes(client, data)
+    assert r.status_code == 200
+
+    r2 = client.get(f"/admin/api/apis?path=/api/keep-me")
+    items = r2.json()["data"]["items"]
+    assert len(items) == 1
+    detail = client.get(f"/admin/api/apis/{items[0]['id']}").json()["data"]
+    assert detail["config"]["customFuture"] == "x"
+    assert detail["config"]["auth"] == {"type": "xtoken", "headerName": "X-New-Token"}
+
+
+def test_import_endpoint_cross_sheet_move_changes_domain(client):
+    # 先造两个域
+    dom1 = client.post("/admin/api/domains", json={"name": "网管1"}).json()["data"]["id"]
+    dom2 = client.post("/admin/api/domains", json={"name": "网管2"}).json()["data"]["id"]
+
+    # 造一个绑到网管1 的接口
+    client.post("/admin/api/apis", json={
+        "method": "GET", "path": "/api/mover", "name": "mover",
+        "domainId": dom1, "dataSource": "static", "config": {},
+    })
+
+    # 用 Excel 把它挪到网管2
+    def build(wb):
+        ws = wb.create_sheet("网管2")
+        for col_idx, h in enumerate(MAIN_HEADERS, start=1):
+            ws.cell(row=1, column=col_idx, value=h)
+        ws.cell(row=2, column=1, value="GET")
+        ws.cell(row=2, column=2, value="/api/mover")
+        ws.cell(row=2, column=3, value="mover")
+        ws.cell(row=2, column=7, value="static")
+    data = _build_test_workbook_bytes(build)
+
+    r = _upload_xlsx_bytes(client, data)
+    assert r.status_code == 200
+    assert r.json()["data"]["updated"] == 1
+
+    # 接口应该在 dom2 里，不在 dom1 里
+    r_dom1 = client.get(f"/admin/api/apis?domainId={dom1}").json()["data"]["items"]
+    r_dom2 = client.get(f"/admin/api/apis?domainId={dom2}").json()["data"]["items"]
+    assert not any(a["path"] == "/api/mover" for a in r_dom1)
+    assert any(a["path"] == "/api/mover" for a in r_dom2)
+
+
+def test_import_endpoint_reports_row_errors_but_continues(client):
+    def build(wb):
+        ws = wb.create_sheet(UNCATEGORIZED_SHEET_NAME)
+        for col_idx, h in enumerate(MAIN_HEADERS, start=1):
+            ws.cell(row=1, column=col_idx, value=h)
+        # 坏行：非法 method
+        ws.cell(row=2, column=1, value="FOO")
+        ws.cell(row=2, column=2, value="/api/bad")
+        ws.cell(row=2, column=3, value="bad")
+        ws.cell(row=2, column=7, value="static")
+        # 好行
+        ws.cell(row=3, column=1, value="GET")
+        ws.cell(row=3, column=2, value="/api/good")
+        ws.cell(row=3, column=3, value="good")
+        ws.cell(row=3, column=7, value="static")
+    data = _build_test_workbook_bytes(build)
+
+    r = _upload_xlsx_bytes(client, data)
+    assert r.status_code == 200
+    result = r.json()["data"]
+    assert result["created"] == 1
+    assert len(result["errors"]) == 1
+    assert "FOO" in result["errors"][0]
+
+
+def test_import_endpoint_fatal_error_on_empty_workbook(client):
+    def build(wb):
+        wb.create_sheet(INSTRUCTION_SHEET_NAME)
+    data = _build_test_workbook_bytes(build)
+
+    r = _upload_xlsx_bytes(client, data)
+    assert r.status_code == 400
+    assert "未找到" in r.json()["detail"]["message"]

@@ -816,98 +816,84 @@ def export_apis(data: dict):
 
 @router.post("/apis/import")
 async def import_apis(file: UploadFile = File(...)) -> dict:
-    """导入 JSON 文件，以 (method, path) 匹配新建或覆盖"""
-    if not file.filename or not file.filename.endswith('.json'):
+    """从 Excel (.xlsx) 导入接口，以 (method, path) 全局匹配 upsert。"""
+    if not file.filename or not file.filename.lower().endswith('.xlsx'):
         raise HTTPException(
             status_code=400,
-            detail={"code": 40410, "message": "仅支持 .json 文件"},
+            detail={"code": 40410, "message": "仅支持 .xlsx 文件"},
         )
+
+    from app.admin._api_excel import parse_workbook, ExcelValidationError
 
     contents = await file.read()
     try:
-        doc = json.loads(contents)
-    except json.JSONDecodeError:
-        raise HTTPException(
-            status_code=400,
-            detail={"code": 40411, "message": "JSON 解析失败"},
-        )
+        with connect() as conn:
+            existing_domains = [dict(r) for r in conn.execute(
+                "SELECT id, name, created_at FROM domains"
+            ).fetchall()]
+            existing_topologies = [dict(r) for r in conn.execute(
+                "SELECT id, name, created_at FROM topologies"
+            ).fetchall()]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail={"code": 50001, "message": f"读取参考数据失败: {e}"})
 
-    apis = doc.get("apis", [])
-    if not isinstance(apis, list):
-        raise HTTPException(
-            status_code=400,
-            detail={"code": 40412, "message": "格式无效：缺少 apis 数组"},
-        )
+    try:
+        import io as _io
+        result = parse_workbook(_io.BytesIO(contents), existing_domains, existing_topologies)
+    except ExcelValidationError as e:
+        raise HTTPException(status_code=400, detail={"code": 40411, "message": str(e)})
 
     created = 0
     updated = 0
-    errors: list[str] = []
-    auto_created_domains: list[str] = []
-    # 收集新插入接口的 (id, method, path)，事务提交后注册到 mock 路由表
     new_routes: list[tuple[str, str, str]] = []
+    auto_created_domain_ids: dict[str, str] = {}  # name -> id
 
     with transaction() as conn:
-        # 预扫描所有待导入接口的 category，自动创建不存在的 domain
-        categories_to_check: set[str] = set()
-        for api_data in apis:
-            cat = api_data.get("category")
-            if cat and isinstance(cat, str) and cat.strip():
-                categories_to_check.add(cat.strip())
-
-        for cat_name in categories_to_check:
-            existing_dom = conn.execute(
-                "SELECT id FROM domains WHERE name = ?", (cat_name,)
-            ).fetchone()
-            if not existing_dom:
-                dom_id = f"dom_{uuid.uuid4().hex[:12]}"
+        # 先按需自动建域（幂等）
+        for dom_name in result.auto_created_domains:
+            existing = conn.execute("SELECT id FROM domains WHERE name = ?", (dom_name,)).fetchone()
+            if existing:
+                auto_created_domain_ids[dom_name] = existing["id"]
+            else:
+                new_id = f"dom_{uuid.uuid4().hex[:12]}"
                 conn.execute(
                     "INSERT INTO domains (id, name, description) VALUES (?, ?, ?)",
-                    (dom_id, cat_name, f"导入时自动创建"),
+                    (new_id, dom_name, "导入时自动创建"),
                 )
-                auto_created_domains.append(cat_name)
+                auto_created_domain_ids[dom_name] = new_id
 
-        for api_data in apis:
-            method = api_data.get("method")
-            path = api_data.get("path")
-            if not method or not path:
-                errors.append("缺少 method/path，跳过")
-                continue
+        for row in result.rows:
+            domain_id = row.get("domain_id")
+            if not domain_id and row.get("_new_domain_name"):
+                domain_id = auto_created_domain_ids.get(row["_new_domain_name"])
 
-            # 兼容 snake_case（后端导出）和 camelCase（前端导出）两种格式
-            domain_id = api_data.get("domain_id") or api_data.get("domainId")
-            name = api_data.get("name", "")
-            data_source = api_data.get("data_source") or api_data.get("dataSource") or "static"
-            topology_id = api_data.get("topology_id") or api_data.get("topologyId")
-            sql_text = api_data.get("sql_text") or api_data.get("sqlText")
-            config = api_data.get("config", {})
-            # 强制规范为 0/1，避免 "true"/"false" 等字符串落库后被错判
-            enabled = 1 if bool(api_data.get("enabled", 1)) else 0
-            group_name = api_data.get("group_name") or api_data.get("groupName")
-            category = api_data.get("category")
-
-            # 如果有 category 但没有 domain_id，通过 category 名匹配 domain
-            if category and not domain_id:
-                matched = conn.execute(
-                    "SELECT id FROM domains WHERE name = ?", (category,)
-                ).fetchone()
-                if matched:
-                    domain_id = matched["id"]
-
-            # 以 domain_id + method + path 匹配
+            method = row["method"]
+            path = row["path"]
             existing = conn.execute(
-                "SELECT id FROM api_configs WHERE domain_id IS ? AND method = ? AND path = ?",
-                (domain_id, method, path),
+                "SELECT id, config FROM api_configs WHERE method = ? AND path = ?",
+                (method, path),
             ).fetchone()
 
+            new_config = row["config"]
             if existing:
+                # 保留未被表格覆盖的 config 键
+                try:
+                    old_config = json.loads(existing["config"]) if existing["config"] else {}
+                except json.JSONDecodeError:
+                    old_config = {}
+                merged_config = {**old_config, **new_config}
                 conn.execute(
                     """UPDATE api_configs SET name=?, data_source=?, topology_id=?,
                        sql_text=?, config=?, enabled=?, group_name=?, domain_id=?,
                        category=?, updated_at=datetime('now')
                        WHERE id=?""",
-                    (name, data_source, topology_id, sql_text,
-                     json.dumps(config, ensure_ascii=False), enabled, group_name,
-                     domain_id, category, existing["id"]),
+                    (
+                        row["name"], row["data_source"], row["topology_id"],
+                        row["sql_text"], json.dumps(merged_config, ensure_ascii=False),
+                        1 if row["enabled"] else 0,
+                        row["group_name"], domain_id, row["category"],
+                        existing["id"],
+                    ),
                 )
                 updated += 1
             else:
@@ -917,9 +903,13 @@ async def import_apis(file: UploadFile = File(...)) -> dict:
                        (id, name, method, path, enabled, group_name, domain_id,
                         category, data_source, topology_id, sql_text, config)
                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    (api_id, name, method, path, enabled, group_name, domain_id,
-                     category, data_source, topology_id, sql_text,
-                     json.dumps(config, ensure_ascii=False)),
+                    (
+                        api_id, row["name"], method, path,
+                        1 if row["enabled"] else 0,
+                        row["group_name"], domain_id, row["category"],
+                        row["data_source"], row["topology_id"], row["sql_text"],
+                        json.dumps(new_config, ensure_ascii=False),
+                    ),
                 )
                 created += 1
                 new_routes.append((api_id, method, path))
@@ -935,8 +925,9 @@ async def import_apis(file: UploadFile = File(...)) -> dict:
         "data": {
             "created": created,
             "updated": updated,
-            "errors": errors,
-            "autoCreatedDomains": auto_created_domains,
+            "errors": result.errors,
+            "warnings": result.warnings,
+            "autoCreatedDomains": result.auto_created_domains,
         },
         "message": "ok",
     }
