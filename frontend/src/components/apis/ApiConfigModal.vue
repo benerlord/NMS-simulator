@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import {
   Modal,
   Form,
@@ -12,7 +12,9 @@ import {
   CollapsePanel,
   Alert,
   Checkbox,
+  Tooltip,
 } from 'ant-design-vue'
+import { QuestionCircleOutlined } from '@ant-design/icons-vue'
 import { apiGet } from '@/api/http'
 import {
   apiConfigApi,
@@ -476,37 +478,6 @@ const templateParseError = computed<string | null>(() => {
   }
 })
 
-const responseTemplateTooltip = () => h('div', { style: 'font-size:12px;line-height:1.6' }, [
-  h('div', { style: 'font-weight:500;margin-bottom:4px' }, '内置占位符'),
-  h('div', null, [
-    h('code', null, '{{items}}'), ' 当前页行数组 / ',
-    h('code', null, '{{total}}'), ' 总数 / ',
-    h('code', null, '{{count}}'), ' 本页行数',
-  ]),
-  h('div', null, [
-    h('code', null, '{{page}}'), ' = ',
-    h('code', null, '{{pageNo}}'), ' / ',
-    h('code', null, '{{pageSize}}'), ' / ',
-    h('code', null, '{{offset}}'),
-  ]),
-  h('div', null, [
-    h('code', null, '{{totalPageNo}}'), ' = ',
-    h('code', null, '{{totalPages}}'), ' / ',
-    h('code', null, '{{hasNext}}'), ' / ',
-    h('code', null, '{{hasPrev}}'),
-  ]),
-  h('div', null, [
-    h('code', null, '{{uuid}}'), ' / ',
-    h('code', null, '{{now}}'), '（ISO-8601 UTC）',
-  ]),
-  h('div', { style: 'margin-top:6px;font-weight:500' }, '表达式（{{ }} 内可写算术）'),
-  h('div', null, '+ - * / %，函数：ceil/floor/round/abs/min/max/int'),
-  h('div', null, [h('code', null, '"total": "{{total + 1}}"')]),
-  h('div', { style: 'margin-top:6px;font-weight:500' }, '注入规则'),
-  h('div', null, [h('code', null, '"data": "{{items}}"'), ' 整串匹配 → 注入原数组（不加引号）']),
-  h('div', null, [h('code', null, '"msg": "共{{total}}条"'), ' 子串 → 文本替换']),
-])
-
 // Task 3: 请求规格 Tab 状态 + 计数徽章
 const requestSpecActiveTab = ref<'header' | 'query' | 'body'>('header')
 
@@ -807,10 +778,31 @@ async function handleSubmit() {
 
         <Form.Item
           v-if="formState.dataSource === 'sql'"
-          label="响应模板"
           name="responseTemplate"
-          :tooltip="{ title: responseTemplateTooltip, overlayStyle: { maxWidth: '420px' } }"
         >
+          <template #label>
+            <span class="label-with-help">
+              响应模板
+              <Tooltip :overlay-style="{ maxWidth: '420px' }">
+                <template #title>
+                  <div class="tooltip-body" v-pre>
+                    <div class="tooltip-heading">内置占位符</div>
+                    <div><code>{{items}}</code> 当前页行数组 / <code>{{total}}</code> 总数 / <code>{{count}}</code> 本页行数</div>
+                    <div><code>{{page}}</code> = <code>{{pageNo}}</code> / <code>{{pageSize}}</code> / <code>{{offset}}</code></div>
+                    <div><code>{{totalPageNo}}</code> = <code>{{totalPages}}</code> / <code>{{hasNext}}</code> / <code>{{hasPrev}}</code></div>
+                    <div><code>{{uuid}}</code> / <code>{{now}}</code>（ISO-8601 UTC）</div>
+                    <div class="tooltip-heading mt">表达式（{{ }} 内可写算术）</div>
+                    <div>+ - * / %，函数：ceil / floor / round / abs / min / max / int</div>
+                    <div><code>"total": "{{total + 1}}"</code></div>
+                    <div class="tooltip-heading mt">注入规则</div>
+                    <div><code>"data": "{{items}}"</code> 整串匹配 → 注入原数组（不加引号）</div>
+                    <div><code>"msg": "共{{total}}条"</code> 子串 → 文本替换</div>
+                  </div>
+                </template>
+                <QuestionCircleOutlined class="label-help-icon" />
+              </Tooltip>
+            </span>
+          </template>
           <Input.TextArea
             v-model:value="formState.responseTemplate"
             :rows="8"
@@ -1041,5 +1033,38 @@ async function handleSubmit() {
 
 .fault-row {
   margin-top: 4px;
+}
+
+.label-with-help {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.label-help-icon {
+  color: rgba(0, 0, 0, 0.45);
+  font-size: 13px;
+  cursor: help;
+}
+</style>
+
+<style>
+/* Tooltip content 通过 Teleport 渲染到 body，scoped 样式无法穿透 */
+.tooltip-body {
+  font-size: 12px;
+  line-height: 1.6;
+}
+.tooltip-body .tooltip-heading {
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+.tooltip-body .tooltip-heading.mt {
+  margin-top: 6px;
+}
+.tooltip-body code {
+  background: rgba(255, 255, 255, 0.16);
+  padding: 0 4px;
+  border-radius: 2px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 11px;
 }
 </style>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Table, Input, AutoComplete, Select, Switch, Button, Space, Tooltip } from 'ant-design-vue'
 import { PlusOutlined, DeleteOutlined, InfoCircleOutlined } from '@ant-design/icons-vue'
-import { computed, h } from 'vue'
+import { computed } from 'vue'
 
 export interface ParamMapping {
   name: string
@@ -20,20 +20,6 @@ const props = defineProps<Props>()
 const emit = defineEmits<{
   (e: 'update:modelValue', v: ParamMapping[]): void
 }>()
-
-const paramMappingTooltip = () => h('div', { style: 'font-size:12px;line-height:1.6' }, [
-  h('div', { style: 'font-weight:500;margin-bottom:4px' }, '用途'),
-  h('div', null, '把请求里 query/path/body 字段的值绑定到 SQL 的 :命名参数'),
-  h('div', { style: 'margin-top:6px;font-weight:500' }, '字段说明'),
-  h('div', null, [h('code', null, '参数名'), ' 请求里的字段名（如 pageNo）']),
-  h('div', null, [h('code', null, '位置'), ' query / path / body（path 用 /api/{id} 的 {id}）']),
-  h('div', null, [h('code', null, '类型'), ' 自动转 int/bool 失败时 → 400 + 40023']),
-  h('div', null, [h('code', null, '必填'), ' 缺失时 → 400 + 40022']),
-  h('div', null, [h('code', null, 'SQL 绑定名'), ' SQL 里 ', h('code', null, ':xxx'), ' 的 xxx（snake_case）']),
-  h('div', { style: 'margin-top:6px;font-weight:500' }, '示例'),
-  h('div', null, 'SQL: WHERE topology_id = :topology_id'),
-  h('div', null, '映射: 参数名=topologyId, 位置=query, SQL 绑定名=topology_id'),
-])
 
 const inOptions = [
   { label: 'query', value: 'query' },
@@ -93,7 +79,22 @@ const columns = [
     <div class="header">
       <span class="title">
         参数映射
-        <Tooltip :title="paramMappingTooltip" :overlay-style="{ maxWidth: '420px' }">
+        <Tooltip :overlay-style="{ maxWidth: '420px' }">
+          <template #title>
+            <div class="tooltip-body">
+              <div class="tooltip-heading">用途</div>
+              <div>把请求里 query/path/body 字段的值绑定到 SQL 的 <code>:命名参数</code></div>
+              <div class="tooltip-heading mt">字段说明</div>
+              <div><code>参数名</code>：请求里的字段名（如 <code>pageNo</code>）</div>
+              <div><code>位置</code>：query / path / body（path 用 <code>/api/{id}</code> 里的 <code>{id}</code>）</div>
+              <div><code>类型</code>：自动转 int/bool 失败时 → 400 + 40023</div>
+              <div><code>必填</code>：缺失时 → 400 + 40022</div>
+              <div><code>SQL 绑定名</code>：SQL 里 <code>:xxx</code> 的 <code>xxx</code>（snake_case）</div>
+              <div class="tooltip-heading mt">示例</div>
+              <div>SQL：<code>WHERE topology_id = :topology_id</code></div>
+              <div>映射：参数名=<code>topologyId</code>，位置=query，SQL 绑定名=<code>topology_id</code></div>
+            </div>
+          </template>
           <InfoCircleOutlined class="info-icon" />
         </Tooltip>
       </span>
@@ -204,5 +205,27 @@ const columns = [
   color: #8c8c8c;
   font-size: 13px;
   cursor: help;
+}
+</style>
+
+<style>
+/* Tooltip content 通过 Teleport 渲染到 body，scoped 样式无法穿透 */
+.tooltip-body {
+  font-size: 12px;
+  line-height: 1.6;
+}
+.tooltip-body .tooltip-heading {
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+.tooltip-body .tooltip-heading.mt {
+  margin-top: 6px;
+}
+.tooltip-body code {
+  background: rgba(255, 255, 255, 0.16);
+  padding: 0 4px;
+  border-radius: 2px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 11px;
 }
 </style>
