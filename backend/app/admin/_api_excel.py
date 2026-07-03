@@ -1,5 +1,10 @@
 """接口 Excel 导入/导出的内部工具（编解码 + 校验，不直接触碰 DB）。"""
-from typing import Any
+import json as _json
+from typing import Any, Optional
+
+from openpyxl import Workbook
+from openpyxl.comments import Comment
+from openpyxl.styles import Alignment, Font, PatternFill
 
 
 HEADER_COLUMNS = ["name", "required", "expectValue", "example", "description"]
@@ -134,3 +139,184 @@ def sanitize_sheet_name(name: str, used: set[str]) -> str:
             used.add(candidate)
             return candidate
         suffix += 1
+
+
+# 表头样式
+_HEADER_FONT = Font(bold=True)
+_HEADER_FILL = PatternFill(start_color="F0F0F0", end_color="F0F0F0", fill_type="solid")
+_WRAP_ALIGNMENT = Alignment(wrap_text=True, vertical="top")
+
+# 每列的期望宽度（字符数）
+_COLUMN_WIDTHS = {
+    "方法": 10, "路径": 40, "接口名": 18, "启用": 8, "分类": 12, "分组": 12,
+    "数据源": 10, "拓扑": 15, "鉴权类型": 12, "鉴权头名": 15,
+    "请求头": 40, "Query 参数": 40, "请求体": 30,
+    "SQL 语句": 80, "响应模板": 80, "参数映射": 40,
+    "静态响应体": 60,
+    "故障-延迟毫秒": 14, "故障-错误率": 12, "故障-错误状态码": 16,
+}
+
+# 每列表头的 comment 说明（导入方在此对齐语义）
+_HEADER_COMMENTS = {
+    "方法": "GET/POST/PUT/PATCH/DELETE，空 → 跳过该行",
+    "路径": "必填。全局唯一（method+path），跨 Sheet 移动 = 换域",
+    "启用": "是/否；空视为「是」",
+    "拓扑": "拓扑名（不是 ID）；找不到时留空 + warning",
+    "请求头": "每行「名称|必填|期望值|样例|说明」；用换行分隔多条；\n值中禁止出现 |",
+    "Query 参数": "每行「名称|类型|必填|样例|说明」；类型 string/int/bool",
+    "请求体": "「Content-Type|必填|样例|说明」；不多值",
+    "参数映射": "每行「参数名|位置|类型|必填|SQL绑定名」；位置 query/path/body",
+    "故障-延迟毫秒": "空 = 不注入延迟",
+    "故障-错误率": "0~1 之间，空 = 不注入错误",
+    "故障-错误状态码": "空 = 默认 500",
+}
+
+
+def _decode_config(config_json: str) -> dict:
+    if not config_json:
+        return {}
+    try:
+        return _json.loads(config_json)
+    except _json.JSONDecodeError:
+        return {}
+
+
+def _api_row_to_excel_values(api: dict, topology_name_by_id: dict) -> list:
+    """把一行 api_configs 记录转成 Excel 一行的 20 个单元格值（按 MAIN_HEADERS 顺序）。"""
+    config = _decode_config(api.get("config") or "")
+    request = config.get("request") or {}
+    auth = config.get("auth") or {}
+    fault = config.get("fault") or {}
+
+    headers = request.get("headers") or []
+    query = request.get("query") or []
+    body = request.get("body") or None
+    param_mappings = config.get("params") or []
+
+    topology_name = topology_name_by_id.get(api.get("topology_id") or "", "") if api.get("topology_id") else ""
+
+    body_cell = ""
+    if isinstance(body, dict):
+        body_cell = format_cell_list([body], BODY_COLUMNS)
+
+    return [
+        api.get("method") or "",
+        api.get("path") or "",
+        api.get("name") or "",
+        "是" if api.get("enabled") else "否",
+        api.get("category") or "",
+        api.get("group_name") or "",
+        api.get("data_source") or "",
+        topology_name,
+        auth.get("type") or "none",
+        auth.get("headerName") or "",
+        format_cell_list(headers, HEADER_COLUMNS),
+        format_cell_list(query, QUERY_COLUMNS),
+        body_cell,
+        api.get("sql_text") or "",
+        config.get("responseTemplate") or "",
+        format_cell_list(param_mappings, PARAM_MAPPING_COLUMNS),
+        config.get("staticBody") or "",
+        fault.get("delayMs"),
+        fault.get("errorRate"),
+        fault.get("errorStatus"),
+    ]
+
+
+def _write_instruction_sheet(wb: Workbook) -> None:
+    ws = wb.active
+    ws.title = INSTRUCTION_SHEET_NAME
+    lines = [
+        "接口 Excel 导入/导出使用说明",
+        "",
+        "1. 每个网管/设备一个 Sheet；一行一个接口。",
+        "2. 变长字段（请求头 / Query 参数 / 参数映射）用「换行 + 竖线 |」表达：",
+        "   例：请求头单元格 = 'Authorization|是|Bearer x||\\nX-Trace-Id|否|||'",
+        "3. 值中禁止出现 |，否则该行导入时报错。",
+        "4. 必填字段用「是 / 否」，也接受 true / false。",
+        "5. 拓扑列填拓扑名（不是 ID），未找到时导入后为空并给出 warning。",
+        "6. 匹配规则：按 (方法, 路径) 全局匹配；命中 → 更新（含换域），未命中 → 新建。",
+        "7. 删除接口请到 UI 操作，从 Excel 里删除行不会删接口。",
+        "8. Sheet 名 _ 开头（如本 Sheet）导入时被忽略。",
+        "9. 域名含非法字符或超 31 字符时 Sheet 名会被自动清洗，A1 单元格的 comment 里记录原始域名。",
+    ]
+    for i, line in enumerate(lines, start=1):
+        ws.cell(row=i, column=1, value=line)
+    ws.column_dimensions["A"].width = 100
+
+
+def _write_data_sheet(ws, api_rows: list, topology_name_by_id: dict, original_domain_name: str) -> None:
+    """写入表头 + 数据行，并在 A1 comment 里记录原始域名。"""
+    # 表头
+    for col_idx, header in enumerate(MAIN_HEADERS, start=1):
+        cell = ws.cell(row=1, column=col_idx, value=header)
+        cell.font = _HEADER_FONT
+        cell.fill = _HEADER_FILL
+        if header in _HEADER_COMMENTS:
+            cell.comment = Comment(_HEADER_COMMENTS[header], "system")
+        # 列宽
+        col_letter = ws.cell(row=1, column=col_idx).column_letter
+        ws.column_dimensions[col_letter].width = _COLUMN_WIDTHS.get(header, 15)
+
+    # A1 记录原始域名（用于导入回填，防止 Sheet 名清洗后找不到域）
+    if original_domain_name:
+        existing_comment_text = ws["A1"].comment.text if ws["A1"].comment else ""
+        marker = f"__ORIGINAL_DOMAIN__={original_domain_name}"
+        combined = f"{existing_comment_text}\n{marker}" if existing_comment_text else marker
+        ws["A1"].comment = Comment(combined, "system")
+
+    # 数据行
+    for row_idx, api in enumerate(api_rows, start=2):
+        values = _api_row_to_excel_values(api, topology_name_by_id)
+        for col_idx, val in enumerate(values, start=1):
+            cell = ws.cell(row=row_idx, column=col_idx, value=val)
+            cell.alignment = _WRAP_ALIGNMENT
+
+    # 冻结表头行
+    ws.freeze_panes = "A2"
+
+
+def build_workbook(
+    api_rows: list,
+    domains: list,
+    topologies: list,
+) -> Workbook:
+    """构建 xlsx。
+
+    api_rows: [{id, name, method, path, enabled, group_name, domain_id, category,
+                data_source, topology_id, sql_text, config}]
+    domains:  [{id, name}]
+    topologies: [{id, name}]
+    """
+    wb = Workbook()
+    _write_instruction_sheet(wb)
+
+    topology_name_by_id = {t["id"]: t["name"] for t in topologies}
+    domain_by_id = {d["id"]: d for d in domains}
+
+    # 按 domain_id 分组
+    apis_by_domain: dict = {}
+    for api in api_rows:
+        dom_id = api.get("domain_id")
+        apis_by_domain.setdefault(dom_id, []).append(api)
+
+    used_sheet_names: set = {INSTRUCTION_SHEET_NAME}
+
+    # 每个域一个 Sheet
+    for dom_id, apis in apis_by_domain.items():
+        if dom_id is None:
+            sheet_name = UNCATEGORIZED_SHEET_NAME
+            original_name = ""
+            used_sheet_names.add(sheet_name)
+        else:
+            dom = domain_by_id.get(dom_id)
+            if dom is None:
+                sheet_name = sanitize_sheet_name(f"未知域_{dom_id[:8]}", used_sheet_names)
+                original_name = ""
+            else:
+                original_name = dom["name"]
+                sheet_name = sanitize_sheet_name(original_name, used_sheet_names)
+        ws = wb.create_sheet(title=sheet_name)
+        _write_data_sheet(ws, apis, topology_name_by_id, original_name)
+
+    return wb

@@ -141,3 +141,120 @@ def test_sanitize_sheet_name_empty_or_whitespace_falls_back():
     # 全非法字符也走 fallback（清洗后只剩 _ 也算"非空白"，仍然是 _；这个测保底空白路径）
     used2: set[str] = set()
     assert sanitize_sheet_name(" \t\n", used2) == "未命名"
+
+
+import io
+from openpyxl import load_workbook
+
+from app.admin._api_excel import (
+    build_workbook,
+    INSTRUCTION_SHEET_NAME,
+    UNCATEGORIZED_SHEET_NAME,
+    MAIN_HEADERS,
+)
+
+
+def _make_api_row(**overrides):
+    """构造一行 api_configs 数据（用 dict 模拟 sqlite3.Row）。"""
+    base = {
+        "id": "api_test1",
+        "name": "测试接口",
+        "method": "GET",
+        "path": "/api/test",
+        "enabled": 1,
+        "group_name": None,
+        "domain_id": None,
+        "category": None,
+        "data_source": "static",
+        "topology_id": None,
+        "sql_text": None,
+        "config": "{}",
+    }
+    base.update(overrides)
+    return base
+
+
+def _load_bytes(wb):
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return load_workbook(buf)
+
+
+def test_build_workbook_empty_produces_instruction_sheet_only():
+    wb = build_workbook(api_rows=[], domains=[], topologies=[])
+    reloaded = _load_bytes(wb)
+    assert INSTRUCTION_SHEET_NAME in reloaded.sheetnames
+    # 首个 Sheet 必须是使用说明
+    assert reloaded.sheetnames[0] == INSTRUCTION_SHEET_NAME
+
+
+def test_build_workbook_uncategorized_apis_go_to_special_sheet():
+    apis = [_make_api_row(domain_id=None)]
+    wb = build_workbook(api_rows=apis, domains=[], topologies=[])
+    reloaded = _load_bytes(wb)
+    assert UNCATEGORIZED_SHEET_NAME in reloaded.sheetnames
+    ws = reloaded[UNCATEGORIZED_SHEET_NAME]
+    # 第 1 行是表头
+    assert [c.value for c in ws[1]] == MAIN_HEADERS
+    # 第 2 行是数据
+    assert ws.cell(row=2, column=1).value == "GET"
+    assert ws.cell(row=2, column=2).value == "/api/test"
+
+
+def test_build_workbook_per_domain_sheet_with_original_name_in_comment():
+    apis = [_make_api_row(domain_id="dom_1")]
+    domains = [{"id": "dom_1", "name": "网管/A"}]
+    wb = build_workbook(api_rows=apis, domains=domains, topologies=[])
+    reloaded = _load_bytes(wb)
+    # 域名 "网管/A" 被清洗成 "网管_A"
+    assert "网管_A" in reloaded.sheetnames
+    ws = reloaded["网管_A"]
+    # A1 comment 里存原始域名
+    assert ws["A1"].comment is not None
+    assert "网管/A" in ws["A1"].comment.text
+
+
+def test_build_workbook_uses_topology_name_not_id():
+    apis = [_make_api_row(topology_id="topo_x", data_source="sql", sql_text="SELECT 1")]
+    topos = [{"id": "topo_x", "name": "MyTopo"}]
+    wb = build_workbook(api_rows=apis, domains=[], topologies=topos)
+    reloaded = _load_bytes(wb)
+    ws = reloaded[UNCATEGORIZED_SHEET_NAME]
+    # 第 8 列 = "拓扑"
+    topo_col = MAIN_HEADERS.index("拓扑") + 1
+    assert ws.cell(row=2, column=topo_col).value == "MyTopo"
+
+
+def test_build_workbook_serializes_headers_query_params():
+    config = {
+        "request": {
+            "headers": [{"name": "Auth", "required": True, "expectValue": "Bearer"}],
+            "query": [{"name": "pageNo", "type": "int", "required": True}],
+        },
+        "params": [{"name": "id", "in": "query", "type": "string", "required": True, "bindTo": "id_"}],
+    }
+    apis = [_make_api_row(config=__import__("json").dumps(config))]
+    wb = build_workbook(api_rows=apis, domains=[], topologies=[])
+    reloaded = _load_bytes(wb)
+    ws = reloaded[UNCATEGORIZED_SHEET_NAME]
+    headers_col = MAIN_HEADERS.index("请求头") + 1
+    query_col = MAIN_HEADERS.index("Query 参数") + 1
+    param_col = MAIN_HEADERS.index("参数映射") + 1
+    assert ws.cell(row=2, column=headers_col).value == "Auth|是|Bearer||"
+    assert ws.cell(row=2, column=query_col).value == "pageNo|int|是||"
+    assert ws.cell(row=2, column=param_col).value == "id|query|string|是|id_"
+
+
+def test_build_workbook_fault_columns():
+    config = {"fault": {"delayMs": 100, "errorRate": 0.5, "errorStatus": 503}}
+    apis = [_make_api_row(config=__import__("json").dumps(config))]
+    wb = build_workbook(api_rows=apis, domains=[], topologies=[])
+    reloaded = _load_bytes(wb)
+    ws = reloaded[UNCATEGORIZED_SHEET_NAME]
+    delay_col = MAIN_HEADERS.index("故障-延迟毫秒") + 1
+    rate_col = MAIN_HEADERS.index("故障-错误率") + 1
+    status_col = MAIN_HEADERS.index("故障-错误状态码") + 1
+    assert ws.cell(row=2, column=delay_col).value == 100
+    assert ws.cell(row=2, column=rate_col).value == 0.5
+    assert ws.cell(row=2, column=status_col).value == 503
