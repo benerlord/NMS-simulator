@@ -52,7 +52,7 @@ function coerceValue(
     if (typeof jsonValue === 'string') {
       const n = Number(jsonValue)
       if (Number.isNaN(n)) return { ok: false, reason: '值无法解析为数字' }
-      return { ok: true, value: jsonValue }
+      return { ok: true, value: String(n) }
     }
     return { ok: false, reason: 'number 字段值必须是数字或数字字符串' }
   }
