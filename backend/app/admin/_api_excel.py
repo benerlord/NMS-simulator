@@ -86,11 +86,7 @@ def parse_cell_list(cell_text: str, columns: list[str], row_hint: str) -> list[d
         line = line.strip()
         if not line:
             continue
-        if FIELD_SEP not in line and len(columns) > 1:
-            # 只有一个“字段”但列不止一个：也允许，只填第一列
-            fields = [line]
-        else:
-            fields = line.split(FIELD_SEP)
+        fields = line.split(FIELD_SEP)
         if len(fields) > len(columns):
             raise ExcelValidationError(
                 f"{row_hint}：字段数 {len(fields)} 超过预期 {len(columns)}（列顺序：{columns}）"
