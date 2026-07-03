@@ -271,6 +271,15 @@ InterfaceTest/
   - Modal 加 `Radio.Group` 协议字段（HTTP/HTTPS，选 HTTPS 显示"客户端需跳过证书校验"提示）
   - 列表加协议 Tag 列 + 可复制访问地址列（`Typography.Text copyable code`，禁用态灰色 + tooltip）
   - 设计方案：`docs/superpowers/specs/2026-07-02-mock-instance-https-design.md`；实施计划：`docs/superpowers/plans/2026-07-02-mock-instance-https.md`
+- ✅ JSON 一键填字段值 / 生成字段定义（commit db814e3..d6a1e13，共 7 个 commit，6 处入口）：
+  - 新增 `utils/jsonFieldMatch.ts` 纯函数库（`keyMatch` 三级宽松匹配「精确 / 忽略大小写 / snake↔camel↔kebab normalize」+ `buildFillPreview` / `buildGeneratePreview`）
+  - 新增 `components/shared/JsonFillValuesModal.vue`（Mode A · 填值预览四分组：将填充 / 将覆盖已有值 / 类型不兼容跳过 / 未匹配 JSON key）
+  - 新增 `components/shared/JsonGenerateFieldsModal.vue`（Mode B · 建字段预览三分组：将新建字段 / 已存在跳过 / 无法推断类型跳过）
+  - Mode A 3 处入口：`NodeAttrsPanel`（编辑节点） / `NodeAttrsModal`（新建节点） / `NodeAlarmsTab`（每条告警 Collapse 内锁 alarmId）
+  - Mode B 3 处入口：`NodeTypeFieldEditor` / `EdgeTypeFieldEditor` / `AlarmSchemaFieldEditor`（toolbar-top +按钮 + append 到 localFields）
+  - 类型推断：string→text（`maxLength = max(50, ceil((len+20)/10)*10)`），number/boolean/array 各自成型；null 与 object 跳过；不推 select（单值无法给候选枚举）
+  - 值转换：15 组「字段类型 × JSON 值类型」枚举兼容，如 text 接受 null 视为清空、number string 输入规范化为 `String(Number(v))` 去空格
+  - 设计方案：`docs/superpowers/specs/2026-07-03-json-to-node-fields-design.md`；实施计划：`docs/superpowers/plans/2026-07-03-json-to-node-fields.md`
 
 ### 待开发
 - 编辑组定义打开 GroupCreateModal（目前右键"编辑组定义"已 emit 事件但 CanvasView 尚未接入 editGroupId）
