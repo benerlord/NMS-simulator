@@ -1,6 +1,6 @@
 """接口 Excel 导入/导出的内部工具（编解码 + 校验，不直接触碰 DB）。"""
 import json as _json
-from typing import Any, Optional
+from typing import Any
 
 from openpyxl import Workbook
 from openpyxl.comments import Comment
@@ -193,7 +193,8 @@ def _api_row_to_excel_values(api: dict, topology_name_by_id: dict) -> list:
     body = request.get("body") or None
     param_mappings = config.get("params") or []
 
-    topology_name = topology_name_by_id.get(api.get("topology_id") or "", "") if api.get("topology_id") else ""
+    tid = api.get("topology_id")
+    topology_name = topology_name_by_id.get(tid, "") if tid else ""
 
     body_cell = ""
     if isinstance(body, dict):

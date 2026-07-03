@@ -1,11 +1,19 @@
+import io
+import json
+
 import pytest
+from openpyxl import load_workbook
 
 from app.admin._api_excel import (
     ExcelValidationError,
+    build_workbook,
     format_cell_list,
     parse_cell_list,
     sanitize_sheet_name,
     HEADER_COLUMNS,
+    INSTRUCTION_SHEET_NAME,
+    MAIN_HEADERS,
+    UNCATEGORIZED_SHEET_NAME,
 )
 
 
@@ -143,17 +151,6 @@ def test_sanitize_sheet_name_empty_or_whitespace_falls_back():
     assert sanitize_sheet_name(" \t\n", used2) == "未命名"
 
 
-import io
-from openpyxl import load_workbook
-
-from app.admin._api_excel import (
-    build_workbook,
-    INSTRUCTION_SHEET_NAME,
-    UNCATEGORIZED_SHEET_NAME,
-    MAIN_HEADERS,
-)
-
-
 def _make_api_row(**overrides):
     """构造一行 api_configs 数据（用 dict 模拟 sqlite3.Row）。"""
     base = {
@@ -234,7 +231,7 @@ def test_build_workbook_serializes_headers_query_params():
         },
         "params": [{"name": "id", "in": "query", "type": "string", "required": True, "bindTo": "id_"}],
     }
-    apis = [_make_api_row(config=__import__("json").dumps(config))]
+    apis = [_make_api_row(config=json.dumps(config))]
     wb = build_workbook(api_rows=apis, domains=[], topologies=[])
     reloaded = _load_bytes(wb)
     ws = reloaded[UNCATEGORIZED_SHEET_NAME]
@@ -248,7 +245,7 @@ def test_build_workbook_serializes_headers_query_params():
 
 def test_build_workbook_fault_columns():
     config = {"fault": {"delayMs": 100, "errorRate": 0.5, "errorStatus": 503}}
-    apis = [_make_api_row(config=__import__("json").dumps(config))]
+    apis = [_make_api_row(config=json.dumps(config))]
     wb = build_workbook(api_rows=apis, domains=[], topologies=[])
     reloaded = _load_bytes(wb)
     ws = reloaded[UNCATEGORIZED_SHEET_NAME]
