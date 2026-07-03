@@ -4,10 +4,12 @@ import {
   Table, Input, InputNumber, Select, Switch, Button, Tooltip, Affix, message,
 } from 'ant-design-vue'
 import {
-  PlusOutlined, DeleteOutlined, ArrowUpOutlined, ArrowDownOutlined,
+  PlusOutlined, DeleteOutlined, ArrowUpOutlined, ArrowDownOutlined, ImportOutlined,
 } from '@ant-design/icons-vue'
 import type { AlarmSchemaFieldInput } from '@/api/alarmSchema'
 import { nodeFieldsApi, type AvailableNodeFields } from '@/api/nodeFields'
+import JsonGenerateFieldsModal from '@/components/shared/JsonGenerateFieldsModal.vue'
+import type { FieldLike } from '@/utils/jsonFieldMatch'
 
 const props = defineProps<{
   fields: AlarmSchemaFieldInput[]
@@ -96,6 +98,12 @@ const columns = [
   { title: 'Sort', dataIndex: 'sortOrder', key: 'sortOrder', width: 60 },
   { title: '操作', key: 'actions', width: 90, fixed: 'right' as const },
 ]
+
+const jsonModalOpen = ref(false)
+
+function handleJsonGenerate(newFields: FieldLike[]) {
+  emit('update:fields', [...localFields.value, ...newFields])
+}
 </script>
 
 <template>
@@ -104,6 +112,9 @@ const columns = [
       <div class="toolbar toolbar-top">
         <Button type="primary" size="small" @click="addField">
           <PlusOutlined /> 新增字段
+        </Button>
+        <Button size="small" @click="jsonModalOpen = true">
+          <ImportOutlined /> 从 JSON 生成字段
         </Button>
         <span class="hint">{{ localFields.length }} 个字段</span>
       </div>
@@ -232,6 +243,13 @@ const columns = [
         <PlusOutlined /> 新增字段
       </Button>
     </div>
+
+    <JsonGenerateFieldsModal
+      v-model:open="jsonModalOpen"
+      :existing-fields="localFields"
+      :sort-order-start="localFields.length"
+      @apply="handleJsonGenerate"
+    />
   </div>
 </template>
 
