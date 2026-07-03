@@ -21,10 +21,24 @@ def create_app(topology_id: str, instance_id: str = None):
     )
 
     with connect() as conn:
-        rows = conn.execute(
-            "SELECT id, method, path FROM api_configs WHERE topology_id = ? AND enabled = 1",
-            (topology_id,),
-        ).fetchall()
+        # 按拓扑所属"网管/设备"（domain）加载接口，一个 domain 下的接口在同域实例间共享。
+        # 拓扑无 domain 时（旧数据），退回原按 topology_id 过滤的兼容行为。
+        topo_row = conn.execute(
+            "SELECT domain_id FROM topologies WHERE id = ?", (topology_id,)
+        ).fetchone()
+        domain_id = topo_row["domain_id"] if topo_row else None
+        if domain_id:
+            rows = conn.execute(
+                "SELECT id, method, path FROM api_configs "
+                "WHERE domain_id = ? AND enabled = 1",
+                (domain_id,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, method, path FROM api_configs "
+                "WHERE topology_id = ? AND enabled = 1",
+                (topology_id,),
+            ).fetchall()
 
     for row in rows:
         handler = make_handler(row["id"], instance_id=instance_id)
