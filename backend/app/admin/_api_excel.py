@@ -1,8 +1,9 @@
 """接口 Excel 导入/导出的内部工具（编解码 + 校验，不直接触碰 DB）。"""
 import json as _json
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook as _load_workbook
 from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Font, PatternFill
 
@@ -323,10 +324,6 @@ def build_workbook(
     return wb
 
 
-from dataclasses import dataclass, field
-from openpyxl import load_workbook as _load_workbook
-
-
 ALLOWED_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"}
 ALLOWED_DATA_SOURCES = {"sql", "static"}
 
@@ -516,6 +513,9 @@ def parse_workbook(
     for ws in wb.worksheets:
         title = ws.title
         if title.startswith("_"):
+            continue
+        # 首行首列必须是 "方法"，否则不是合法数据 Sheet（比如默认空 Workbook 的 "Sheet"）
+        if ws.cell(row=1, column=1).value != MAIN_HEADERS[0]:
             continue
         data_sheet_count += 1
 

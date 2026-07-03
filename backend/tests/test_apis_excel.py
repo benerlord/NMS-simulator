@@ -9,10 +9,12 @@ from app.admin._api_excel import (
     build_workbook,
     format_cell_list,
     parse_cell_list,
+    parse_workbook,
     sanitize_sheet_name,
     HEADER_COLUMNS,
     INSTRUCTION_SHEET_NAME,
     MAIN_HEADERS,
+    ParseResult,
     UNCATEGORIZED_SHEET_NAME,
 )
 
@@ -257,9 +259,6 @@ def test_build_workbook_fault_columns():
     assert ws.cell(row=2, column=status_col).value == 503
 
 
-from app.admin._api_excel import parse_workbook, ParseResult
-
-
 def _build_test_workbook_bytes(builder):
     """helper: 传一个 (wb) -> None 的回调，写入完毕后返回 bytes。"""
     from openpyxl import Workbook as _Wb
@@ -481,3 +480,35 @@ def test_parse_workbook_uncategorized_sheet_has_no_domain():
     result = parse_workbook(io.BytesIO(data), existing_domains=[], existing_topologies=[])
     assert result.rows[0]["domain_id"] is None
     assert result.rows[0].get("_new_domain_name") is None
+
+
+def test_parse_workbook_default_sheet_without_headers_is_not_data():
+    """默认空 Workbook 的 'Sheet' 应被识别为非数据 Sheet 而非静默 auto-create '域 Sheet'。"""
+    def build(wb):
+        wb.create_sheet("Sheet")  # 空 Sheet，无表头
+    data = _build_test_workbook_bytes(build)
+
+    with pytest.raises(ExcelValidationError) as exc:
+        parse_workbook(io.BytesIO(data), existing_domains=[], existing_topologies=[])
+    assert "未找到" in str(exc.value)
+
+
+def test_parse_workbook_sheet_with_wrong_first_header_is_skipped():
+    """首列不是 '方法' 的 Sheet 也被跳过（用户误在 Excel 里新建了工作表）。"""
+    def build(wb):
+        ws1 = wb.create_sheet("我的笔记")
+        ws1.cell(row=1, column=1, value="随手记")
+        ws2 = wb.create_sheet("网管A")
+        for col_idx, h in enumerate(MAIN_HEADERS, start=1):
+            ws2.cell(row=1, column=col_idx, value=h)
+        ws2.cell(row=2, column=1, value="GET")
+        ws2.cell(row=2, column=2, value="/api/x")
+        ws2.cell(row=2, column=3, value="X")
+        ws2.cell(row=2, column=7, value="static")
+    data = _build_test_workbook_bytes(build)
+
+    result = parse_workbook(io.BytesIO(data), existing_domains=[], existing_topologies=[])
+    assert len(result.rows) == 1
+    assert result.rows[0]["path"] == "/api/x"
+    # "我的笔记" 不应作为域被 auto-create
+    assert "我的笔记" not in result.auto_created_domains
