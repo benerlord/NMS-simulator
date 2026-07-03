@@ -512,3 +512,54 @@ def test_parse_workbook_sheet_with_wrong_first_header_is_skipped():
     assert result.rows[0]["path"] == "/api/x"
     # "我的笔记" 不应作为域被 auto-create
     assert "我的笔记" not in result.auto_created_domains
+
+
+# ============== 端到端测试：POST /apis/export ==============
+
+
+def test_export_endpoint_returns_xlsx_binary(client):
+    # 造 1 个域 + 1 个静态接口
+    r = client.post("/admin/api/domains", json={"name": "网管X"})
+    assert r.status_code == 200, r.text
+    dom_id = r.json()["data"]["id"]
+
+    r = client.post("/admin/api/apis", json={
+        "method": "GET",
+        "path": "/api/e2e-export",
+        "name": "E2E导出",
+        "enabled": True,
+        "domainId": dom_id,
+        "dataSource": "static",
+        "config": {"staticBody": '{"ok":true}'},
+    })
+    assert r.status_code == 200, r.text
+
+    r = client.post("/admin/api/apis/export", json={})
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+    wb = load_workbook(io.BytesIO(r.content))
+    assert "网管X" in wb.sheetnames
+    ws = wb["网管X"]
+    assert ws.cell(row=2, column=1).value == "GET"
+    assert ws.cell(row=2, column=2).value == "/api/e2e-export"
+
+
+def test_export_endpoint_filter_by_ids(client):
+    r = client.post("/admin/api/apis", json={
+        "method": "GET", "path": "/api/one", "name": "one",
+        "dataSource": "static", "config": {},
+    })
+    api1_id = r.json()["data"]["id"]
+    r = client.post("/admin/api/apis", json={
+        "method": "GET", "path": "/api/two", "name": "two",
+        "dataSource": "static", "config": {},
+    })
+
+    r = client.post("/admin/api/apis/export", json={"ids": [api1_id]})
+    assert r.status_code == 200
+    wb = load_workbook(io.BytesIO(r.content))
+    # 未归类 Sheet 应只有 1 行数据
+    ws = wb[UNCATEGORIZED_SHEET_NAME]
+    assert ws.cell(row=2, column=2).value == "/api/one"
+    assert ws.cell(row=3, column=2).value is None  # 只有一行

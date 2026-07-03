@@ -774,8 +774,12 @@ def test_api(api_id: str, body: ApiTestRequest) -> dict:
 # ============== Export / Import ==============
 
 @router.post("/apis/export")
-def export_apis(data: dict) -> dict:
-    """导出接口为 JSON"""
+def export_apis(data: dict):
+    """导出接口为 Excel (.xlsx)"""
+    import io as _io
+    from fastapi.responses import Response
+    from app.admin._api_excel import build_workbook
+
     ids = data.get("ids")
     domain_id = data.get("domainId")
     with connect() as conn:
@@ -794,23 +798,20 @@ def export_apis(data: dict) -> dict:
             rows = conn.execute(
                 "SELECT * FROM api_configs ORDER BY method, path"
             ).fetchall()
-        apis = []
-        for r in rows:
-            item = dict(r)
-            try:
-                item["config"] = json.loads(r["config"]) if r["config"] else {}
-            except json.JSONDecodeError:
-                item["config"] = {}
-            apis.append(item)
-    return {
-        "code": 0,
-        "data": {
-            "schemaVersion": "1.0",
-            "exportedAt": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "apis": apis,
-        },
-        "message": "ok",
-    }
+        api_rows = [dict(r) for r in rows]
+
+        domains = [dict(r) for r in conn.execute("SELECT id, name FROM domains").fetchall()]
+        topologies = [dict(r) for r in conn.execute("SELECT id, name FROM topologies").fetchall()]
+
+    wb = build_workbook(api_rows=api_rows, domains=domains, topologies=topologies)
+    buf = _io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=apis-export.xlsx"},
+    )
 
 
 @router.post("/apis/import")

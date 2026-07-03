@@ -29,7 +29,10 @@ def conn(db_path: Path):
 
 @pytest.fixture
 def client(monkeypatch, db_path: Path):
-    """FastAPI TestClient with isolated DB."""
+    """FastAPI TestClient with isolated DB。
+
+    使用 context manager 触发 lifespan（会绑定 mock_registry / 启动 InstanceRunner）。
+    """
     from app.core.config import settings as app_settings
 
     monkeypatch.setattr(app_settings, "db_path", db_path)
@@ -39,7 +42,8 @@ def client(monkeypatch, db_path: Path):
     from fastapi.testclient import TestClient
 
     init_db()
-    return TestClient(app)
+    with TestClient(app) as c:
+        yield c
 
 
 @pytest.fixture
