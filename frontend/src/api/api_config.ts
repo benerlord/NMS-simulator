@@ -149,13 +149,16 @@ export const apiConfigApi = {
   delete: (id: string): Promise<{ id: string }> =>
     apiDelete(`/apis/${id}`),
 
-  export: (params?: { domainId?: string; ids?: string[] }): Promise<{ schemaVersion: string; exportedAt: string; apis: ApiConfigDetail[] }> =>
-    apiPost('/apis/export', params || {}),
+  export: (params?: { domainId?: string; ids?: string[] }): Promise<Blob> =>
+    http.post('/apis/export', params || {}, { responseType: 'blob' }).then(r => r.data),
 
   deleteDirectory: (domainId: string): Promise<{ deletedApis: number; deletedDirectory: number }> =>
     apiDelete(`/apis/directory/${domainId}`),
 
-  import: (file: File): Promise<{ created: number; updated: number; errors: string[]; autoCreatedDomains: string[] }> => {
+  import: (file: File): Promise<{ created: number; updated: number; errors: string[]; warnings: string[]; autoCreatedDomains: string[] }> => {
+    if (!file.name.toLowerCase().endsWith('.xlsx')) {
+      return Promise.reject(new Error('仅支持 .xlsx 文件'))
+    }
     const form = new FormData()
     form.append('file', file)
     return http.post('/apis/import', form, {
