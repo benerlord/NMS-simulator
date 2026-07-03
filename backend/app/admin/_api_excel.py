@@ -1,6 +1,6 @@
 """接口 Excel 导入/导出的内部工具（编解码 + 校验，不直接触碰 DB）。"""
 import json as _json
-from typing import Any
+from typing import Any, Optional
 
 from openpyxl import Workbook
 from openpyxl.comments import Comment
@@ -321,3 +321,265 @@ def build_workbook(
         _write_data_sheet(ws, apis, topology_name_by_id, original_name)
 
     return wb
+
+
+from dataclasses import dataclass, field
+from openpyxl import load_workbook as _load_workbook
+
+
+ALLOWED_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"}
+ALLOWED_DATA_SOURCES = {"sql", "static"}
+
+
+@dataclass
+class ParseResult:
+    rows: list = field(default_factory=list)
+    errors: list = field(default_factory=list)
+    warnings: list = field(default_factory=list)
+    auto_created_domains: list = field(default_factory=list)
+
+
+def _extract_original_domain(a1_cell) -> Optional[str]:
+    """从 A1 comment 里提取 __ORIGINAL_DOMAIN__= 后面的文本，找不到返回 None。"""
+    if a1_cell.comment is None:
+        return None
+    text = a1_cell.comment.text or ""
+    marker = "__ORIGINAL_DOMAIN__="
+    for line in text.split("\n"):
+        if line.startswith(marker):
+            return line[len(marker):].strip()
+    return None
+
+
+def _resolve_topology(
+    topo_name: str,
+    existing_topologies: list,
+    row_hint: str,
+    warnings: list,
+) -> Optional[str]:
+    """按名称查 topology_id；多命中取最早创建；未命中记 warning 返回 None。"""
+    if not topo_name:
+        return None
+    matches = [t for t in existing_topologies if t.get("name") == topo_name]
+    if not matches:
+        warnings.append(f"{row_hint}：拓扑名 '{topo_name}' 未找到，已留空")
+        return None
+    if len(matches) > 1:
+        matches_sorted = sorted(matches, key=lambda t: t.get("created_at") or "")
+        chosen = matches_sorted[0]
+        warnings.append(f"{row_hint}：拓扑名 '{topo_name}' 有 {len(matches)} 个匹配，使用 {chosen['id']}")
+        return chosen["id"]
+    return matches[0]["id"]
+
+
+def _parse_bool_cell(value: Any, default: bool = True) -> bool:
+    if value is None or value == "":
+        return default
+    if isinstance(value, bool):
+        return value
+    s = str(value).strip().lower()
+    if s in _TRUE_TOKENS:
+        return True
+    if s in _FALSE_TOKENS:
+        return False
+    return default
+
+
+def _parse_number_cell(value: Any):
+    if value is None or value == "":
+        return None
+    if isinstance(value, (int, float)):
+        return value
+    try:
+        s = str(value).strip()
+        if not s:
+            return None
+        return float(s) if "." in s else int(s)
+    except (ValueError, TypeError):
+        raise ExcelValidationError(f"数字列填了非数字 '{value}'")
+
+
+def _resolve_domain_for_sheet(
+    sheet_title: str,
+    original_domain_name: Optional[str],
+    existing_domains: list,
+    auto_created: list,
+):
+    """返回 (domain_id, new_domain_name_to_create)。
+
+    - 未归类 Sheet → (None, None)
+    - A1 comment 有原始域名，且在 existing_domains 里 → (id, None)
+    - A1 comment 有原始域名，但域已被删/改名 → (None, 原始名字)：新建
+    - A1 无 comment，用 sheet_title 查 existing_domains
+    - 都找不到 → 待创建
+    """
+    if sheet_title == UNCATEGORIZED_SHEET_NAME:
+        return (None, None)
+
+    lookup_name = original_domain_name or sheet_title
+    matches = [d for d in existing_domains if d.get("name") == lookup_name]
+    if matches:
+        matches_sorted = sorted(matches, key=lambda d: d.get("created_at") or "")
+        return (matches_sorted[0]["id"], None)
+
+    # 待创建
+    if lookup_name not in auto_created:
+        auto_created.append(lookup_name)
+    return (None, lookup_name)
+
+
+def _row_to_config(cells: dict, row_hint: str) -> dict:
+    """把一行的所有单元格值组装成 api_configs.config 字典。
+
+    cells 是 {表头名: 单元格值} 的字典。抛 ExcelValidationError 表示行级错误。
+    """
+    config: dict = {}
+
+    headers_text = cells.get("请求头") or ""
+    query_text = cells.get("Query 参数") or ""
+    body_text = cells.get("请求体") or ""
+    params_text = cells.get("参数映射") or ""
+
+    headers = parse_cell_list(headers_text, HEADER_COLUMNS, f"{row_hint} 请求头") if headers_text else []
+    query = parse_cell_list(query_text, QUERY_COLUMNS, f"{row_hint} Query 参数") if query_text else []
+    body_records = parse_cell_list(body_text, BODY_COLUMNS, f"{row_hint} 请求体") if body_text else []
+    params = parse_cell_list(params_text, PARAM_MAPPING_COLUMNS, f"{row_hint} 参数映射") if params_text else []
+
+    request: dict = {}
+    if headers:
+        request["headers"] = headers
+    if query:
+        request["query"] = query
+    if body_records:
+        request["body"] = body_records[0]
+    if request:
+        config["request"] = request
+
+    auth_type = (cells.get("鉴权类型") or "none")
+    auth_type = str(auth_type).strip() or "none"
+    auth_header_name = str(cells.get("鉴权头名") or "").strip()
+    if auth_type != "none" or auth_header_name:
+        auth = {"type": auth_type}
+        if auth_header_name:
+            auth["headerName"] = auth_header_name
+        config["auth"] = auth
+
+    if params:
+        config["params"] = params
+
+    resp_tpl = cells.get("响应模板")
+    if resp_tpl:
+        config["responseTemplate"] = str(resp_tpl)
+
+    static_body = cells.get("静态响应体")
+    if static_body:
+        config["staticBody"] = str(static_body)
+
+    delay_ms = _parse_number_cell(cells.get("故障-延迟毫秒"))
+    error_rate = _parse_number_cell(cells.get("故障-错误率"))
+    error_status = _parse_number_cell(cells.get("故障-错误状态码"))
+    fault: dict = {}
+    if delay_ms is not None:
+        fault["delayMs"] = int(delay_ms)
+    if error_rate is not None:
+        fault["errorRate"] = float(error_rate)
+    if error_status is not None:
+        fault["errorStatus"] = int(error_status)
+    if fault:
+        config["fault"] = fault
+
+    return config
+
+
+def parse_workbook(
+    file_like,
+    existing_domains: list,
+    existing_topologies: list,
+) -> ParseResult:
+    """解析上传的 xlsx 文件对象。
+
+    file_like: 支持 read() 的对象（如 UploadFile.file 或 io.BytesIO）
+    existing_domains: [{id, name, created_at}]
+    existing_topologies: [{id, name, created_at}]
+
+    抛 ExcelValidationError → 致命错误（文件损坏 / 无数据 Sheet）。
+    行级错误 → 收进 result.errors，那行被跳过。
+    """
+    try:
+        wb = _load_workbook(file_like, read_only=False, data_only=True)
+    except Exception as e:
+        raise ExcelValidationError(f"Excel 打开失败：{e}") from e
+
+    result = ParseResult()
+    data_sheet_count = 0
+
+    for ws in wb.worksheets:
+        title = ws.title
+        if title.startswith("_"):
+            continue
+        data_sheet_count += 1
+
+        # 允许列缺失（用 None 填空），按 MAIN_HEADERS 的顺序建索引
+        col_index = {h: i + 1 for i, h in enumerate(MAIN_HEADERS)}
+
+        original_domain = _extract_original_domain(ws["A1"])
+        domain_id, new_domain_name = _resolve_domain_for_sheet(
+            title, original_domain, existing_domains, result.auto_created_domains,
+        )
+
+        for row_num in range(2, ws.max_row + 1):
+            row_hint = f"Sheet '{title}' 第 {row_num} 行"
+            cells = {}
+            for header in MAIN_HEADERS:
+                cells[header] = ws.cell(row=row_num, column=col_index[header]).value
+
+            method_raw = cells.get("方法")
+            path = cells.get("路径")
+            if not method_raw or not path:
+                # 整行空 → 静默跳过；单缺 method 或 path 也跳过（不算错，用户可能在整理表）
+                continue
+            method = str(method_raw).strip().upper()
+            if method not in ALLOWED_METHODS:
+                result.errors.append(f"{row_hint}：method '{method}' 不合法（允许 {sorted(ALLOWED_METHODS)}）")
+                continue
+
+            data_source = (str(cells.get("数据源") or "").strip() or "static").lower()
+            if data_source not in ALLOWED_DATA_SOURCES:
+                result.errors.append(f"{row_hint}：数据源 '{data_source}' 不合法")
+                continue
+
+            try:
+                config = _row_to_config(cells, row_hint)
+            except ExcelValidationError as e:
+                result.errors.append(str(e))
+                continue
+
+            topology_id = _resolve_topology(
+                str(cells.get("拓扑") or "").strip(),
+                existing_topologies,
+                row_hint,
+                result.warnings,
+            )
+
+            row = {
+                "method": method,
+                "path": str(path).strip(),
+                "name": str(cells.get("接口名") or "").strip(),
+                "enabled": _parse_bool_cell(cells.get("启用"), default=True),
+                "category": (str(cells.get("分类") or "").strip() or None),
+                "group_name": (str(cells.get("分组") or "").strip() or None),
+                "data_source": data_source,
+                "topology_id": topology_id,
+                "sql_text": (str(cells.get("SQL 语句") or "").strip() or None) if data_source == "sql" else None,
+                "config": config,
+                "domain_id": domain_id,
+                "_new_domain_name": new_domain_name,
+                "_sheet": title,
+                "_row_num": row_num,
+            }
+            result.rows.append(row)
+
+    if data_sheet_count == 0:
+        raise ExcelValidationError("Excel 中未找到任何数据 Sheet")
+
+    return result
