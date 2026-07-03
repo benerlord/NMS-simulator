@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref, watch, nextTick } from 'vue'
-import { Modal, Form, Input, InputNumber, Select, Switch } from 'ant-design-vue'
+import { Modal, Form, Input, InputNumber, Select, Switch, Button } from 'ant-design-vue'
+import { ImportOutlined } from '@ant-design/icons-vue'
 import ArrayJsonInput from './ArrayJsonInput.vue'
 import { validateFields } from '@/utils/fieldValidation'
 import type { NodeTypeFieldItem } from '@/api/types'
 import { nodeApi } from '@/api/node'
+import JsonFillValuesModal from '@/components/shared/JsonFillValuesModal.vue'
 
 interface Props {
   visible: boolean
@@ -77,6 +79,14 @@ function scrollToFirstError() {
   input?.focus()
 }
 
+const jsonModalOpen = ref(false)
+
+function handleJsonApply(values: Record<string, string>) {
+  for (const [k, v] of Object.entries(values)) {
+    setFieldValue(k, v)
+  }
+}
+
 async function handleCreate() {
   // 校验 name
   if (!nodeName.value.trim()) {
@@ -135,6 +145,13 @@ async function handleCreate() {
   >
     <div ref="formContentRef">
       <div class="node-type-name">{{ nodeTypeName }}</div>
+
+      <div class="json-fill-toolbar">
+        <Button size="small" @click="jsonModalOpen = true">
+          <template #icon><ImportOutlined /></template>
+          从 JSON 填充
+        </Button>
+      </div>
 
       <Form layout="vertical" class="attrs-form">
       <Form.Item
@@ -210,6 +227,13 @@ async function handleCreate() {
       </a-row>
       </Form>
     </div>
+
+    <JsonFillValuesModal
+      v-model:open="jsonModalOpen"
+      :fields="fields"
+      :current-values="formData"
+      @apply="handleJsonApply"
+    />
   </Modal>
 </template>
 
@@ -236,6 +260,9 @@ async function handleCreate() {
   padding: 20px;
 }
 
+.json-fill-toolbar {
+  margin-bottom: 12px;
+}
 </style>
 
 <style>

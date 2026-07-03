@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
 import { Form, Input, InputNumber, Select, Switch, Button, Spin, Tabs, Tooltip } from 'ant-design-vue'
+import { ImportOutlined } from '@ant-design/icons-vue'
 import ArrayJsonInput from './ArrayJsonInput.vue'
 import { validateFields } from '@/utils/fieldValidation'
 import type { NodeTypeFieldItem } from '@/api/types'
 import { nodeApi } from '@/api/node'
 import { useRoute } from 'vue-router'
 import NodeAlarmsTab from './NodeAlarmsTab.vue'
+import JsonFillValuesModal from '@/components/shared/JsonFillValuesModal.vue'
 
 interface Props {
   visible: boolean
@@ -148,13 +150,26 @@ function getFieldValue(key: string): string {
 function setFieldValue(key: string, value: string) {
   formData.value[key] = value
 }
+
+const jsonModalOpen = ref(false)
+
+function handleJsonApply(values: Record<string, string>) {
+  for (const [k, v] of Object.entries(values)) {
+    setFieldValue(k, v)
+  }
+}
 </script>
 
 <template>
   <Transition name="slide">
     <div v-if="visible" class="node-attrs-panel">
+
       <div class="panel-header">
         <span class="panel-title">节点属性</span>
+        <Button size="small" @click="jsonModalOpen = true">
+          <template #icon><ImportOutlined /></template>
+          从 JSON 填充
+        </Button>
         <Button type="text" size="small" @click="emit('close')">×</Button>
       </div>
 
@@ -257,6 +272,13 @@ function setFieldValue(key: string, value: string) {
       </div>
     </div>
   </Transition>
+
+  <JsonFillValuesModal
+    v-model:open="jsonModalOpen"
+    :fields="fields"
+    :current-values="formData"
+    @apply="handleJsonApply"
+  />
 </template>
 
 <style scoped>
@@ -280,7 +302,9 @@ function setFieldValue(key: string, value: string) {
   align-items: center;
   padding: 12px 16px;
   border-bottom: 1px solid #e8e8e8;
+  gap: 8px;
 }
+.panel-header .panel-title { flex: 1; }
 
 .panel-title {
   font-weight: 500;
