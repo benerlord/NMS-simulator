@@ -6,6 +6,7 @@ import { nodeTypeApi, edgeTypeApi } from '@/api/types'
 import type { NodeTypeDetail, NodeTypeFieldItem, EdgeTypeItem } from '@/api/types'
 import type { NodeGroupItem } from '@/api/nodeGroup'
 import { apiGet } from '@/api/http'
+import NodeAlarmsTab from './NodeAlarmsTab.vue'
 
 interface Props {
   visible: boolean
@@ -25,6 +26,7 @@ const currentStep = ref(0)
 const submitting = ref(false)
 const loadingEdit = ref(false)
 const alarmSchemaBound = ref(false)
+const groupIsMaterialized = ref(false)
 
 async function checkAlarmSchemaBinding() {
   if (!props.topologyId) {
@@ -160,6 +162,7 @@ watch(
       loadingEdit.value = true
       try {
         const grp = await nodeGroupApi.get(props.editGroupId)
+        groupIsMaterialized.value = grp.isMaterialized
         step1.value = {
           nodeTypeId: grp.nodeTypeId,
           groupName: grp.groupName,
@@ -202,6 +205,7 @@ watch(
       step1.value = { nodeTypeId: '', groupName: '', nodeCount: 100, nameTemplate: '{group}-{i:05d}', nameWidth: 5 }
       strategyRows.value = []
       edgeRules.value = []
+      groupIsMaterialized.value = false
     }
   },
 )
@@ -731,6 +735,16 @@ function handleCancel() {
             请先到拓扑管理页面绑定告警模板，或提交后再补配告警。
           </p>
         </div>
+        <template v-else-if="isEdit && props.editGroupId">
+          <div v-if="groupIsMaterialized" class="materialized-warn">
+            ⚠️ 该组已展开为实体节点，编辑告警模板不会回溯改动到已生成的物理节点告警。
+          </div>
+          <NodeAlarmsTab
+            context="group"
+            :node-group-id="props.editGroupId"
+            :topology-id="props.topologyId"
+          />
+        </template>
         <div v-else class="alarm-create-note">
           <p style="color: #666; padding: 24px; text-align: center; line-height: 1.8;">
             创建成功后可在画布上右键节点组 → "编辑组定义" 里继续配置告警。<br />
@@ -757,6 +771,16 @@ function handleCancel() {
 </template>
 
 <style scoped>
+.materialized-warn {
+  background: #fffbe6;
+  border: 1px solid #ffe58f;
+  border-radius: 4px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  color: #613400;
+  font-size: 13px;
+}
+
 .steps-bar {
   display: flex;
   justify-content: center;
