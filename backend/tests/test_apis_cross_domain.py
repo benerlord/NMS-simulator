@@ -104,3 +104,114 @@ def test_duplicate_api_generates_unique_path_within_domain(client):
     # 因为 A 域下不存在 /foo_copy，直接可用（不应因为 B 域的 /foo_copy 而变成 /foo_copy2）
     assert detail["path"] == "/foo_copy"
     assert detail["domainId"] == dA
+
+
+import io
+from openpyxl import Workbook
+from app.admin._api_excel import MAIN_HEADERS, UNCATEGORIZED_SHEET_NAME
+
+
+def _build_xlsx(builder) -> bytes:
+    wb = Workbook()
+    wb.remove(wb.active)
+    builder(wb)
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _upload_xlsx(client, xlsx_bytes: bytes):
+    return client.post(
+        "/admin/api/apis/import",
+        files={"file": ("t.xlsx", xlsx_bytes,
+                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+
+
+def test_import_cross_sheet_move_leaves_source_untouched(client):
+    """Sheet A 有 /token；Excel 里 Sheet B 也有 /token → 导入后 A 保留、B 新建。"""
+    dA = client.post("/admin/api/domains", json={"name": "网管A"}).json()["data"]["id"]
+    dB = client.post("/admin/api/domains", json={"name": "网管B"}).json()["data"]["id"]
+    a_id = client.post("/admin/api/apis", json={
+        "method": "PUT", "path": "/rest/token", "name": "A-token",
+        "domainId": dA, "dataSource": "static", "config": {},
+    }).json()["data"]["id"]
+
+    def build(wb):
+        ws = wb.create_sheet("网管B")
+        for i, h in enumerate(MAIN_HEADERS, start=1):
+            ws.cell(row=1, column=i, value=h)
+        ws.cell(row=2, column=1, value="PUT")
+        ws.cell(row=2, column=2, value="/rest/token")
+        ws.cell(row=2, column=3, value="B-token-from-excel")
+        ws.cell(row=2, column=7, value="static")
+    data = _build_xlsx(build)
+
+    r = _upload_xlsx(client, data)
+    assert r.status_code == 200
+    result = r.json()["data"]
+    assert result["created"] == 1
+    assert result["updated"] == 0
+
+    # 源 A 域接口不动
+    a_detail = client.get(f"/admin/api/apis/{a_id}").json()["data"]
+    assert a_detail["name"] == "A-token"
+    assert a_detail["domainId"] == dA
+
+    # 目标 B 域新建了一份
+    b_apis = client.get(f"/admin/api/apis?domainId={dB}").json()["data"]["items"]
+    assert any(a["path"] == "/rest/token" and a["name"] == "B-token-from-excel" for a in b_apis)
+
+
+def test_import_same_domain_same_path_updates_that_row(client):
+    """Excel Sheet=网管A 且行 (method, path) 命中 A 域下已有接口 → UPDATE 该行。"""
+    dA = client.post("/admin/api/domains", json={"name": "网管A"}).json()["data"]["id"]
+    a_id = client.post("/admin/api/apis", json={
+        "method": "PUT", "path": "/rest/token", "name": "旧名",
+        "domainId": dA, "dataSource": "static", "config": {},
+    }).json()["data"]["id"]
+
+    def build(wb):
+        ws = wb.create_sheet("网管A")
+        for i, h in enumerate(MAIN_HEADERS, start=1):
+            ws.cell(row=1, column=i, value=h)
+        ws.cell(row=2, column=1, value="PUT")
+        ws.cell(row=2, column=2, value="/rest/token")
+        ws.cell(row=2, column=3, value="新名")
+        ws.cell(row=2, column=7, value="static")
+    data = _build_xlsx(build)
+
+    r = _upload_xlsx(client, data)
+    assert r.json()["data"]["updated"] == 1
+    detail = client.get(f"/admin/api/apis/{a_id}").json()["data"]
+    assert detail["name"] == "新名"
+
+
+def test_import_cross_domain_does_not_affect_other_domain(client):
+    """A/B 两域各有 /token；Excel Sheet=A 只改 A 的 name → B 不受影响。"""
+    dA = client.post("/admin/api/domains", json={"name": "网管A"}).json()["data"]["id"]
+    dB = client.post("/admin/api/domains", json={"name": "网管B"}).json()["data"]["id"]
+    aA = client.post("/admin/api/apis", json={
+        "method": "PUT", "path": "/rest/token", "name": "A-orig",
+        "domainId": dA, "dataSource": "static", "config": {},
+    }).json()["data"]["id"]
+    aB = client.post("/admin/api/apis", json={
+        "method": "PUT", "path": "/rest/token", "name": "B-orig",
+        "domainId": dB, "dataSource": "static", "config": {},
+    }).json()["data"]["id"]
+
+    def build(wb):
+        ws = wb.create_sheet("网管A")
+        for i, h in enumerate(MAIN_HEADERS, start=1):
+            ws.cell(row=1, column=i, value=h)
+        ws.cell(row=2, column=1, value="PUT")
+        ws.cell(row=2, column=2, value="/rest/token")
+        ws.cell(row=2, column=3, value="A-new")
+        ws.cell(row=2, column=7, value="static")
+    data = _build_xlsx(build)
+
+    r = _upload_xlsx(client, data)
+    assert r.json()["data"]["updated"] == 1
+
+    assert client.get(f"/admin/api/apis/{aA}").json()["data"]["name"] == "A-new"
+    assert client.get(f"/admin/api/apis/{aB}").json()["data"]["name"] == "B-orig"

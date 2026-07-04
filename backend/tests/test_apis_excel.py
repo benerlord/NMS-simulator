@@ -665,7 +665,8 @@ def test_import_endpoint_preserves_unknown_config_keys(client):
     assert detail["config"]["auth"] == {"type": "xtoken", "headerName": "X-New-Token"}
 
 
-def test_import_endpoint_cross_sheet_move_changes_domain(client):
+def test_import_endpoint_cross_sheet_creates_target_leaves_source(client):
+    """新语义：跨 Sheet 不再"移动"域——源域接口保留，目标域 upsert（新建）。"""
     # 先造两个域
     dom1 = client.post("/admin/api/domains", json={"name": "网管1"}).json()["data"]["id"]
     dom2 = client.post("/admin/api/domains", json={"name": "网管2"}).json()["data"]["id"]
@@ -676,7 +677,7 @@ def test_import_endpoint_cross_sheet_move_changes_domain(client):
         "domainId": dom1, "dataSource": "static", "config": {},
     })
 
-    # 用 Excel 把它挪到网管2
+    # 用 Excel 在 网管2 下建同名接口
     def build(wb):
         ws = wb.create_sheet("网管2")
         for col_idx, h in enumerate(MAIN_HEADERS, start=1):
@@ -689,12 +690,14 @@ def test_import_endpoint_cross_sheet_move_changes_domain(client):
 
     r = _upload_xlsx_bytes(client, data)
     assert r.status_code == 200
-    assert r.json()["data"]["updated"] == 1
+    # 网管2 下不存在 → 新建
+    assert r.json()["data"]["created"] == 1
+    assert r.json()["data"]["updated"] == 0
 
-    # 接口应该在 dom2 里，不在 dom1 里
+    # 源域接口保留，目标域也有一份
     r_dom1 = client.get(f"/admin/api/apis?domainId={dom1}").json()["data"]["items"]
     r_dom2 = client.get(f"/admin/api/apis?domainId={dom2}").json()["data"]["items"]
-    assert not any(a["path"] == "/api/mover" for a in r_dom1)
+    assert any(a["path"] == "/api/mover" for a in r_dom1)
     assert any(a["path"] == "/api/mover" for a in r_dom2)
 
 

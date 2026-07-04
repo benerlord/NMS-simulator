@@ -880,9 +880,10 @@ async def import_apis(file: UploadFile = File(...)) -> dict:
 
             method = row["method"]
             path = row["path"]
+            # 按 (domain_id, method, path) 匹配；用 IS 而非 = 处理 NULL（未归类）
             existing = conn.execute(
-                "SELECT id, config FROM api_configs WHERE method = ? AND path = ?",
-                (method, path),
+                "SELECT id, config FROM api_configs WHERE domain_id IS ? AND method = ? AND path = ?",
+                (domain_id, method, path),
             ).fetchone()
 
             new_config = row["config"]
