@@ -387,58 +387,69 @@ def _rebuild_api_configs_domain_unique(conn: sqlite3.Connection) -> None:
 
     幂等：通过读取 sqlite_master 里的 CREATE TABLE 语句判断当前是老约束还是新约束。
     仅当仍是老约束（UNIQUE(method, path)）时才重建表。
+
+    原子性：整个 rebuild 走 SAVEPOINT，中途任何异常都能回滚到原状。
+    这可以防止将来新增列但忘记同步这里时留下"表已 rename、新表空壳"的半迁移态。
     """
+    import re
+
     row = conn.execute(
         "SELECT sql FROM sqlite_master WHERE type='table' AND name='api_configs'"
     ).fetchone()
     if row is None:
         return
     table_sql = row[0] or ""
-    # 新约束特征：包含 domain_id, method, path 的 UNIQUE 元组
-    if "UNIQUE (domain_id, method, path)" in table_sql or "UNIQUE(domain_id, method, path)" in table_sql:
-        return  # 已经是新约束
+    # 用正则匹配新约束，兼容手工格式化（如 "UNIQUE ( domain_id , method , path )"）
+    if re.search(r"UNIQUE\s*\(\s*domain_id\s*,\s*method\s*,\s*path\s*\)", table_sql):
+        return
 
-    # 关外键、重建、迁数据、切回
+    # 关外键、SAVEPOINT 包裹重建、迁数据、切回
     conn.execute("PRAGMA foreign_keys = OFF")
     try:
-        cols_info = conn.execute("PRAGMA table_info(api_configs)").fetchall()
-        col_names = [c[1] for c in cols_info]
-        cols_csv = ", ".join(col_names)
+        conn.execute("SAVEPOINT rebuild_api_configs")
+        try:
+            cols_info = conn.execute("PRAGMA table_info(api_configs)").fetchall()
+            col_names = [c[1] for c in cols_info]
+            cols_csv = ", ".join(col_names)
 
-        conn.execute("ALTER TABLE api_configs RENAME TO api_configs_bak_domain_unique")
+            conn.execute("ALTER TABLE api_configs RENAME TO api_configs_bak_domain_unique")
 
-        conn.execute("""
-            CREATE TABLE api_configs (
-              id              TEXT PRIMARY KEY,
-              name            TEXT NOT NULL,
-              method          TEXT NOT NULL,
-              path            TEXT NOT NULL,
-              enabled         INTEGER NOT NULL DEFAULT 1,
-              group_name      TEXT,
-              data_source     TEXT NOT NULL CHECK (data_source IN ('sql','static')),
-              topology_id     TEXT,
-              sql_text        TEXT,
-              config          TEXT NOT NULL,
-              created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-              updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
-              domain_id       TEXT,
-              category        TEXT,
-              FOREIGN KEY (topology_id) REFERENCES topologies(id),
-              UNIQUE (domain_id, method, path)
+            conn.execute("""
+                CREATE TABLE api_configs (
+                  id              TEXT PRIMARY KEY,
+                  name            TEXT NOT NULL,
+                  method          TEXT NOT NULL,
+                  path            TEXT NOT NULL,
+                  enabled         INTEGER NOT NULL DEFAULT 1,
+                  group_name      TEXT,
+                  data_source     TEXT NOT NULL CHECK (data_source IN ('sql','static')),
+                  topology_id     TEXT,
+                  sql_text        TEXT,
+                  config          TEXT NOT NULL,
+                  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                  updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                  domain_id       TEXT,
+                  category        TEXT,
+                  FOREIGN KEY (topology_id) REFERENCES topologies(id),
+                  UNIQUE (domain_id, method, path)
+                )
+            """)
+
+            conn.execute(
+                f"INSERT INTO api_configs ({cols_csv}) SELECT {cols_csv} FROM api_configs_bak_domain_unique"
             )
-        """)
+            conn.execute("DROP TABLE api_configs_bak_domain_unique")
 
-        conn.execute(
-            f"INSERT INTO api_configs ({cols_csv}) SELECT {cols_csv} FROM api_configs_bak_domain_unique"
-        )
-        conn.execute("DROP TABLE api_configs_bak_domain_unique")
-
-        # 重建原有索引（SCHEMA_SQL 里那几条 CREATE INDEX 后续会由 executescript 幂等重放，
-        # 但这里显式补一遍以防万一）
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_apis_enabled ON api_configs(enabled)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_apis_topo    ON api_configs(topology_id)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_apis_group   ON api_configs(group_name)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_apis_domain  ON api_configs(domain_id)")
+            # 重建原有索引（rename 会带着索引一起丢，这里显式补齐）
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_apis_enabled ON api_configs(enabled)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_apis_topo    ON api_configs(topology_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_apis_group   ON api_configs(group_name)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_apis_domain  ON api_configs(domain_id)")
+            conn.execute("RELEASE SAVEPOINT rebuild_api_configs")
+        except Exception:
+            conn.execute("ROLLBACK TO SAVEPOINT rebuild_api_configs")
+            conn.execute("RELEASE SAVEPOINT rebuild_api_configs")
+            raise
     finally:
         conn.execute("PRAGMA foreign_keys = ON")
 

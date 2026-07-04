@@ -101,3 +101,91 @@ def test_migration_allows_null_domain_duplicate(tmp_path):
     rows = conn.execute("SELECT COUNT(*) c FROM api_configs WHERE path='/foo'").fetchone()
     assert rows["c"] == 2
     conn.close()
+
+
+def test_migration_idempotence_check_tolerates_whitespace_variants(tmp_path):
+    """幂等判断应能识别手工格式化的 UNIQUE 声明（多余空格等），避免无谓 rebuild。"""
+    conn = _fresh_conn(tmp_path)
+    run_migrations(conn)  # 第一次跑到新约束
+
+    # 手工把 api_configs 的 CREATE SQL 改成含多余空格的等价形态
+    # 注意：SQLite 不支持直接改 sqlite_master.sql，所以这里用另一种方式：
+    # 手工 rename + 手工 create 一个带"怪异 UNIQUE 空格"的等价表，模拟人工迁移过的库
+    conn.execute("PRAGMA foreign_keys = OFF")
+    conn.execute("ALTER TABLE api_configs RENAME TO api_configs_ws")
+    conn.execute("""
+        CREATE TABLE api_configs (
+          id              TEXT PRIMARY KEY,
+          name            TEXT NOT NULL,
+          method          TEXT NOT NULL,
+          path            TEXT NOT NULL,
+          enabled         INTEGER NOT NULL DEFAULT 1,
+          group_name      TEXT,
+          data_source     TEXT NOT NULL CHECK (data_source IN ('sql','static')),
+          topology_id     TEXT,
+          sql_text        TEXT,
+          config          TEXT NOT NULL,
+          created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+          domain_id       TEXT,
+          category        TEXT,
+          FOREIGN KEY (topology_id) REFERENCES topologies(id),
+          UNIQUE ( domain_id , method , path )
+        )
+    """)
+    conn.execute("INSERT INTO api_configs SELECT * FROM api_configs_ws")
+    conn.execute("DROP TABLE api_configs_ws")
+    conn.execute("PRAGMA foreign_keys = ON")
+
+    sql_before = _read_table_sql(conn, "api_configs")
+    assert "UNIQUE ( domain_id , method , path )" in sql_before  # 现在的怪异形态
+
+    # 再跑一次 run_migrations，_rebuild_api_configs_domain_unique 应识别为"已是新约束"，跳过 rebuild
+    run_migrations(conn)
+    sql_after = _read_table_sql(conn, "api_configs")
+    # 不重建 → SQL 不变
+    assert sql_after == sql_before
+    conn.close()
+
+
+def test_migration_atomicity_rollback_on_insert_failure(tmp_path, monkeypatch):
+    """如果重建过程中 INSERT 失败，应通过 SAVEPOINT 回滚，不留半迁移态。"""
+    import sqlite3
+    from app.db import migrations
+
+    conn = _fresh_conn(tmp_path)
+    # 先建一个"老约束"的表：把 SCHEMA_SQL 跑一次，此时 api_configs 有 UNIQUE(method, path)
+    conn.executescript(migrations.SCHEMA_SQL)
+    # 老表初始只有 12 列（没 domain_id / category）；先加上，模拟历史增量列
+    try:
+        conn.execute("ALTER TABLE api_configs ADD COLUMN domain_id TEXT")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute("ALTER TABLE api_configs ADD COLUMN category TEXT")
+    except sqlite3.OperationalError:
+        pass
+    # 再手动加一个新 CREATE 里不存在的"未来"列，触发 INSERT SELECT 时的列不存在错
+    conn.execute("ALTER TABLE api_configs ADD COLUMN future_col TEXT")
+    # 插一条数据，确保回滚能验证"数据未丢"
+    conn.execute(
+        "INSERT INTO api_configs (id, name, method, path, data_source, config, future_col) "
+        "VALUES ('api_x', 'x', 'GET', '/x', 'static', '{}', 'v')"
+    )
+
+    # 跑迁移，应抛异常并回滚
+    with pytest.raises(sqlite3.OperationalError):
+        migrations._rebuild_api_configs_domain_unique(conn)
+
+    # 表结构必须还是老约束（回滚成功）
+    sql = _read_table_sql(conn, "api_configs")
+    assert "UNIQUE (method, path)" in sql or "UNIQUE(method, path)" in sql
+    # 数据也必须还在
+    rows = conn.execute("SELECT id, future_col FROM api_configs").fetchall()
+    assert [dict(r) for r in rows] == [{"id": "api_x", "future_col": "v"}]
+    # 备份表不能残留
+    bak = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='api_configs_bak_domain_unique'"
+    ).fetchone()
+    assert bak is None
+    conn.close()
