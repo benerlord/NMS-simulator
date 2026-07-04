@@ -282,6 +282,24 @@ CREATE TABLE IF NOT EXISTS node_alarm_attrs (
   FOREIGN KEY (alarm_id) REFERENCES node_alarms(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_node_alarm_attrs_key ON node_alarm_attrs(field_key);
+
+CREATE TABLE IF NOT EXISTS node_group_alarms (
+  id              TEXT PRIMARY KEY,
+  node_group_id   TEXT NOT NULL,
+  alarm_index     INTEGER NOT NULL,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (node_group_id) REFERENCES node_groups(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_group_alarms_grp ON node_group_alarms(node_group_id);
+
+CREATE TABLE IF NOT EXISTS node_group_alarm_attrs (
+  alarm_id        TEXT NOT NULL,
+  field_key       TEXT NOT NULL,
+  value           TEXT,
+  PRIMARY KEY (alarm_id, field_key),
+  FOREIGN KEY (alarm_id) REFERENCES node_group_alarms(id) ON DELETE CASCADE
+);
 """
 
 
