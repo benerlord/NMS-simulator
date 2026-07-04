@@ -116,6 +116,9 @@ from .alarm import (
     NodeAlarmAttrSet,
     NodeAlarmCreate,
     NodeAlarmItem,
+    NodeGroupAlarmAttrSet,
+    NodeGroupAlarmCreate,
+    NodeGroupAlarmItem,
 )
 
 __all__ = [
@@ -214,4 +217,7 @@ __all__ = [
     "NodeAlarmAttrSet",
     "NodeAlarmCreate",
     "NodeAlarmItem",
+    "NodeGroupAlarmAttrSet",
+    "NodeGroupAlarmCreate",
+    "NodeGroupAlarmItem",
 ]

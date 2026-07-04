@@ -122,3 +122,22 @@ class NodeAlarmItem(CamelModel):
     attrs: dict[str, Optional[str]] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
+
+
+# --- node group alarms ---
+
+class NodeGroupAlarmAttrSet(CamelModel):
+    attrs: dict[str, Optional[str]]
+
+
+class NodeGroupAlarmCreate(CamelModel):
+    attrs: Optional[dict[str, Optional[str]]] = None  # 未传 = 用 default_value 填
+
+
+class NodeGroupAlarmItem(CamelModel):
+    id: str
+    node_group_id: str
+    alarm_index: int
+    attrs: dict[str, Optional[str]] = Field(default_factory=dict)
+    created_at: datetime
+    updated_at: datetime
