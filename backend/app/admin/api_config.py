@@ -214,9 +214,13 @@ def duplicate_api(api_id: str) -> dict:
         new_path = f"{original_path}_copy"
         suffix = 2
         while True:
+            # 冲突判定：同域内不能同 (method, path)；未归类（domain_id=NULL）不受约束
+            if row["domain_id"] is None:
+                # 未归类接口的复制不做重复预检（跟 create/update 一致）
+                break
             conflict = conn.execute(
-                "SELECT id FROM api_configs WHERE method = ? AND path = ?",
-                (row["method"], new_path),
+                "SELECT id FROM api_configs WHERE domain_id = ? AND method = ? AND path = ?",
+                (row["domain_id"], row["method"], new_path),
             ).fetchone()
             if not conflict:
                 break
@@ -246,19 +250,22 @@ def create_api(body: ApiConfigCreate) -> dict:
     now = _now()
 
     with transaction() as conn:
-        dup = conn.execute(
-            "SELECT id FROM api_configs WHERE method = ? AND path = ?",
-            (body.method, body.path),
-        ).fetchone()
-        if dup:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": 40301,
-                    "message": "接口路径已存在",
-                    "details": {"method": body.method, "path": body.path},
-                },
-            )
+        # 按 (domain_id, method, path) 匹配；domain_id 为 NULL 时不做重复预检
+        # （SQLite NULL 语义允许多条未归类接口共享 path；用户归类后再受同域约束）
+        if body.domain_id is not None:
+            dup = conn.execute(
+                "SELECT id FROM api_configs WHERE domain_id = ? AND method = ? AND path = ?",
+                (body.domain_id, body.method, body.path),
+            ).fetchone()
+            if dup:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": 40301,
+                        "message": "接口路径在该网管下已存在",
+                        "details": {"method": body.method, "path": body.path, "domainId": body.domain_id},
+                    },
+                )
 
         if "?" in (body.path or ""):
             raise HTTPException(
@@ -372,23 +379,27 @@ def update_api(api_id: str, body: ApiConfigUpdate) -> dict:
 
         new_method = body.method if body.method is not None else existing["method"]
         new_path = body.path if body.path is not None else existing["path"]
-        if body.method is not None or body.path is not None:
-            dup = conn.execute(
-                """
-                SELECT id FROM api_configs
-                WHERE method = ? AND path = ? AND id != ?
-                """,
-                (new_method, new_path, api_id),
-            ).fetchone()
-            if dup:
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "code": 40301,
-                        "message": "接口路径已存在",
-                        "details": {"method": new_method, "path": new_path},
-                    },
-                )
+        # 允许 body.domain_id 覆盖 existing 的 domain_id（LEGACY-06 已允许更新绑定）
+        new_domain_id = body.domain_id if "domain_id" in body.model_fields_set else existing["domain_id"]
+        if body.method is not None or body.path is not None or body.domain_id is not None:
+            # 未归类接口（新域为 NULL）不做重复预检
+            if new_domain_id is not None:
+                dup = conn.execute(
+                    """
+                    SELECT id FROM api_configs
+                    WHERE domain_id = ? AND method = ? AND path = ? AND id != ?
+                    """,
+                    (new_domain_id, new_method, new_path, api_id),
+                ).fetchone()
+                if dup:
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "code": 40301,
+                            "message": "接口路径在该网管下已存在",
+                            "details": {"method": new_method, "path": new_path, "domainId": new_domain_id},
+                        },
+                    )
 
         # 若本次更新会让接口落到 sql 模式，必须保证 sql_text 非空，避免脏配置入库
         effective_data_source = (
