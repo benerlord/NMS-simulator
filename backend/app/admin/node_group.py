@@ -413,6 +413,8 @@ async def materialize_node_group(group_id: str) -> dict:
         # Pre-query alarm schema for the topology (used per-node in flush)
         alarm_schema_id: Optional[str] = None
         alarm_fields: list[dict] = []
+        # 组告警模板：[(template_alarm_index, {field_key: value}), ...]
+        group_alarm_templates: list[tuple[int, dict]] = []
         with connect() as _ac:
             _row = _ac.execute(
                 "SELECT alarm_schema_id FROM topologies WHERE id = ?", (topology_id,)
@@ -426,6 +428,21 @@ async def materialize_node_group(group_id: str) -> dict:
                     (alarm_schema_id,),
                 ).fetchall()
                 alarm_fields = [dict(f) for f in _fields]
+
+                # 拉当前组的所有告警模板 + attrs
+                _tpl_rows = _ac.execute(
+                    "SELECT id, alarm_index FROM node_group_alarms "
+                    "WHERE node_group_id = ? ORDER BY alarm_index",
+                    (group_id,),
+                ).fetchall()
+                for _tr in _tpl_rows:
+                    _attr_rows = _ac.execute(
+                        "SELECT field_key, value FROM node_group_alarm_attrs WHERE alarm_id = ?",
+                        (_tr["id"],),
+                    ).fetchall()
+                    group_alarm_templates.append(
+                        (_tr["alarm_index"], {a["field_key"]: a["value"] for a in _attr_rows})
+                    )
 
         rng = random.Random(group_id)  # Seeded random for reproducibility
         total_nodes = node_count
@@ -448,19 +465,25 @@ async def materialize_node_group(group_id: str) -> dict:
                         "INSERT INTO node_attrs (node_id, field_key, value) VALUES (?, ?, ?)",
                         (nid, s.field_key, val),
                     )
-                # Auto-insert 1 default alarm per node when topology has alarm_schema bound
-                if alarm_schema_id:
-                    aid = f"alm_{uuid.uuid4().hex[:12]}"
-                    conn.execute(
-                        "INSERT INTO node_alarms (id, node_id, alarm_index) VALUES (?, ?, 1)",
-                        (aid, nid),
-                    )
-                    attrs = build_alarm_attrs(conn, nid, alarm_fields)
-                    for k, v in attrs.items():
+                # 按组的告警模板批量插入告警（0 模板 = 0 告警）
+                if alarm_schema_id and group_alarm_templates:
+                    for tpl_idx, tpl_attrs in group_alarm_templates:
+                        aid = f"alm_{uuid.uuid4().hex[:12]}"
                         conn.execute(
-                            "INSERT INTO node_alarm_attrs (alarm_id, field_key, value) VALUES (?, ?, ?)",
-                            (aid, k, v),
+                            "INSERT INTO node_alarms (id, node_id, alarm_index) VALUES (?, ?, ?)",
+                            (aid, nid, tpl_idx),
                         )
+                        # 合并：模板显式值 > mapping_target > default_value
+                        # 用 build_alarm_attrs 走 mapping/default 优先级；再用模板值覆盖
+                        base_attrs = build_alarm_attrs(conn, nid, alarm_fields)
+                        for k, v in tpl_attrs.items():
+                            if v is not None:
+                                base_attrs[k] = v
+                        for k, v in base_attrs.items():
+                            conn.execute(
+                                "INSERT INTO node_alarm_attrs (alarm_id, field_key, value) VALUES (?, ?, ?)",
+                                (aid, k, v),
+                            )
 
         buffer: list[tuple] = []  # (node_id, name)
         with transaction() as conn:

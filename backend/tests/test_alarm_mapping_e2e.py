@@ -71,6 +71,8 @@ def test_materialize_uses_mapping(client):
         "attrStrategies": [], "edgeStrategies": [],
     })
     gid = r.json()["data"]["id"]
+    # 新语义：materialize 只按组的告警模板生成告警，需先创建模板
+    client.post(f"/admin/api/node-groups/{gid}/alarms", json={"attrs": {}})
     client.post(f"/admin/api/node-groups/{gid}/materialize")
 
     with sqlite3.connect(str(settings.db_path)) as c:
