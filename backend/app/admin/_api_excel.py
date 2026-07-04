@@ -182,6 +182,32 @@ def _decode_config(config_json: str) -> dict:
         return {}
 
 
+def _stringify_cell(value: Any) -> str:
+    """把可能是 dict / list / str / None 的 config 值统一成单元格里可写的字符串。
+
+    历史数据里 config.staticBody 有时是 dict（老 UI 存的是 JSON 对象），
+    Excel 单元格只接受标量，需要 JSON stringify。
+    """
+    if value is None or value == "":
+        return ""
+    if isinstance(value, str):
+        return value
+    try:
+        return _json.dumps(value, ensure_ascii=False, indent=2)
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _resolve_response_template(config: dict) -> str:
+    """兼容两种存储：新版 config.responseTemplate 直接是字符串；
+    老版 config.response.template 嵌在子对象里。"""
+    top = config.get("responseTemplate")
+    if top:
+        return _stringify_cell(top)
+    nested = (config.get("response") or {}).get("template") if isinstance(config.get("response"), dict) else None
+    return _stringify_cell(nested)
+
+
 def _api_row_to_excel_values(api: dict, topology_name_by_id: dict) -> list:
     """把一行 api_configs 记录转成 Excel 一行的 20 个单元格值（按 MAIN_HEADERS 顺序）。"""
     config = _decode_config(api.get("config") or "")
@@ -216,9 +242,9 @@ def _api_row_to_excel_values(api: dict, topology_name_by_id: dict) -> list:
         format_cell_list(query, QUERY_COLUMNS),
         body_cell,
         api.get("sql_text") or "",
-        config.get("responseTemplate") or "",
+        _resolve_response_template(config),
         format_cell_list(param_mappings, PARAM_MAPPING_COLUMNS),
-        config.get("staticBody") or "",
+        _stringify_cell(config.get("staticBody")),
         fault.get("delayMs"),
         fault.get("errorRate"),
         fault.get("errorStatus"),

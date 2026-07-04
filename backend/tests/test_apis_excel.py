@@ -779,3 +779,39 @@ def test_import_endpoint_composite_key_fully_replaced(client):
     }
     # customFuture 是"未建模"的顶层键，保留
     assert detail["config"]["customFuture"] == "keep_me"
+
+
+def test_build_workbook_static_body_dict_is_json_stringified():
+    """历史数据 staticBody 可能是 dict，导出不能崩。"""
+    config = {"staticBody": {"accessSession": "x", "expires": 1800}}
+    apis = [_make_api_row(config=json.dumps(config))]
+    wb = build_workbook(api_rows=apis, domains=[], topologies=[])
+    reloaded = _load_bytes(wb)
+    ws = reloaded[UNCATEGORIZED_SHEET_NAME]
+    body_col = MAIN_HEADERS.index("静态响应体") + 1
+    cell = ws.cell(row=2, column=body_col).value
+    # 应是 JSON 字符串（含 accessSession 关键字）
+    assert isinstance(cell, str)
+    assert "accessSession" in cell
+
+
+def test_build_workbook_response_template_nested_format():
+    """老数据 config.response.template（嵌套）应被识别，兼容新格式 responseTemplate。"""
+    config = {"response": {"template": "[\"{{items}}\"]"}}
+    apis = [_make_api_row(config=json.dumps(config))]
+    wb = build_workbook(api_rows=apis, domains=[], topologies=[])
+    reloaded = _load_bytes(wb)
+    ws = reloaded[UNCATEGORIZED_SHEET_NAME]
+    tpl_col = MAIN_HEADERS.index("响应模板") + 1
+    assert ws.cell(row=2, column=tpl_col).value == "[\"{{items}}\"]"
+
+
+def test_build_workbook_response_template_top_level_still_works():
+    """新数据 config.responseTemplate 顶层字段继续工作。"""
+    config = {"responseTemplate": "{\"count\":\"{{total}}\"}"}
+    apis = [_make_api_row(config=json.dumps(config))]
+    wb = build_workbook(api_rows=apis, domains=[], topologies=[])
+    reloaded = _load_bytes(wb)
+    ws = reloaded[UNCATEGORIZED_SHEET_NAME]
+    tpl_col = MAIN_HEADERS.index("响应模板") + 1
+    assert ws.cell(row=2, column=tpl_col).value == "{\"count\":\"{{total}}\"}"
