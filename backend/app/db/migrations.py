@@ -382,6 +382,67 @@ def _expand_field_type_check(
         conn.execute("PRAGMA foreign_keys = ON")
 
 
+def _rebuild_api_configs_domain_unique(conn: sqlite3.Connection) -> None:
+    """把 api_configs 的 UNIQUE(method, path) 放宽成 UNIQUE(domain_id, method, path)。
+
+    幂等：通过读取 sqlite_master 里的 CREATE TABLE 语句判断当前是老约束还是新约束。
+    仅当仍是老约束（UNIQUE(method, path)）时才重建表。
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='api_configs'"
+    ).fetchone()
+    if row is None:
+        return
+    table_sql = row[0] or ""
+    # 新约束特征：包含 domain_id, method, path 的 UNIQUE 元组
+    if "UNIQUE (domain_id, method, path)" in table_sql or "UNIQUE(domain_id, method, path)" in table_sql:
+        return  # 已经是新约束
+
+    # 关外键、重建、迁数据、切回
+    conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        cols_info = conn.execute("PRAGMA table_info(api_configs)").fetchall()
+        col_names = [c[1] for c in cols_info]
+        cols_csv = ", ".join(col_names)
+
+        conn.execute("ALTER TABLE api_configs RENAME TO api_configs_bak_domain_unique")
+
+        conn.execute("""
+            CREATE TABLE api_configs (
+              id              TEXT PRIMARY KEY,
+              name            TEXT NOT NULL,
+              method          TEXT NOT NULL,
+              path            TEXT NOT NULL,
+              enabled         INTEGER NOT NULL DEFAULT 1,
+              group_name      TEXT,
+              data_source     TEXT NOT NULL CHECK (data_source IN ('sql','static')),
+              topology_id     TEXT,
+              sql_text        TEXT,
+              config          TEXT NOT NULL,
+              created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+              updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+              domain_id       TEXT,
+              category        TEXT,
+              FOREIGN KEY (topology_id) REFERENCES topologies(id),
+              UNIQUE (domain_id, method, path)
+            )
+        """)
+
+        conn.execute(
+            f"INSERT INTO api_configs ({cols_csv}) SELECT {cols_csv} FROM api_configs_bak_domain_unique"
+        )
+        conn.execute("DROP TABLE api_configs_bak_domain_unique")
+
+        # 重建原有索引（SCHEMA_SQL 里那几条 CREATE INDEX 后续会由 executescript 幂等重放，
+        # 但这里显式补一遍以防万一）
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_apis_enabled ON api_configs(enabled)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_apis_topo    ON api_configs(topology_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_apis_group   ON api_configs(group_name)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_apis_domain  ON api_configs(domain_id)")
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
+
+
 def run_migrations(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA_SQL)
     # Idempotent column addition for nodes.group_id
@@ -469,3 +530,5 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     _expand_field_type_check(conn, "alarm_schema_fields",
                              "FOREIGN KEY (alarm_schema_id) REFERENCES alarm_schemas(id) ON DELETE CASCADE",
                              "UNIQUE (alarm_schema_id, field_key)")
+    # 跨网管同名接口：api_configs 的 UNIQUE(method, path) 放宽为 UNIQUE(domain_id, method, path)
+    _rebuild_api_configs_domain_unique(conn)
