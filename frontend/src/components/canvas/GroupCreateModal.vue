@@ -5,6 +5,7 @@ import { nodeGroupApi } from '@/api/nodeGroup'
 import { nodeTypeApi, edgeTypeApi } from '@/api/types'
 import type { NodeTypeDetail, NodeTypeFieldItem, EdgeTypeItem } from '@/api/types'
 import type { NodeGroupItem } from '@/api/nodeGroup'
+import { apiGet } from '@/api/http'
 
 interface Props {
   visible: boolean
@@ -23,6 +24,22 @@ const isEdit = computed(() => !!props.editGroupId)
 const currentStep = ref(0)
 const submitting = ref(false)
 const loadingEdit = ref(false)
+const alarmSchemaBound = ref(false)
+
+async function checkAlarmSchemaBinding() {
+  if (!props.topologyId) {
+    alarmSchemaBound.value = false
+    return
+  }
+  try {
+    const res = await apiGet<{ alarmSchemaId?: string | null }>(
+      `/topologies/${props.topologyId}`,
+    )
+    alarmSchemaBound.value = !!res.alarmSchemaId
+  } catch {
+    alarmSchemaBound.value = false
+  }
+}
 
 // Shared data
 const nodeTypes = ref<NodeTypeDetail[]>([])
@@ -120,6 +137,9 @@ watch(
     if (!v) return
     currentStep.value = 0
     submitting.value = false
+
+    // Check whether topology has an alarm schema bound (for step 4 hint)
+    checkAlarmSchemaBinding()
 
     // Fetch node types, edge types, and existing groups in parallel
     try {
@@ -342,7 +362,7 @@ function nextStep() {
   if (currentStep.value === 1) {
     if (!step2ValidateAndScroll()) return
   }
-  if (currentStep.value < 2) currentStep.value++
+  if (currentStep.value < 3) currentStep.value++
 }
 
 function prevStep() {
@@ -431,7 +451,7 @@ function handleCancel() {
       <!-- Steps indicator -->
       <div class="steps-bar">
         <div
-          v-for="(label, idx) in ['基础信息', '属性策略', '连接规则']"
+          v-for="(label, idx) in ['基础信息', '属性策略', '连接规则', '告警']"
           :key="idx"
           class="step-dot"
           :class="{
@@ -703,14 +723,30 @@ function handleCancel() {
         </div>
       </div>
 
+      <!-- Step 4 — 告警 -->
+      <div v-show="currentStep === 3" class="step-content">
+        <div v-if="!alarmSchemaBound" class="alarm-empty-hint">
+          <p style="color: #999; padding: 24px; text-align: center;">
+            当前拓扑未绑定告警模板。<br />
+            请先到拓扑管理页面绑定告警模板，或提交后再补配告警。
+          </p>
+        </div>
+        <div v-else class="alarm-create-note">
+          <p style="color: #666; padding: 24px; text-align: center; line-height: 1.8;">
+            创建成功后可在画布上右键节点组 → "编辑组定义" 里继续配置告警。<br />
+            <span style="color: #999; font-size: 12px;">（每个虚拟节点将共享同一份告警模板列表）</span>
+          </p>
+        </div>
+      </div>
+
       <!-- Footer nav -->
       <div class="steps-nav">
         <Button v-if="currentStep > 0" @click="prevStep">上一步</Button>
         <div class="nav-spacer" />
         <Button
-          v-if="currentStep < 2"
+          v-if="currentStep < 3"
           type="primary"
-          :disabled="currentStep === 0 ? !step1Valid : !step2Valid"
+          :disabled="currentStep === 0 ? !step1Valid : currentStep === 1 ? !step2Valid : false"
           @click="nextStep"
         >
           下一步
