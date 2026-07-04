@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, h } from 'vue'
+import { ref, computed, watch } from 'vue'
 import {
   Table,
   Space,
@@ -210,9 +210,8 @@ function handleCreateInCategory(category: string | null, domainId?: string | nul
 async function handleExport() {
   try {
     const ids = selectedApiIds.value.size > 0 ? [...selectedApiIds.value] : undefined
-    const result = await apiConfigApi.export(ids ? { ids } : {})
-    const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' })
-    downloadBlob(blob, timestampExcelFilename('apis-export').replace('.xlsx', '.json'))
+    const blob = await apiConfigApi.export(ids ? { ids } : {})
+    downloadBlob(blob, timestampExcelFilename('apis-export'))
     message.success(ids ? `已导出 ${ids.length} 个接口` : '导出成功')
     selectedApiIds.value.clear()
   } catch {}
@@ -225,10 +224,9 @@ async function handleExportByCategory(apiIds: string[]) {
     return
   }
   try {
-    const result = await apiConfigApi.export({ ids: apiIds })
-    const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' })
-    downloadBlob(blob, timestampExcelFilename('apis-export').replace('.xlsx', '.json'))
-    message.success(`已导出 ${result.apis.length} 个接口`)
+    const blob = await apiConfigApi.export({ ids: apiIds })
+    downloadBlob(blob, timestampExcelFilename('apis-export'))
+    message.success(`已导出 ${apiIds.length} 个接口`)
   } catch {}
 }
 
@@ -294,135 +292,42 @@ async function handleDeleteDirectory(domainId: string, domainName: string) {
 }
 
 async function handleFileChosen(e: Event) {
-  const input = e.target as HTMLInputElement
-  const file = input.files?.[0]
-  input.value = ''
+  const target = e.target as HTMLInputElement
+  const file = target.files?.[0]
   if (!file) return
+  target.value = '' // 允许连选同一文件
 
-  if (!file.name.endsWith('.json')) {
-    message.error('仅支持 .json 文件')
-    return
-  }
-
-  // Read file content for preview
-  let doc: { apis: Array<Record<string, unknown>> }
-  try {
-    const text = await file.text()
-    doc = JSON.parse(text)
-    if (!doc.apis || !Array.isArray(doc.apis)) {
-      message.error('格式无效：缺少 apis 数组')
-      return
-    }
-  } catch {
-    message.error('JSON 解析失败')
-    return
-  }
-
-  // Build preview
-  const toCreate: Array<{ method: string; path: string; name: string }> = []
-  const toUpdate: Array<{ method: string; path: string; oldName: string; newName: string }> = []
-  const errors: string[] = []
-  const newCategories = new Set<string>()
-
-  for (const api of doc.apis) {
-    if (!api.method || !api.path) {
-      errors.push('缺少 method/path，跳过')
-      continue
-    }
-    const cat = api.category as string | undefined
-    if (cat && !props.domains.some(d => d.name === cat)) {
-      newCategories.add(cat)
-    }
-    const existing = props.items.find(
-      item =>
-        item.method === api.method &&
-        item.path === api.path,
-    )
-    if (existing) {
-      toUpdate.push({
-        method: api.method as string,
-        path: api.path as string,
-        oldName: existing.name,
-        newName: (api.name as string) || '',
-      })
-    } else {
-      toCreate.push({
-        method: api.method as string,
-        path: api.path as string,
-        name: (api.name as string) || '',
-      })
-    }
-  }
-
-  // Show preview modal
-  const children: ReturnType<typeof h>[] = []
-
-  if (toCreate.length) {
-    children.push(
-      h('div', { style: { fontWeight: 'bold', marginBottom: '4px' } },
-        `将新建 ${toCreate.length} 个接口：`),
-      ...toCreate.map(item =>
-        h('div', { style: { paddingLeft: '8px' } },
-          `+ ${item.method} ${item.path} ${item.name}`),
-      ),
-    )
-  }
-
-  if (toUpdate.length) {
-    if (children.length) children.push(h('br'))
-    children.push(
-      h('div', { style: { fontWeight: 'bold', marginBottom: '4px' } },
-        `将更新 ${toUpdate.length} 个接口：`),
-      ...toUpdate.map(item => {
-        const namePart = item.oldName !== item.newName
-          ? `（${item.oldName} → ${item.newName}）`
-          : `（${item.newName || '(空)'}）`
-        return h('div', { style: { paddingLeft: '8px' } },
-          `~ ${item.method} ${item.path} ${namePart}`)
-      }),
-    )
-  }
-
-  if (errors.length) {
-    if (children.length) children.push(h('br'))
-    children.push(
-      h('div', { style: { color: '#faad14' } },
-        `⚠ 有 ${errors.length} 行将被跳过。`),
-    )
-  }
-
-  if (newCategories.size > 0) {
-    if (children.length) children.push(h('br'))
-    children.push(
-      h('div', { style: { color: '#1890ff' } },
-        `ℹ 将自动创建 ${newCategories.size} 个目录：${[...newCategories].join('、')}`),
-    )
-  }
-
-  if (toCreate.length === 0 && toUpdate.length === 0 && errors.length > 0) {
-    message.warning('没有可导入的接口')
+  if (!file.name.toLowerCase().endsWith('.xlsx')) {
+    message.error('仅支持 .xlsx 文件')
     return
   }
 
   Modal.confirm({
     title: '确认导入',
-    content: () => h('div', { style: { lineHeight: '1.8' } }, children),
+    content: `将导入文件 "${file.name}"。已存在的接口按 (方法, 路径) 匹配更新，不存在的新建。确认继续？`,
     okText: '确认导入',
     cancelText: '取消',
-    width: 520,
+    width: 480,
     onOk: async () => {
-      const result = await apiConfigApi.import(file)
-      const parts: string[] = []
-      if (result.created) parts.push(`新建 ${result.created} 个`)
-      if (result.updated) parts.push(`更新 ${result.updated} 个`)
-      message.success(parts.join('，') || '导入完成')
-      if (result.autoCreatedDomains.length) {
-        message.info(`自动创建了 ${result.autoCreatedDomains.length} 个目录：${result.autoCreatedDomains.join('、')}`)
+      try {
+        const result = await apiConfigApi.import(file)
+        const parts: string[] = []
+        if (result.created) parts.push(`新建 ${result.created} 个`)
+        if (result.updated) parts.push(`更新 ${result.updated} 个`)
+        message.success(parts.join('，') || '导入完成')
+        if (result.autoCreatedDomains.length) {
+          message.info(`自动创建了 ${result.autoCreatedDomains.length} 个目录：${result.autoCreatedDomains.join('、')}`)
+        }
+        if (result.warnings.length) {
+          message.warning(result.warnings.join('；'))
+        }
+        if (result.errors.length) {
+          message.error(`${result.errors.length} 行被跳过：${result.errors.slice(0, 3).join('；')}${result.errors.length > 3 ? '…' : ''}`)
+        }
+        emit('refresh')
+      } catch (err: any) {
+        message.error(err?.message || '导入失败')
       }
-      if (result.errors.length) {
-        message.warning(result.errors.join('；'))
-      }
-      emit('refresh')
     },
   })
 }
@@ -567,7 +472,7 @@ const groupedDomains = computed(() => {
         <input
           ref="fileInputRef"
           type="file"
-          accept=".json"
+          accept=".xlsx"
           style="display: none"
           @change="handleFileChosen"
         />
