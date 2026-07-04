@@ -17,6 +17,7 @@ from app.admin.settings import router as settings_router
 from app.admin.node_group import router as node_group_router
 from app.admin.alarm_schema import router as alarm_schema_router
 from app.admin.node_alarm import router as node_alarm_router
+from app.admin.node_group_alarm import router as node_group_alarm_router
 from app.admin.node_fields import router as node_fields_router
 from app.admin.domain import router as domain_router
 from app.admin.mock_instance import router as mock_instance_router
@@ -72,6 +73,7 @@ app.include_router(settings_router)
 app.include_router(node_group_router)
 app.include_router(alarm_schema_router)
 app.include_router(node_alarm_router)
+app.include_router(node_group_alarm_router)
 app.include_router(node_fields_router)
 app.include_router(domain_router)
 app.include_router(mock_instance_router)
