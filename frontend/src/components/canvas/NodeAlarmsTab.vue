@@ -5,31 +5,75 @@ import ArrayJsonInput from './ArrayJsonInput.vue'
 import { PlusOutlined, DeleteOutlined, ImportOutlined } from '@ant-design/icons-vue'
 import JsonFillValuesModal from '@/components/shared/JsonFillValuesModal.vue'
 import { nodeAlarmApi, type NodeAlarmItem } from '@/api/nodeAlarm'
+import { nodeGroupApi, type NodeGroupAlarmItem } from '@/api/nodeGroup'
 import { alarmSchemaApi, type AlarmSchemaFieldItem, type AlarmSchemaDetail } from '@/api/alarmSchema'
 import { apiGet } from '@/api/http'
 import type { TopologyDetail } from '@/api/topology'
 
-const props = defineProps<{
-  nodeId: string | null
+interface Props {
   topologyId: string
-}>()
+  nodeId?: string | null
+  nodeGroupId?: string | null
+  context?: 'node' | 'group'
+}
+
+const props = defineProps<Props>()
 
 const emit = defineEmits<{
   (e: 'count-change', count: number): void
 }>()
 
+type AlarmItem = NodeAlarmItem | NodeGroupAlarmItem
+
 const loading = ref(false)
 const schema = ref<AlarmSchemaDetail | null>(null)
 const schemaFields = ref<AlarmSchemaFieldItem[]>([])
-const alarms = ref<NodeAlarmItem[]>([])
+const alarms = ref<AlarmItem[]>([])
 const alarmSchemaId = ref<string | null>(null)
 const dirtyAlarmIds = ref<Set<string>>(new Set())
 const fieldErrors = ref<Record<string, Record<string, string>>>({})
 
 const hasSchema = computed(() => !!alarmSchemaId.value)
 
+const effectiveContext = computed(() => props.context ?? 'node')
+const entityId = computed(() =>
+  effectiveContext.value === 'group' ? props.nodeGroupId : props.nodeId,
+)
+
+async function apiListAlarms(id: string): Promise<AlarmItem[]> {
+  if (effectiveContext.value === 'group') {
+    return await nodeGroupApi.listAlarms(id)
+  }
+  return await nodeAlarmApi.listByNode(id)
+}
+
+async function apiCreateAlarm(id: string): Promise<AlarmItem> {
+  if (effectiveContext.value === 'group') {
+    return await nodeGroupApi.createAlarm(id)
+  }
+  return await nodeAlarmApi.create(id)
+}
+
+async function apiUpdateAttrs(
+  alarmId: string,
+  attrs: Record<string, string | null>,
+): Promise<AlarmItem> {
+  if (effectiveContext.value === 'group') {
+    return await nodeGroupApi.updateAlarmAttrs(alarmId, { attrs })
+  }
+  return await nodeAlarmApi.updateAttrs(alarmId, attrs)
+}
+
+async function apiDeleteAlarm(alarmId: string): Promise<unknown> {
+  if (effectiveContext.value === 'group') {
+    return await nodeGroupApi.deleteAlarm(alarmId)
+  }
+  return await nodeAlarmApi.delete(alarmId)
+}
+
 async function loadAll() {
-  if (!props.nodeId) return
+  const id = entityId.value
+  if (!id) return
   loading.value = true
   try {
     const topo = await apiGet<TopologyDetail>(`/topologies/${props.topologyId}`)
@@ -42,7 +86,7 @@ async function loadAll() {
       schema.value = null
       schemaFields.value = []
     }
-    alarms.value = await nodeAlarmApi.listByNode(props.nodeId)
+    alarms.value = await apiListAlarms(id)
     dirtyAlarmIds.value.clear()
     emit('count-change', alarms.value.length)
   } finally {
@@ -50,12 +94,13 @@ async function loadAll() {
   }
 }
 
-watch(() => props.nodeId, loadAll, { immediate: true })
+watch(entityId, loadAll, { immediate: true })
 
 async function handleAdd() {
-  if (!props.nodeId) return
+  const id = entityId.value
+  if (!id) return
   try {
-    const created = await nodeAlarmApi.create(props.nodeId)
+    const created = await apiCreateAlarm(id)
     alarms.value.push(created)
     emit('count-change', alarms.value.length)
   } catch (e: any) {
@@ -65,7 +110,7 @@ async function handleAdd() {
 
 async function handleDelete(alarmId: string) {
   try {
-    await nodeAlarmApi.delete(alarmId)
+    await apiDeleteAlarm(alarmId)
     alarms.value = alarms.value.filter(a => a.id !== alarmId)
     dirtyAlarmIds.value.delete(alarmId)
     emit('count-change', alarms.value.length)
@@ -78,7 +123,7 @@ function markDirty(alarmId: string) {
   dirtyAlarmIds.value.add(alarmId)
 }
 
-function getCollapseHeader(alarm: NodeAlarmItem): string {
+function getCollapseHeader(alarm: AlarmItem): string {
   const displayKey = schema.value?.displayFieldKey
   let field: AlarmSchemaFieldItem | null = null
   if (displayKey) {
@@ -90,7 +135,7 @@ function getCollapseHeader(alarm: NodeAlarmItem): string {
   return `${v || '(空)'}  #${alarm.alarmIndex}`
 }
 
-function validateAlarm(alarm: NodeAlarmItem): boolean {
+function validateAlarm(alarm: AlarmItem): boolean {
   const errs: Record<string, string> = {}
   for (const f of schemaFields.value) {
     const v = alarm.attrs[f.fieldKey]
@@ -128,7 +173,7 @@ async function saveDirty(): Promise<boolean> {
   for (const a of [...alarms.value]) {
     if (!dirtyAlarmIds.value.has(a.id)) continue
     try {
-      const updated = await nodeAlarmApi.updateAttrs(a.id, a.attrs)
+      const updated = await apiUpdateAttrs(a.id, a.attrs)
       const idx = alarms.value.findIndex(x => x.id === a.id)
       if (idx >= 0) alarms.value[idx] = updated
       dirtyAlarmIds.value.delete(a.id)
