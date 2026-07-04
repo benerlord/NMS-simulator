@@ -480,7 +480,10 @@ ALARM_FIXED_COLUMNS: list[str] = [
 
 
 def _build_alarms_cte(conn: sqlite3.Connection, topology_id: str) -> Optional[dict[str, Any]]:
-    """Alarms CTE — None if topology has no alarm_schema bound."""
+    """Alarms CTE — UNION 物理节点告警 + 节点组虚拟告警。
+
+    对使用方透明：同一张 alarms 表既能查到物理告警也能查到虚拟告警，字段列一致。
+    """
     row = conn.execute(
         "SELECT alarm_schema_id FROM topologies WHERE id = ?", (topology_id,)
     ).fetchone()
@@ -489,23 +492,14 @@ def _build_alarms_cte(conn: sqlite3.Connection, topology_id: str) -> Optional[di
     sid = row["alarm_schema_id"]
 
     field_rows = conn.execute(
-        "SELECT field_key FROM alarm_schema_fields WHERE alarm_schema_id = ? "
+        "SELECT field_key, mapping_target FROM alarm_schema_fields WHERE alarm_schema_id = ? "
         "ORDER BY sort_order, id",
         (sid,),
     ).fetchall()
 
     columns = list(ALARM_FIXED_COLUMNS)
-    pivots: list[str] = []
-    for r in field_rows:
-        key = r["field_key"]
-        if not is_valid_ident(key):
-            continue
-        if key in columns:
-            continue
-        columns.append(key)
-        pivots.append(f"MAX(CASE WHEN aa.field_key = '{key}' THEN aa.value END) AS {key}")
 
-    fixed_select = [
+    phys_fixed = [
         "a.id",
         "a.node_id",
         "n.name AS node_name",
@@ -514,15 +508,59 @@ def _build_alarms_cte(conn: sqlite3.Connection, topology_id: str) -> Optional[di
         "a.created_at",
         "a.updated_at",
     ]
-    select_body = ",\n         ".join(fixed_select + pivots)
-    sql = (
-        f"SELECT {select_body}\n"
+    phys_pivots: list[str] = []
+    virt_fixed = [
+        "('gna_' || gn.id || '_' || ga.alarm_index) AS id",
+        "gn.id AS node_id",
+        "gn.name AS node_name",
+        "gn.dn AS node_dn",
+        "ga.alarm_index",
+        "ga.created_at",
+        "ga.updated_at",
+    ]
+    virt_pivots: list[str] = []
+
+    for r in field_rows:
+        key = r["field_key"]
+        if not is_valid_ident(key):
+            continue
+        if key in columns:
+            continue
+        columns.append(key)
+
+        if r["mapping_target"]:
+            mt = r["mapping_target"]
+            phys_pivots.append(f"MAX(CASE WHEN aa.field_key = '{key}' THEN aa.value END) AS {key}")
+            if is_valid_ident(mt) and mt in {"name", "dn", "id", "status"}:
+                virt_pivots.append(f"gn.{mt} AS {key}")
+            else:
+                virt_pivots.append(f"NULL AS {key}")
+        else:
+            phys_pivots.append(f"MAX(CASE WHEN aa.field_key = '{key}' THEN aa.value END) AS {key}")
+            virt_pivots.append(f"MAX(CASE WHEN gaa.field_key = '{key}' THEN gaa.value END) AS {key}")
+
+    phys_select_body = ",\n         ".join(phys_fixed + phys_pivots)
+    virt_select_body = ",\n         ".join(virt_fixed + virt_pivots)
+
+    physical_sql = (
+        f"SELECT {phys_select_body}\n"
         "  FROM main.node_alarms a\n"
         "  JOIN main.nodes n ON n.id = a.node_id\n"
         "  LEFT JOIN main.node_alarm_attrs aa ON aa.alarm_id = a.id\n"
         "  WHERE n.topology_id = :__tid__\n"
         "  GROUP BY a.id"
     )
+    virtual_sql = (
+        f"SELECT {virt_select_body}\n"
+        "  FROM group_nodes gn\n"
+        "  JOIN main.node_groups g ON g.id = gn.group_id\n"
+        "  JOIN main.node_group_alarms ga ON ga.node_group_id = g.id\n"
+        "  LEFT JOIN main.node_group_alarm_attrs gaa ON gaa.alarm_id = ga.id\n"
+        "  WHERE g.topology_id = :__tid__\n"
+        "  GROUP BY gn.id, ga.id"
+    )
+    sql = f"{physical_sql}\nUNION ALL\n{virtual_sql}"
+
     return {"name": "alarms", "columns": columns, "sql": sql}
 
 
