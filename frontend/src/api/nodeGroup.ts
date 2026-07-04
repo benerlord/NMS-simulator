@@ -105,6 +105,25 @@ export interface GroupGraphData {
   macroEdges: MacroEdge[]
 }
 
+// ============ Node Group Alarms ============
+
+export interface NodeGroupAlarmItem {
+  id: string
+  nodeGroupId: string
+  alarmIndex: number
+  attrs: Record<string, string | null>
+  createdAt: string
+  updatedAt: string
+}
+
+export interface NodeGroupAlarmCreate {
+  attrs?: Record<string, string | null>
+}
+
+export interface NodeGroupAlarmAttrSet {
+  attrs: Record<string, string | null>
+}
+
 // ============ API Functions ============
 
 export const nodeGroupApi = {
@@ -131,4 +150,16 @@ export const nodeGroupApi = {
 
   updatePosition: (id: string, data: { x: number; y: number }): Promise<{ id: string; x: number; y: number }> =>
     apiPatch(`/node-groups/${id}/position`, data),
+
+  listAlarms: (groupId: string): Promise<NodeGroupAlarmItem[]> =>
+    apiGet(`/node-groups/${groupId}/alarms`),
+
+  createAlarm: (groupId: string, data: NodeGroupAlarmCreate = {}): Promise<NodeGroupAlarmItem> =>
+    apiPost(`/node-groups/${groupId}/alarms`, data),
+
+  updateAlarmAttrs: (alarmId: string, data: NodeGroupAlarmAttrSet): Promise<NodeGroupAlarmItem> =>
+    apiPut(`/node-group-alarms/${alarmId}/attrs`, data),
+
+  deleteAlarm: (alarmId: string): Promise<null> =>
+    apiDelete(`/node-group-alarms/${alarmId}`),
 }
