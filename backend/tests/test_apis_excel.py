@@ -815,3 +815,90 @@ def test_build_workbook_response_template_top_level_still_works():
     ws = reloaded[UNCATEGORIZED_SHEET_NAME]
     tpl_col = MAIN_HEADERS.index("响应模板") + 1
     assert ws.cell(row=2, column=tpl_col).value == "{\"count\":\"{{total}}\"}"
+
+
+def test_parse_workbook_renamed_sheet_ignores_stale_a1_comment():
+    """用户重命名 Sheet 后，A1 comment 里的原始域名应被视为过时，走新 Sheet 名。"""
+    def build(wb):
+        # 模拟：导出时 Sheet 名叫 "ManageOne网管"，A1 comment 里存 "__ORIGINAL_DOMAIN__=ManageOne网管"
+        # 用户随后把 Sheet 重命名为 "新网管"
+        ws = wb.create_sheet("新网管")
+        for col_idx, h in enumerate(MAIN_HEADERS, start=1):
+            ws.cell(row=1, column=col_idx, value=h)
+        from openpyxl.comments import Comment
+        ws["A1"].comment = Comment("__ORIGINAL_DOMAIN__=ManageOne网管", "system")
+        ws.cell(row=2, column=1, value="GET")
+        ws.cell(row=2, column=2, value="/api/x")
+        ws.cell(row=2, column=3, value="X")
+        ws.cell(row=2, column=7, value="static")
+    data = _build_test_workbook_bytes(build)
+
+    # 已有域里有 ManageOne网管，但用户重命名了 Sheet 为 新网管
+    result = parse_workbook(
+        io.BytesIO(data),
+        existing_domains=[{"id": "dom_manageone", "name": "ManageOne网管", "created_at": "2020-01-01"}],
+        existing_topologies=[],
+    )
+    row = result.rows[0]
+    # domain_id 应为 None（新域待创建），不应是 dom_manageone
+    assert row["domain_id"] is None
+    assert row["_new_domain_name"] == "新网管"
+    assert "新网管" in result.auto_created_domains
+    assert "ManageOne网管" not in result.auto_created_domains
+
+
+def test_parse_workbook_a1_comment_still_wins_when_sheet_name_is_sanitized():
+    """A1 comment 存 "网管/A"，Sheet 名被清洗成 "网管_A"，comment 仍应生效。"""
+    def build(wb):
+        ws = wb.create_sheet("网管_A")
+        for col_idx, h in enumerate(MAIN_HEADERS, start=1):
+            ws.cell(row=1, column=col_idx, value=h)
+        from openpyxl.comments import Comment
+        ws["A1"].comment = Comment("__ORIGINAL_DOMAIN__=网管/A", "system")
+        ws.cell(row=2, column=1, value="GET")
+        ws.cell(row=2, column=2, value="/api/x")
+        ws.cell(row=2, column=3, value="X")
+        ws.cell(row=2, column=7, value="static")
+    data = _build_test_workbook_bytes(build)
+
+    result = parse_workbook(
+        io.BytesIO(data),
+        existing_domains=[{"id": "dom_a", "name": "网管/A", "created_at": "2020-01-01"}],
+        existing_topologies=[],
+    )
+    assert result.rows[0]["domain_id"] == "dom_a"
+
+
+def test_parse_workbook_renamed_sheet_matches_existing_other_domain():
+    """用户重命名 Sheet 到另一个已存在的域名 → 迁移到那个已存在域。"""
+    def build(wb):
+        ws = wb.create_sheet("网管B")
+        for col_idx, h in enumerate(MAIN_HEADERS, start=1):
+            ws.cell(row=1, column=col_idx, value=h)
+        from openpyxl.comments import Comment
+        ws["A1"].comment = Comment("__ORIGINAL_DOMAIN__=网管A", "system")
+        ws.cell(row=2, column=1, value="GET")
+        ws.cell(row=2, column=2, value="/api/x")
+        ws.cell(row=2, column=3, value="X")
+        ws.cell(row=2, column=7, value="static")
+    data = _build_test_workbook_bytes(build)
+
+    result = parse_workbook(
+        io.BytesIO(data),
+        existing_domains=[
+            {"id": "dom_a", "name": "网管A", "created_at": "2020-01-01"},
+            {"id": "dom_b", "name": "网管B", "created_at": "2020-01-02"},
+        ],
+        existing_topologies=[],
+    )
+    assert result.rows[0]["domain_id"] == "dom_b"
+
+
+def test_parse_workbook_matches_sanitized_form_helper():
+    """单元级：_matches_sanitized_form 的关键 case。"""
+    from app.admin._api_excel import _matches_sanitized_form
+    assert _matches_sanitized_form("网管/A", "网管_A") is True
+    assert _matches_sanitized_form("网管A", "网管A") is True
+    assert _matches_sanitized_form("网管/A", "网管_A~2") is True  # dedupe 情况
+    assert _matches_sanitized_form("ManageOne网管", "新网管") is False  # 重命名场景
+    assert _matches_sanitized_form("", "未命名") is True  # 空名 fallback

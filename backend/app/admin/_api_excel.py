@@ -422,6 +422,37 @@ def _parse_number_cell(value: Any):
         raise ExcelValidationError(f"数字列填了非数字 '{value}'")
 
 
+def _matches_sanitized_form(original: str, sheet_title: str) -> bool:
+    """判断 sheet_title 是否是 original 经过 sanitize（含 ~N dedupe 后缀）后的合法形态。
+
+    用途：判定 A1 comment 里的 __ORIGINAL_DOMAIN__ 标记是否仍与当前 sheet 名对齐。
+    若不对齐说明用户手动重命名了 sheet，此时应尊重用户意图（走 sheet_title），
+    而不是回落到过时的原始域名。
+    """
+    # 无 dedupe 情况下的清洗结果
+    base = original
+    for ch in INVALID_SHEET_CHARS:
+        base = base.replace(ch, "_")
+    if len(base) > SHEET_NAME_MAX_LEN:
+        base = base[:SHEET_NAME_MAX_LEN]
+    if not base.strip():
+        base = "未命名"
+
+    if sheet_title == base:
+        return True
+    # dedupe: 允许 "base~N" 或截断后的 "base[:k]~N" 形态
+    if sheet_title.startswith(base + "~"):
+        return True
+    # 截断 dedupe：sheet_title 长 = 31，去掉 "~N" 后与 base 的截断前缀一致
+    for suffix_len in range(2, 5):  # ~2, ~3, ..., ~999 覆盖到 ~4 位数
+        tag_len = 1 + suffix_len  # "~" + digits (e.g., "~2" = 2, "~99" = 3)
+        if len(sheet_title) > tag_len and sheet_title[-tag_len] == "~":
+            prefix = sheet_title[:-tag_len]
+            if base.startswith(prefix):
+                return True
+    return False
+
+
 def _resolve_domain_for_sheet(
     sheet_title: str,
     original_domain_name: Optional[str],
@@ -439,7 +470,12 @@ def _resolve_domain_for_sheet(
     if sheet_title == UNCATEGORIZED_SHEET_NAME:
         return (None, None)
 
-    lookup_name = original_domain_name or sheet_title
+    # A1 comment 里的原始域名只有在当前 sheet 名仍是它的合法清洗形态时才可信；
+    # 一旦不匹配说明用户重命名了 sheet，尊重当前 sheet 名。
+    if original_domain_name and _matches_sanitized_form(original_domain_name, sheet_title):
+        lookup_name = original_domain_name
+    else:
+        lookup_name = sheet_title
     matches = [d for d in existing_domains if d.get("name") == lookup_name]
     if matches:
         matches_sorted = sorted(matches, key=lambda d: d.get("created_at") or "")
