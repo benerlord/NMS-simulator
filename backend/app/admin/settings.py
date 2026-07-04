@@ -27,7 +27,6 @@ from app.admin.schemas import (
 )
 from app.core.config import settings as runtime_settings
 from app.db.connection import connect, transaction
-from app.mock.registry import registry as mock_registry
 
 router = APIRouter(prefix="/admin/api", tags=["系统设置"])
 
@@ -135,21 +134,10 @@ def update_settings(body: SettingsUpdate) -> dict:
             detail={"code": 40002, "message": "请求体不能为空"},
         )
 
-    prefix_changed = False
-    new_prefix: str | None = None
-
     if "mock_path_prefix" in payload:
-        new_prefix = _validate_prefix(payload["mock_path_prefix"] or "")
-        payload["mock_path_prefix"] = new_prefix
+        payload["mock_path_prefix"] = _validate_prefix(payload["mock_path_prefix"] or "")
 
     with transaction() as conn:
-        if "mock_path_prefix" in payload:
-            current_row = conn.execute(
-                "SELECT value FROM settings WHERE key = 'mock_path_prefix'"
-            ).fetchone()
-            current_prefix = current_row["value"] if current_row else ""
-            prefix_changed = current_prefix != new_prefix
-
         for key, value in payload.items():
             stored = str(value)
             conn.execute(
@@ -164,9 +152,6 @@ def update_settings(body: SettingsUpdate) -> dict:
             )
             if key == "autosave_interval":
                 runtime_settings.autosave_interval = int(stored)
-
-    if prefix_changed:
-        mock_registry.reload()
 
     with connect() as conn:
         rows = conn.execute(

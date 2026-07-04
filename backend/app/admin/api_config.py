@@ -237,9 +237,6 @@ def duplicate_api(api_id: str) -> dict:
         )
         new_method = row["method"]
 
-    from app.mock.registry import registry as mock_registry
-    mock_registry.register(new_id, new_method, new_path)
-
     return {"code": 0, "data": {"id": new_id}, "message": "ok"}
 
 
@@ -318,9 +315,6 @@ def create_api(body: ApiConfigCreate) -> dict:
             "SELECT * FROM api_configs WHERE id = ?", (api_id,)
         ).fetchone()
         detail = _row_to_detail(row)
-
-    from app.mock.registry import registry as mock_registry
-    mock_registry.register(detail.id, detail.method, detail.path)
 
     return {"code": 0, "data": detail.model_dump(mode="json", by_alias=True), "message": "ok"}
 
@@ -432,11 +426,6 @@ def update_api(api_id: str, body: ApiConfigUpdate) -> dict:
             "SELECT * FROM api_configs WHERE id = ?", (api_id,)
         ).fetchone()
         detail = _row_to_detail(row)
-        route_changed = body.method is not None or body.path is not None
-
-    if route_changed:
-        from app.mock.registry import registry as mock_registry
-        mock_registry.update(detail.id, detail.method, detail.path)
 
     return {"code": 0, "data": detail.model_dump(mode="json", by_alias=True), "message": "ok"}
 
@@ -549,9 +538,6 @@ def delete_api(api_id: str) -> dict:
     with transaction() as conn:
         _ensure_api_exists(conn, api_id)
         conn.execute("DELETE FROM api_configs WHERE id = ?", (api_id,))
-
-    from app.mock.registry import registry as mock_registry
-    mock_registry.unregister(api_id)
 
     return {"code": 0, "data": {"id": api_id}, "message": "删除成功"}
 
@@ -856,7 +842,6 @@ async def import_apis(file: UploadFile = File(...)) -> dict:
 
     created = 0
     updated = 0
-    new_routes: list[tuple[str, str, str]] = []
     auto_created_domain_ids: dict[str, str] = {}  # name -> id
 
     with transaction() as conn:
@@ -927,13 +912,6 @@ async def import_apis(file: UploadFile = File(...)) -> dict:
                     ),
                 )
                 created += 1
-                new_routes.append((api_id, method, path))
-
-    # 事务成功后再挂载路由，避免回滚时留下幽灵路由
-    if new_routes:
-        from app.mock.registry import registry as mock_registry
-        for rid, rmethod, rpath in new_routes:
-            mock_registry.register(rid, rmethod, rpath)
 
     return {
         "code": 0,
@@ -961,12 +939,6 @@ def delete_directory(domain_id: str) -> dict:
                 detail={"code": 40420, "message": "目录不存在"},
             )
         domain_name = existing["name"]
-        # 先收集即将被删除的接口 id，事务提交后反注册 mock 路由
-        rows_to_delete = conn.execute(
-            "SELECT id FROM api_configs WHERE domain_id = ? OR category = ?",
-            (domain_id, domain_name),
-        ).fetchall()
-        deleted_api_ids = [r["id"] for r in rows_to_delete]
         # 按 domain_id 或 category（域名）删除，确保导入数据也能被清理
         api_result = conn.execute(
             "DELETE FROM api_configs WHERE domain_id = ? OR category = ?",
@@ -974,11 +946,6 @@ def delete_directory(domain_id: str) -> dict:
         )
         deleted_apis = api_result.rowcount
         conn.execute("DELETE FROM domains WHERE id = ?", (domain_id,))
-
-    if deleted_api_ids:
-        from app.mock.registry import registry as mock_registry
-        for aid in deleted_api_ids:
-            mock_registry.unregister(aid)
 
     return {
         "code": 0,

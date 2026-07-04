@@ -215,3 +215,22 @@ def test_import_cross_domain_does_not_affect_other_domain(client):
 
     assert client.get(f"/admin/api/apis/{aA}").json()["data"]["name"] == "A-new"
     assert client.get(f"/admin/api/apis/{aB}").json()["data"]["name"] == "B-orig"
+
+
+def test_admin_8080_no_longer_mounts_mock_routes(client):
+    """admin 端口停用 mock 服务后，任何 mock 路径打 admin 都应 404。"""
+    d = client.post("/admin/api/domains", json={"name": "网管A"}).json()["data"]["id"]
+    client.post("/admin/api/apis", json={
+        "method": "GET", "path": "/api/some-mock", "name": "m",
+        "domainId": d, "dataSource": "static",
+        "config": {"staticBody": '{"ok":true}'},
+    })
+    # 直接打 mock 路径应 404（admin 上不再挂载）
+    r = client.get("/api/some-mock")
+    assert r.status_code == 404
+
+
+def test_admin_still_serves_admin_api(client):
+    """删掉 mock_registry 后 admin API 本身仍然可用。"""
+    r = client.get("/admin/api/health")
+    assert r.status_code == 200

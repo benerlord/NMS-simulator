@@ -24,7 +24,6 @@ from app.core.config import settings
 from app.core.instance_runner import InstanceRunner
 from app.core.ws_hub import router as ws_router
 from app.db.connection import init_db
-from app.mock.registry import registry as mock_registry
 
 _runner: Optional[InstanceRunner] = None
 
@@ -41,8 +40,6 @@ atexit.register(_cleanup)
 async def lifespan(app: FastAPI):
     global _runner
     init_db()
-    mock_registry.bind(app)
-    mock_registry.load_all()
 
     _runner = InstanceRunner()
     _runner.start_monitor()
