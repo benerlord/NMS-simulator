@@ -27,9 +27,7 @@ class NodeTypeFieldInput(CamelModel):
         if self.field_type != 'text':
             return self
         if self.max_length is None:
-            raise ValueError('文本类型必须设置 max_length')
-        if self.max_length < 1:
-            raise ValueError('max_length 必须 >= 1')
+            object.__setattr__(self, 'max_length', 255)
         return self
 
     @model_validator(mode='after')
@@ -164,9 +162,7 @@ class EdgeTypeFieldInput(CamelModel):
         if self.field_type != 'text':
             return self
         if self.max_length is None:
-            raise ValueError('文本类型必须设置 max_length')
-        if self.max_length < 1:
-            raise ValueError('max_length 必须 >= 1')
+            object.__setattr__(self, 'max_length', 255)
         return self
 
     @model_validator(mode='after')
