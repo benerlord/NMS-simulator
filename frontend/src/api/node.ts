@@ -52,6 +52,35 @@ export interface NodeListResponse {
   pageSize: number
 }
 
+export interface BulkNodeItem {
+  name: string
+  x: number
+  y: number
+  attrs: Record<string, string | null>
+}
+
+export interface BulkNodesCreateRequest {
+  nodeTypeId: string
+  items: BulkNodeItem[]
+}
+
+export interface BulkCreatedItem {
+  index: number
+  id: string
+  name: string
+}
+
+export interface BulkSkippedItem {
+  index: number
+  name: string | null
+  reason: string
+}
+
+export interface BulkNodesCreateResponse {
+  created: BulkCreatedItem[]
+  skipped: BulkSkippedItem[]
+}
+
 export const nodeApi = {
   list: (topologyId: string, params?: { nodeTypeId?: string; status?: string; page?: number; pageSize?: number }): Promise<NodeListResponse> =>
     apiGet(`/topologies/${topologyId}/nodes`, params),
@@ -75,4 +104,10 @@ export const nodeApi = {
     const attrsList = Object.entries(attrs).map(([field_key, value]) => ({ field_key, value }))
     return apiPut(`/nodes/${id}/attrs`, attrsList)
   },
+
+  bulkCreate: (
+    topologyId: string,
+    data: BulkNodesCreateRequest,
+  ): Promise<BulkNodesCreateResponse> =>
+    apiPost(`/topologies/${topologyId}/nodes/bulk`, data),
 }
