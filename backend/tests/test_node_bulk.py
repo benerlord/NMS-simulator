@@ -85,3 +85,193 @@ def test_bulk_create_auto_alarm_when_schema_bound(client):
         alarms = r.json()["data"]
         assert len(alarms) == 1, f"Expected 1 alarm for {c['name']}, got {len(alarms)}"
         assert alarms[0]["attrs"].get("severity") == "warning"
+
+
+def test_bulk_create_multiple_success(client):
+    """多条正常创建 → 事务一次提交，x/y 正确写入。"""
+    topo = _make_topology(client)
+    ntype = _make_node_type(client, "sw")
+    r = client.post(f"/admin/api/topologies/{topo}/nodes/bulk", json={
+        "nodeTypeId": ntype,
+        "items": [
+            {"name": "sw-01", "x": 100.0, "y": 200.0, "attrs": {}},
+            {"name": "sw-02", "x": 320.0, "y": 200.0, "attrs": {}},
+            {"name": "sw-03", "x": 540.0, "y": 200.0, "attrs": {}},
+        ],
+    })
+    assert r.status_code == 200
+    data = r.json()["data"]
+    assert len(data["created"]) == 3
+    assert data["skipped"] == []
+    nodes = _fetch_nodes(client, topo)
+    assert len(nodes) == 3
+    positions = {n["name"]: (n["x"], n["y"]) for n in nodes}
+    assert positions["sw-01"] == (100.0, 200.0)
+    assert positions["sw-03"] == (540.0, 200.0)
+
+
+def test_bulk_create_topology_not_found(client):
+    """拓扑不存在 → 404，不走行级处理。"""
+    ntype = _make_node_type(client, "sw")
+    r = client.post("/admin/api/topologies/topo_does_not_exist/nodes/bulk", json={
+        "nodeTypeId": ntype,
+        "items": [{"name": "x", "x": 0, "y": 0, "attrs": {}}],
+    })
+    assert r.status_code == 404
+    assert r.json()["detail"]["code"] == 40402
+
+
+def test_bulk_create_node_type_not_found(client):
+    """节点类型不存在 → 404。"""
+    topo = _make_topology(client)
+    r = client.post(f"/admin/api/topologies/{topo}/nodes/bulk", json={
+        "nodeTypeId": "ntype_does_not_exist",
+        "items": [{"name": "x", "x": 0, "y": 0, "attrs": {}}],
+    })
+    assert r.status_code == 404
+    assert r.json()["detail"]["code"] == 40403
+
+
+def test_bulk_create_required_field_missing(client):
+    """必填字段缺失 → 该行 skipped，其他行成功。"""
+    topo = _make_topology(client)
+    ntype = _make_node_type(client, "sw", [
+        {"fieldKey": "ip", "fieldLabel": "IP", "fieldType": "text", "required": True},
+    ])
+    r = client.post(f"/admin/api/topologies/{topo}/nodes/bulk", json={
+        "nodeTypeId": ntype,
+        "items": [
+            {"name": "sw-01", "x": 0, "y": 0, "attrs": {"ip": "10.0.0.1"}},
+            {"name": "sw-02", "x": 0, "y": 0, "attrs": {}},
+        ],
+    })
+    data = r.json()["data"]
+    assert len(data["created"]) == 1 and data["created"][0]["name"] == "sw-01"
+    assert len(data["skipped"]) == 1
+    assert data["skipped"][0]["name"] == "sw-02"
+    assert "IP" in data["skipped"][0]["reason"]
+
+
+def test_bulk_create_text_max_length_exceeded(client):
+    """text 字段超 max_length → 该行 skipped，理由含 fieldLabel + 长度。"""
+    topo = _make_topology(client)
+    ntype = _make_node_type(client, "sw", [
+        {"fieldKey": "ip", "fieldLabel": "IP", "fieldType": "text", "maxLength": 10},
+    ])
+    r = client.post(f"/admin/api/topologies/{topo}/nodes/bulk", json={
+        "nodeTypeId": ntype,
+        "items": [
+            {"name": "sw-01", "x": 0, "y": 0, "attrs": {"ip": "10.0.0.1"}},
+            {"name": "sw-02", "x": 0, "y": 0, "attrs": {"ip": "this-ip-is-way-too-long-1234567890"}},
+        ],
+    })
+    data = r.json()["data"]
+    assert len(data["created"]) == 1
+    assert len(data["skipped"]) == 1
+    assert "IP" in data["skipped"][0]["reason"]
+    assert "10" in data["skipped"][0]["reason"]
+
+
+def test_bulk_create_text_no_max_length_fallback_255(client):
+    """text 字段 max_length 未设 → 默认 255（不 skip 250 长度值）。"""
+    topo = _make_topology(client)
+    ntype = _make_node_type(client, "sw", [
+        {"fieldKey": "note", "fieldLabel": "备注", "fieldType": "text"},
+    ])
+    r = client.post(f"/admin/api/topologies/{topo}/nodes/bulk", json={
+        "nodeTypeId": ntype,
+        "items": [
+            {"name": "sw-01", "x": 0, "y": 0, "attrs": {"note": "x" * 250}},
+        ],
+    })
+    data = r.json()["data"]
+    assert len(data["created"]) == 1
+    assert data["skipped"] == []
+
+
+def test_bulk_create_existing_name_skipped(client):
+    """画布已有同名 → 该行 skipped。"""
+    topo = _make_topology(client)
+    ntype = _make_node_type(client, "sw")
+    client.post(f"/admin/api/topologies/{topo}/nodes", json={
+        "nodeTypeId": ntype, "name": "sw-01", "status": "online",
+    })
+    r = client.post(f"/admin/api/topologies/{topo}/nodes/bulk", json={
+        "nodeTypeId": ntype,
+        "items": [
+            {"name": "sw-01", "x": 0, "y": 0, "attrs": {}},
+            {"name": "sw-02", "x": 0, "y": 0, "attrs": {}},
+        ],
+    })
+    data = r.json()["data"]
+    assert len(data["created"]) == 1
+    assert data["created"][0]["name"] == "sw-02"
+    assert len(data["skipped"]) == 1
+    assert "画布已有同名" in data["skipped"][0]["reason"]
+
+
+def test_bulk_create_batch_duplicate_name_skipped(client):
+    """批次内重名 → 第一个 created，后续 skipped。"""
+    topo = _make_topology(client)
+    ntype = _make_node_type(client, "sw")
+    r = client.post(f"/admin/api/topologies/{topo}/nodes/bulk", json={
+        "nodeTypeId": ntype,
+        "items": [
+            {"name": "sw-01", "x": 0, "y": 0, "attrs": {}},
+            {"name": "sw-01", "x": 0, "y": 0, "attrs": {}},
+            {"name": "sw-02", "x": 0, "y": 0, "attrs": {}},
+        ],
+    })
+    data = r.json()["data"]
+    assert len(data["created"]) == 2
+    assert {c["name"] for c in data["created"]} == {"sw-01", "sw-02"}
+    assert len(data["skipped"]) == 1
+    assert "批次内" in data["skipped"][0]["reason"]
+
+
+def test_bulk_create_empty_items(client):
+    """空 items → created=0, skipped=0, HTTP 200。"""
+    topo = _make_topology(client)
+    ntype = _make_node_type(client, "sw")
+    r = client.post(f"/admin/api/topologies/{topo}/nodes/bulk", json={
+        "nodeTypeId": ntype, "items": [],
+    })
+    assert r.status_code == 200
+    data = r.json()["data"]
+    assert data["created"] == []
+    assert data["skipped"] == []
+
+
+def test_bulk_create_unknown_field_key_silently_ignored(client):
+    """items 中包含未定义的 field_key → 静默忽略、不进 node_attrs、不算错。"""
+    topo = _make_topology(client)
+    ntype = _make_node_type(client, "sw", [
+        {"fieldKey": "ip", "fieldLabel": "IP", "fieldType": "text"},
+    ])
+    r = client.post(f"/admin/api/topologies/{topo}/nodes/bulk", json={
+        "nodeTypeId": ntype,
+        "items": [{
+            "name": "sw-01", "x": 0, "y": 0,
+            "attrs": {"ip": "10.0.0.1", "unknown_field": "xxx"},
+        }],
+    })
+    assert r.status_code == 200
+    data = r.json()["data"]
+    assert len(data["created"]) == 1
+    node_id = data["created"][0]["id"]
+    r = client.get(f"/admin/api/nodes/{node_id}")
+    attrs = r.json()["data"]["attrs"]
+    assert attrs.get("ip") == "10.0.0.1"
+    assert "unknown_field" not in attrs
+
+
+def test_bulk_create_name_whitespace_stripped(client):
+    """name 前后空格 → 后端 strip。"""
+    topo = _make_topology(client)
+    ntype = _make_node_type(client, "sw")
+    r = client.post(f"/admin/api/topologies/{topo}/nodes/bulk", json={
+        "nodeTypeId": ntype,
+        "items": [{"name": "  sw-01  ", "x": 0, "y": 0, "attrs": {}}],
+    })
+    data = r.json()["data"]
+    assert data["created"][0]["name"] == "sw-01"
