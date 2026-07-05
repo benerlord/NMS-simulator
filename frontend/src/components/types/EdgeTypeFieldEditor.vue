@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import {
-  Table, Input, InputNumber, Select, Switch, Button, Tooltip, Affix, message,
+  Table, Input, InputNumber, Select, Switch, Button, Tooltip, message,
 } from 'ant-design-vue'
 import {
   PlusOutlined, DeleteOutlined, ArrowUpOutlined, ArrowDownOutlined, ImportOutlined,
@@ -28,7 +28,7 @@ function addField() {
     fieldKey: '',
     fieldLabel: '',
     fieldType: 'text',
-    maxLength: 50,
+    maxLength: 255,
     defaultValue: undefined,
     options: undefined,
     required: false,
@@ -73,7 +73,6 @@ function validateArrayDefault(field: EdgeTypeFieldInput) {
   }
 }
 
-// field_key 已填则禁止编辑（不可变约束 — rename 需"删旧+加新"）
 function isFieldKeyLocked(field: EdgeTypeFieldInput): boolean {
   return !!field.fieldKey && field.fieldKey.length > 0
 }
@@ -98,17 +97,15 @@ function handleJsonGenerate(newFields: FieldLike[]) {
 
 <template>
   <div class="edge-type-field-editor">
-    <Affix :offset-top="0">
-      <div class="toolbar toolbar-top">
-        <Button type="primary" size="small" @click="addField">
-          <PlusOutlined /> 新增字段
-        </Button>
-        <Button size="small" @click="jsonModalOpen = true">
-          <ImportOutlined /> 从 JSON 生成字段
-        </Button>
-        <span class="hint">{{ localFields.length }} 个字段</span>
-      </div>
-    </Affix>
+    <div class="toolbar toolbar-top">
+      <Button type="primary" size="small" @click="addField">
+        <PlusOutlined /> 新增字段
+      </Button>
+      <Button size="small" @click="jsonModalOpen = true">
+        <ImportOutlined /> 从 JSON 生成字段
+      </Button>
+      <span class="hint">{{ localFields.length }} 个字段</span>
+    </div>
 
     <Table
       :columns="columns"
@@ -116,7 +113,7 @@ function handleJsonGenerate(newFields: FieldLike[]) {
       :pagination="false"
       :row-key="(_record: EdgeTypeFieldInput, index?: number) => `row-${index}`"
       size="small"
-      :scroll="{ x: 900 }"
+      :scroll="{ x: 900, y: 300 }"
     >
       <template #bodyCell="{ column, index, record }">
         <template v-if="column.key === 'fieldKey'">
@@ -156,6 +153,7 @@ function handleJsonGenerate(newFields: FieldLike[]) {
             size="small"
             :min="1"
             :disabled="record.fieldType !== 'text'"
+            :placeholder="record.fieldType === 'text' ? '默认 255' : ''"
             style="width: 100%"
             @change="(v: any) => updateField(index, 'maxLength', v)"
           />
@@ -203,12 +201,6 @@ function handleJsonGenerate(newFields: FieldLike[]) {
       </template>
     </Table>
 
-    <div class="toolbar toolbar-bottom">
-      <Button type="primary" size="small" @click="addField">
-        <PlusOutlined /> 新增字段
-      </Button>
-    </div>
-
     <JsonGenerateFieldsModal
       v-model:open="jsonModalOpen"
       :existing-fields="localFields"
@@ -219,10 +211,21 @@ function handleJsonGenerate(newFields: FieldLike[]) {
 </template>
 
 <style scoped>
-.edge-type-field-editor { display: flex; flex-direction: column; }
-.toolbar { display: flex; align-items: center; gap: 12px; padding: 8px 0; background: #fff; z-index: 10; }
+.edge-type-field-editor {
+  display: flex;
+  flex-direction: column;
+  height: 360px;
+  overflow: hidden;
+}
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  background: #fff;
+  flex-shrink: 0;
+}
 .toolbar-top { border-bottom: 1px solid #f0f0f0; }
-.toolbar-bottom { border-top: 1px solid #f0f0f0; margin-top: 8px; }
 .hint { color: #999; font-size: 12px; }
 .action-buttons { display: flex; gap: 2px; }
 </style>
