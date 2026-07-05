@@ -82,6 +82,9 @@ from .topology_io import (
     TopologyExportNode,
     TopologyExportResponse,
     TopologyImportResponse,
+    TopologyExcelCounts,
+    TopologyExcelImportResult,
+    TopologyExcelImportResponse,
     TopologyImportResult,
 )
 from .request_spec import (
@@ -189,6 +192,9 @@ __all__ = [
     "TopologyExportNode",
     "TopologyExportResponse",
     "TopologyImportResponse",
+    "TopologyExcelCounts",
+    "TopologyExcelImportResult",
+    "TopologyExcelImportResponse",
     "TopologyImportResult",
     "HeaderSpec",
     "QuerySpec",

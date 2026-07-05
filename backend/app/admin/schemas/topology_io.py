@@ -68,3 +68,25 @@ class TopologyImportResponse(CamelModel):
     code: int = 0
     data: TopologyImportResult
     message: str = "ok"
+
+
+class TopologyExcelCounts(CamelModel):
+    nodes: int
+    edges: int
+    groups: int
+    node_alarms: int
+    group_alarms: int
+
+
+class TopologyExcelImportResult(CamelModel):
+    topology_id: str
+    topology_name: str
+    counts: TopologyExcelCounts
+    errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class TopologyExcelImportResponse(CamelModel):
+    code: int = 0
+    data: TopologyExcelImportResult
+    message: str = "ok"
