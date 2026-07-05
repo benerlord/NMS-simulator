@@ -32,6 +32,9 @@ from app.admin.schemas.node_type import (
     FieldDeleteImpactRequest,
     FieldDeleteImpactItem,
     FieldDeleteImpactResponse,
+    EdgeTypeImportPreviewItem,
+    EdgeTypeImportPreview,
+    EdgeTypeImportResult,
 )
 
 router = APIRouter(prefix="/admin/api", tags=["类型"])
@@ -1085,6 +1088,55 @@ def export_edge_types(data: TypeExportRequest):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=edge-types-export.xlsx"},
     )
+
+
+@router.post("/edge-types/import/preview")
+async def preview_edge_types_import(file: UploadFile = File(...)):
+    if not file.filename or not file.filename.endswith('.xlsx'):
+        raise HTTPException(
+            status_code=400,
+            detail={"code": 40310, "message": "仅支持 .xlsx 文件"},
+        )
+
+    contents = await file.read()
+    wb = _load_import_workbook(contents, "边类型汇总")
+    ws = wb["边类型汇总"]
+
+    to_create: list[dict] = []
+    to_update: list[dict] = []
+    errors: list[str] = []
+
+    with connect() as conn:
+        headers = _build_header_map(ws)
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            if all(v is None or v == '' for v in row):
+                break
+            code = _col(headers, "Code", row)
+            name = _col(headers, "名称", row)
+
+            if not code or not name:
+                errors.append(f"Code={code or '(空)'} 缺少必填字段（Code/名称），跳过")
+                continue
+
+            existing = conn.execute(
+                "SELECT id, name FROM edge_types WHERE code = ?", (code,)
+            ).fetchone()
+
+            if existing:
+                to_update.append({
+                    "code": code,
+                    "name": name,
+                    "old_name": existing["name"],
+                })
+            else:
+                to_create.append({"code": code, "name": name})
+
+    preview = EdgeTypeImportPreview(
+        to_create=[EdgeTypeImportPreviewItem(**c) for c in to_create],
+        to_update=[EdgeTypeImportPreviewItem(**u) for u in to_update],
+        errors=errors,
+    )
+    return {"code": 0, "data": preview.model_dump(mode="json", by_alias=True), "message": "ok"}
 
 
 @router.delete("/edge-types/{type_id}")
