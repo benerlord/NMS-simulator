@@ -163,3 +163,159 @@ def test_parse_edge_strategy_invalid_target_kind_raises():
 def test_parse_edge_strategy_invalid_mode_raises():
     with pytest.raises(ExcelValidationError):
         parse_edge_strategy_row("A|B|组|link|FAKE|", row_hint="第 5 行")
+
+
+# --- build_workbook ---
+
+import io
+from openpyxl import load_workbook
+
+from app.admin._topology_excel import (
+    build_workbook,
+    INSTRUCTION_SHEET_NAME,
+    INDEX_SHEET_NAME,
+    META_SHEET_NAME,
+    NODE_GROUP_SHEET_NAME,
+    NODE_GROUP_EDGE_STRATEGY_SHEET_NAME,
+    NODE_ALARM_SHEET_NAME,
+    NODE_GROUP_ALARM_SHEET_NAME,
+    NODE_FIXED_HEADERS,
+    NODE_TYPE_MARKER,
+)
+
+
+def _load_bytes(wb):
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return load_workbook(buf)
+
+
+def _basic_context():
+    return {
+        "topology": {"name": "T", "description": "", "version": 1,
+                     "domain_name": None, "alarm_schema_code": None},
+        "node_types": [],
+        "edge_types": [],
+        "nodes_by_type_code": {},
+        "edges_by_type_code": {},
+        "node_groups": [],
+        "node_group_edge_strategies": [],
+        "alarm_schema_fields": [],
+        "node_alarms": [],
+        "node_group_alarms": [],
+    }
+
+
+def test_build_workbook_minimal_has_meta_and_index_and_instruction():
+    wb = build_workbook(**_basic_context())
+    reloaded = _load_bytes(wb)
+    assert INSTRUCTION_SHEET_NAME in reloaded.sheetnames
+    assert INDEX_SHEET_NAME in reloaded.sheetnames
+    assert META_SHEET_NAME in reloaded.sheetnames
+    assert NODE_GROUP_SHEET_NAME in reloaded.sheetnames
+    assert NODE_GROUP_EDGE_STRATEGY_SHEET_NAME in reloaded.sheetnames
+    assert NODE_ALARM_SHEET_NAME not in reloaded.sheetnames
+    assert NODE_GROUP_ALARM_SHEET_NAME not in reloaded.sheetnames
+
+
+def test_build_workbook_meta_sheet_key_value():
+    ctx = _basic_context()
+    ctx["topology"] = {
+        "name": "机房", "description": "描述", "version": 3,
+        "domain_name": "网管A", "alarm_schema_code": "s1",
+    }
+    wb = build_workbook(**ctx)
+    reloaded = _load_bytes(wb)
+    ws = reloaded[META_SHEET_NAME]
+    kv = {ws.cell(row=r, column=1).value: ws.cell(row=r, column=2).value
+          for r in range(2, ws.max_row + 1)}
+    assert kv["拓扑名称"] == "机房"
+    assert kv["描述"] == "描述"
+    assert kv["版本"] == 3
+    assert kv["所属网管/设备"] == "网管A"
+    assert kv["告警模板"] == "s1"
+
+
+def test_build_workbook_per_nodetype_sheet_with_a1_marker():
+    ctx = _basic_context()
+    ctx["node_types"] = [{"id": "nt_r", "code": "router", "name": "路由器",
+                          "fields": [{"field_key": "vlan_id"}]}]
+    ctx["nodes_by_type_code"] = {"router": [
+        {"id": "n1", "name": "R1", "dn": None, "status": "online",
+         "canvas_x": 10.0, "canvas_y": 20.0, "group_name": None,
+         "attrs": {"vlan_id": "100"}},
+    ]}
+    wb = build_workbook(**ctx)
+    reloaded = _load_bytes(wb)
+    assert "路由器" in reloaded.sheetnames
+    ws = reloaded["路由器"]
+    assert [ws.cell(row=1, column=i).value for i in range(1, 7)] == NODE_FIXED_HEADERS
+    assert ws.cell(row=1, column=7).value == "vlan_id"
+    assert ws.cell(row=2, column=1).value == "R1"
+    assert ws["A1"].comment is not None
+    assert f"{NODE_TYPE_MARKER}=router" in ws["A1"].comment.text
+
+
+def test_build_workbook_index_lists_data_sheets():
+    ctx = _basic_context()
+    ctx["node_types"] = [{"id": "nt_r", "code": "router", "name": "路由器",
+                          "fields": []}]
+    ctx["nodes_by_type_code"] = {"router": []}
+    ctx["edge_types"] = [{"id": "et_l", "code": "link", "name": "连接",
+                          "fields": []}]
+    ctx["edges_by_type_code"] = {"link": []}
+    wb = build_workbook(**ctx)
+    reloaded = _load_bytes(wb)
+    ws = reloaded[INDEX_SHEET_NAME]
+    categories = [ws.cell(row=r, column=1).value for r in range(2, ws.max_row + 1)]
+    assert "节点" in categories
+    assert "边" in categories
+    assert "节点组" in categories
+    assert "节点组边策略" in categories
+    for r in range(2, ws.max_row + 1):
+        if ws.cell(row=r, column=1).value == "节点":
+            sheet_name_cell = ws.cell(row=r, column=3)
+            assert sheet_name_cell.hyperlink is not None
+            assert "路由器" in (sheet_name_cell.hyperlink.location or "")
+
+
+def test_build_workbook_edge_uses_source_target_names():
+    ctx = _basic_context()
+    ctx["node_types"] = [{"id": "nt_r", "code": "router", "name": "路由器", "fields": []}]
+    ctx["nodes_by_type_code"] = {"router": [
+        {"id": "n1", "name": "R1", "dn": None, "status": "online",
+         "canvas_x": None, "canvas_y": None, "group_name": None, "attrs": {}},
+        {"id": "n2", "name": "R2", "dn": None, "status": "online",
+         "canvas_x": None, "canvas_y": None, "group_name": None, "attrs": {}},
+    ]}
+    ctx["edge_types"] = [{"id": "et_l", "code": "link", "name": "连接",
+                          "fields": [{"field_key": "bandwidth"}]}]
+    ctx["edges_by_type_code"] = {"link": [
+        {"id": "e1", "source_id": "n1", "target_id": "n2", "status": "online",
+         "attrs": {"bandwidth": "10G"}},
+    ]}
+    wb = build_workbook(**ctx)
+    reloaded = _load_bytes(wb)
+    ws = reloaded["连接"]
+    assert ws.cell(row=2, column=1).value == "R1"
+    assert ws.cell(row=2, column=2).value == "R2"
+    assert ws.cell(row=2, column=4).value == "10G"
+
+
+def test_build_workbook_alarm_sheets_when_schema_bound():
+    ctx = _basic_context()
+    ctx["topology"]["alarm_schema_code"] = "s1"
+    ctx["alarm_schema_fields"] = [
+        {"field_key": "severity", "mapping_target": None},
+        {"field_key": "node_dn", "mapping_target": "dn"},
+    ]
+    ctx["node_alarms"] = []
+    ctx["node_group_alarms"] = []
+    wb = build_workbook(**ctx)
+    reloaded = _load_bytes(wb)
+    assert NODE_ALARM_SHEET_NAME in reloaded.sheetnames
+    assert NODE_GROUP_ALARM_SHEET_NAME in reloaded.sheetnames
+    ws = reloaded[NODE_ALARM_SHEET_NAME]
+    assert ws.cell(row=1, column=4).value == "severity"
+    assert ws.cell(row=1, column=5).value is None

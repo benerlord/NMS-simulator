@@ -194,3 +194,282 @@ def parse_edge_strategy_row(line: str, row_hint: str) -> dict:
         "mode": mode,
         "ratio_k": ratio_k,
     }
+
+
+# --- Workbook builder ---
+
+from openpyxl import Workbook
+from openpyxl.comments import Comment
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.worksheet.hyperlink import Hyperlink
+
+_HEADER_FONT = Font(bold=True)
+_HEADER_FILL = PatternFill(start_color="F0F0F0", end_color="F0F0F0", fill_type="solid")
+_WRAP_ALIGNMENT = Alignment(wrap_text=True, vertical="top")
+_HYPERLINK_FONT = Font(color="0563C1", underline="single")
+
+
+def _set_a1_marker(ws, marker: str, value: str = "1") -> None:
+    """在 A1 单元格 comment 里追加 marker=value（不覆盖已有 comment 内容）。"""
+    existing = ws["A1"].comment.text if ws["A1"].comment else ""
+    line = f"{marker}={value}"
+    combined = f"{existing}\n{line}" if existing else line
+    ws["A1"].comment = Comment(combined, "system")
+
+
+def _apply_header_style(ws, num_cols: int) -> None:
+    for c in range(1, num_cols + 1):
+        cell = ws.cell(row=1, column=c)
+        cell.font = _HEADER_FONT
+        cell.fill = _HEADER_FILL
+
+
+def _write_instruction_sheet(wb: Workbook) -> None:
+    ws = wb.active
+    ws.title = INSTRUCTION_SHEET_NAME
+    lines = [
+        "画布 Excel 导入/导出使用说明",
+        "",
+        "1. 一个 xlsx = 一个拓扑。导入时始终新建拓扑（名字冲突加\"(导入 N)\"后缀）。",
+        "2. 拓扑元信息 Sheet：拓扑名/描述/网管/告警模板绑定（key-value 表）。",
+        "3. 每种节点类型一 Sheet（如\"路由器\"）；每种边类型一 Sheet（如\"连接\"）。",
+        "4. 边的\"源节点\"/\"目标节点\"列填节点名称；同 (类型, 名称) 组合必须唯一。",
+        "5. 节点组 Sheet 存组定义；节点组边策略 Sheet 存组间连线策略（一策略一行）。",
+        "6. 拓扑绑了告警模板才生成\"节点告警\"+\"节点组告警\"两 Sheet。",
+        "7. Sheet 名以 _ 开头（如本 Sheet 与 _总表）导入时被忽略。",
+        "8. 变长字段（属性策略）用\"换行 + 竖线 |\"，跟接口 Excel 一致：值中禁止出现 |。",
+        "9. 已 materialize 的组，其物理节点在 nodeType Sheet 里通过\"所属组\"列关联组名。",
+    ]
+    for i, line in enumerate(lines, start=1):
+        ws.cell(row=i, column=1, value=line)
+    ws.column_dimensions["A"].width = 100
+
+
+def _write_meta_sheet(wb: Workbook, topo: dict) -> None:
+    ws = wb.create_sheet(title=META_SHEET_NAME)
+    for c, h in enumerate(META_HEADERS, start=1):
+        ws.cell(row=1, column=c, value=h)
+    _apply_header_style(ws, len(META_HEADERS))
+    rows = [
+        ("拓扑名称", topo.get("name") or ""),
+        ("描述", topo.get("description") or ""),
+        ("版本", topo.get("version") or 1),
+        ("所属网管/设备", topo.get("domain_name") or ""),
+        ("告警模板", topo.get("alarm_schema_code") or ""),
+    ]
+    for i, (k, v) in enumerate(rows, start=2):
+        ws.cell(row=i, column=1, value=k)
+        ws.cell(row=i, column=2, value=v)
+    ws.column_dimensions["A"].width = 18
+    ws.column_dimensions["B"].width = 40
+
+
+def _write_node_sheet(wb: Workbook, node_type: dict, nodes: list, used: set) -> str:
+    """写一个 nodeType 的 Sheet，返回实际用的 sheet name。"""
+    sheet_name = sanitize_sheet_name(node_type["name"], used)
+    ws = wb.create_sheet(title=sheet_name)
+    field_keys = [f["field_key"] for f in node_type.get("fields", [])]
+    headers = NODE_FIXED_HEADERS + field_keys
+    for c, h in enumerate(headers, start=1):
+        ws.cell(row=1, column=c, value=h)
+    _apply_header_style(ws, len(headers))
+    _set_a1_marker(ws, NODE_TYPE_MARKER, node_type["code"])
+    for i, n in enumerate(nodes, start=2):
+        ws.cell(row=i, column=1, value=n.get("name") or "")
+        ws.cell(row=i, column=2, value=n.get("dn") or "")
+        ws.cell(row=i, column=3, value=n.get("status") or "online")
+        ws.cell(row=i, column=4, value=n.get("canvas_x"))
+        ws.cell(row=i, column=5, value=n.get("canvas_y"))
+        ws.cell(row=i, column=6, value=n.get("group_name") or "")
+        for c, fk in enumerate(field_keys, start=7):
+            ws.cell(row=i, column=c, value=n.get("attrs", {}).get(fk))
+    ws.freeze_panes = "A2"
+    return sheet_name
+
+
+def _write_edge_sheet(wb: Workbook, edge_type: dict, edges: list, node_name_by_id: dict, used: set) -> str:
+    sheet_name = sanitize_sheet_name(edge_type["name"], used)
+    ws = wb.create_sheet(title=sheet_name)
+    field_keys = [f["field_key"] for f in edge_type.get("fields", [])]
+    headers = EDGE_FIXED_HEADERS + field_keys
+    for c, h in enumerate(headers, start=1):
+        ws.cell(row=1, column=c, value=h)
+    _apply_header_style(ws, len(headers))
+    _set_a1_marker(ws, EDGE_TYPE_MARKER, edge_type["code"])
+    for i, e in enumerate(edges, start=2):
+        ws.cell(row=i, column=1, value=node_name_by_id.get(e["source_id"], ""))
+        ws.cell(row=i, column=2, value=node_name_by_id.get(e["target_id"], ""))
+        ws.cell(row=i, column=3, value=e.get("status") or "online")
+        for c, fk in enumerate(field_keys, start=4):
+            ws.cell(row=i, column=c, value=e.get("attrs", {}).get(fk))
+    ws.freeze_panes = "A2"
+    return sheet_name
+
+
+def _write_node_group_sheet(wb: Workbook, groups: list, node_type_code_by_id: dict) -> None:
+    ws = wb.create_sheet(title=NODE_GROUP_SHEET_NAME)
+    for c, h in enumerate(NODE_GROUP_HEADERS, start=1):
+        ws.cell(row=1, column=c, value=h)
+    _apply_header_style(ws, len(NODE_GROUP_HEADERS))
+    _set_a1_marker(ws, NODE_GROUP_MARKER)
+    for i, g in enumerate(groups, start=2):
+        ws.cell(row=i, column=1, value=g.get("group_name") or "")
+        ws.cell(row=i, column=2, value=node_type_code_by_id.get(g.get("node_type_id"), ""))
+        ws.cell(row=i, column=3, value=g.get("node_count"))
+        ws.cell(row=i, column=4, value=g.get("name_template") or "")
+        ws.cell(row=i, column=5, value="是" if g.get("materialized_at") else "否")
+        ws.cell(row=i, column=6, value=g.get("canvas_x"))
+        ws.cell(row=i, column=7, value=g.get("canvas_y"))
+        attrs = g.get("attr_strategies") or []
+        lines = [format_attr_strategy_row(s) for s in attrs]
+        cell = ws.cell(row=i, column=8, value=RECORD_SEP.join(lines) if lines else "")
+        cell.alignment = _WRAP_ALIGNMENT
+    ws.freeze_panes = "A2"
+
+
+def _write_node_group_edge_strategy_sheet(wb: Workbook, strategies: list) -> None:
+    ws = wb.create_sheet(title=NODE_GROUP_EDGE_STRATEGY_SHEET_NAME)
+    for c, h in enumerate(NODE_GROUP_EDGE_STRATEGY_HEADERS, start=1):
+        ws.cell(row=1, column=c, value=h)
+    _apply_header_style(ws, len(NODE_GROUP_EDGE_STRATEGY_HEADERS))
+    _set_a1_marker(ws, NODE_GROUP_EDGE_STRATEGY_MARKER)
+    for i, s in enumerate(strategies, start=2):
+        ws.cell(row=i, column=1, value=s.get("source_group_name") or "")
+        ws.cell(row=i, column=2, value=s.get("target_name") or "")
+        ws.cell(row=i, column=3, value=s.get("target_kind") or "组")
+        ws.cell(row=i, column=4, value=s.get("edge_type_code") or "")
+        ws.cell(row=i, column=5, value=s.get("mode") or "")
+        k = s.get("ratio_k")
+        ws.cell(row=i, column=6, value=k if k is not None else "")
+    ws.freeze_panes = "A2"
+
+
+def _write_node_alarm_sheet(wb: Workbook, alarms: list, alarm_field_keys: list,
+                             node_id_to_type_code: dict, node_name_by_id: dict) -> None:
+    """alarms 结构: [{node_id, alarm_index, attrs}]。node_id_to_type_code / node_name_by_id 反查用。"""
+    ws = wb.create_sheet(title=NODE_ALARM_SHEET_NAME)
+    headers = NODE_ALARM_FIXED_HEADERS + alarm_field_keys
+    for c, h in enumerate(headers, start=1):
+        ws.cell(row=1, column=c, value=h)
+    _apply_header_style(ws, len(headers))
+    _set_a1_marker(ws, NODE_ALARM_MARKER)
+    for i, a in enumerate(alarms, start=2):
+        nid = a.get("node_id")
+        ws.cell(row=i, column=1, value=node_id_to_type_code.get(nid, ""))
+        ws.cell(row=i, column=2, value=node_name_by_id.get(nid, ""))
+        ws.cell(row=i, column=3, value=a.get("alarm_index"))
+        for c, fk in enumerate(alarm_field_keys, start=4):
+            ws.cell(row=i, column=c, value=a.get("attrs", {}).get(fk))
+    ws.freeze_panes = "A2"
+
+
+def _write_node_group_alarm_sheet(wb: Workbook, alarms: list, alarm_field_keys: list,
+                                    group_name_by_id: dict) -> None:
+    ws = wb.create_sheet(title=NODE_GROUP_ALARM_SHEET_NAME)
+    headers = NODE_GROUP_ALARM_FIXED_HEADERS + alarm_field_keys
+    for c, h in enumerate(headers, start=1):
+        ws.cell(row=1, column=c, value=h)
+    _apply_header_style(ws, len(headers))
+    _set_a1_marker(ws, NODE_GROUP_ALARM_MARKER)
+    for i, a in enumerate(alarms, start=2):
+        ws.cell(row=i, column=1, value=group_name_by_id.get(a.get("node_group_id"), ""))
+        ws.cell(row=i, column=2, value=a.get("alarm_index"))
+        for c, fk in enumerate(alarm_field_keys, start=3):
+            ws.cell(row=i, column=c, value=a.get("attrs", {}).get(fk))
+    ws.freeze_panes = "A2"
+
+
+def _write_index_sheet(wb: Workbook, index_rows: list) -> None:
+    """index_rows: list[dict{category, type_code, sheet_name, row_count}]"""
+    ws = wb.create_sheet(title=INDEX_SHEET_NAME, index=1)
+    for c, h in enumerate(INDEX_HEADERS, start=1):
+        ws.cell(row=1, column=c, value=h)
+    _apply_header_style(ws, len(INDEX_HEADERS))
+    for i, row in enumerate(index_rows, start=2):
+        ws.cell(row=i, column=1, value=row["category"])
+        ws.cell(row=i, column=2, value=row.get("type_code") or "")
+        cell = ws.cell(row=i, column=3, value=row["sheet_name"])
+        cell.hyperlink = Hyperlink(
+            ref=cell.coordinate,
+            location=f"'{row['sheet_name']}'!A1",
+            display=row["sheet_name"],
+        )
+        cell.font = _HYPERLINK_FONT
+        ws.cell(row=i, column=4, value=row.get("row_count", 0))
+        ws.cell(row=i, column=5, value="点击左侧跳转")
+    ws.column_dimensions["A"].width = 14
+    ws.column_dimensions["B"].width = 14
+    ws.column_dimensions["C"].width = 24
+    ws.column_dimensions["D"].width = 10
+    ws.column_dimensions["E"].width = 20
+
+
+def build_workbook(
+    topology: dict,
+    node_types: list,
+    edge_types: list,
+    nodes_by_type_code: dict,
+    edges_by_type_code: dict,
+    node_groups: list,
+    node_group_edge_strategies: list,
+    alarm_schema_fields: list,
+    node_alarms: list,
+    node_group_alarms: list,
+) -> Workbook:
+    """构建拓扑 Excel workbook。参见 spec Section: 数据入参形状。"""
+    wb = Workbook()
+    _write_instruction_sheet(wb)
+    _write_meta_sheet(wb, topology)
+
+    # 反查映射
+    node_name_by_id: dict = {}
+    node_id_to_type_code: dict = {}
+    for nt in node_types:
+        for n in nodes_by_type_code.get(nt["code"], []):
+            node_name_by_id[n["id"]] = n["name"]
+            node_id_to_type_code[n["id"]] = nt["code"]
+    node_type_code_by_id = {nt["id"]: nt["code"] for nt in node_types}
+    group_name_by_id = {g["id"]: g["group_name"] for g in node_groups}
+
+    used: set = {INSTRUCTION_SHEET_NAME, INDEX_SHEET_NAME, META_SHEET_NAME,
+                 NODE_GROUP_SHEET_NAME, NODE_GROUP_EDGE_STRATEGY_SHEET_NAME,
+                 NODE_ALARM_SHEET_NAME, NODE_GROUP_ALARM_SHEET_NAME}
+
+    index_rows: list = []
+
+    for nt in node_types:
+        nodes = nodes_by_type_code.get(nt["code"], [])
+        name = _write_node_sheet(wb, nt, nodes, used)
+        index_rows.append({"category": "节点", "type_code": nt["code"],
+                           "sheet_name": name, "row_count": len(nodes)})
+
+    for et in edge_types:
+        edges = edges_by_type_code.get(et["code"], [])
+        name = _write_edge_sheet(wb, et, edges, node_name_by_id, used)
+        index_rows.append({"category": "边", "type_code": et["code"],
+                           "sheet_name": name, "row_count": len(edges)})
+
+    _write_node_group_sheet(wb, node_groups, node_type_code_by_id)
+    index_rows.append({"category": "节点组", "type_code": "",
+                       "sheet_name": NODE_GROUP_SHEET_NAME, "row_count": len(node_groups)})
+
+    _write_node_group_edge_strategy_sheet(wb, node_group_edge_strategies)
+    index_rows.append({"category": "节点组边策略", "type_code": "",
+                       "sheet_name": NODE_GROUP_EDGE_STRATEGY_SHEET_NAME,
+                       "row_count": len(node_group_edge_strategies)})
+
+    if topology.get("alarm_schema_code") and alarm_schema_fields:
+        alarm_field_keys = [f["field_key"] for f in alarm_schema_fields if not f.get("mapping_target")]
+        _write_node_alarm_sheet(wb, node_alarms, alarm_field_keys,
+                                 node_id_to_type_code, node_name_by_id)
+        index_rows.append({"category": "节点告警", "type_code": "",
+                           "sheet_name": NODE_ALARM_SHEET_NAME, "row_count": len(node_alarms)})
+
+        _write_node_group_alarm_sheet(wb, node_group_alarms, alarm_field_keys, group_name_by_id)
+        index_rows.append({"category": "节点组告警", "type_code": "",
+                           "sheet_name": NODE_GROUP_ALARM_SHEET_NAME,
+                           "row_count": len(node_group_alarms)})
+
+    _write_index_sheet(wb, index_rows)
+
+    return wb
