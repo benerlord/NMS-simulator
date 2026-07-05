@@ -230,14 +230,16 @@ Content-Type: application/json
 - `"必填字段 <fieldLabel> 缺失"`
 - `"字段 <fieldLabel> 值超过最大长度 <max_length>"`
 
-### 后端执行逻辑
+### 后端执行逻辑（沿用现有 `transaction()` context manager 模式）
 ```python
-with connect() as conn:
+with transaction() as conn:
     # 1. 前置检查
     if not conn.execute("SELECT id FROM topologies WHERE id=?", (topology_id,)).fetchone():
-        raise HTTPException(404, "topology not found")
+        raise HTTPException(status_code=404,
+            detail={"code": 40402, "message": "拓扑不存在"})
     if not conn.execute("SELECT id FROM node_types WHERE id=?", (req.node_type_id,)).fetchone():
-        raise HTTPException(404, "node_type not found")
+        raise HTTPException(status_code=404,
+            detail={"code": 40403, "message": "节点类型不存在"})
 
     # 2. 加载字段元数据
     field_rows = conn.execute(
@@ -247,7 +249,7 @@ with connect() as conn:
     ).fetchall()
     field_map = { r["field_key"]: r for r in field_rows }
 
-    # 3. 预取已存在 name
+    # 3. 预取已存在 name（同一拓扑内）
     existing_names = {
         r["name"] for r in conn.execute(
             "SELECT name FROM nodes WHERE topology_id=?", (topology_id,)
@@ -258,43 +260,46 @@ with connect() as conn:
     skipped: list[dict] = []
     seen_in_batch: set[str] = set()
 
-    with transaction(conn):
-        for idx, item in enumerate(req.items):
-            name = (item.name or "").strip()
-            if not name:
-                skipped.append({"index": idx, "name": item.name, "reason": "name 为空"})
-                continue
-            if name in existing_names:
-                skipped.append({"index": idx, "name": name, "reason": "画布已有同名节点"})
-                continue
-            if name in seen_in_batch:
-                skipped.append({"index": idx, "name": name, "reason": "批次内名称重复"})
-                continue
+    for idx, item in enumerate(req.items):
+        name = (item.name or "").strip()
+        if not name:
+            skipped.append({"index": idx, "name": item.name, "reason": "name 为空"})
+            continue
+        if name in existing_names:
+            skipped.append({"index": idx, "name": name, "reason": "画布已有同名节点"})
+            continue
+        if name in seen_in_batch:
+            skipped.append({"index": idx, "name": name, "reason": "批次内名称重复"})
+            continue
 
-            err = _validate_attrs_for_bulk(field_map, item.attrs)
-            if err:
-                skipped.append({"index": idx, "name": name, "reason": err})
-                continue
+        err = _validate_attrs_for_bulk(field_map, item.attrs)
+        if err:
+            skipped.append({"index": idx, "name": name, "reason": err})
+            continue
 
-            node_id = _generate_id("node_")
+        node_id = _new_id()  # backend/app/admin/node.py 现有 helper
+        conn.execute(
+            "INSERT INTO nodes (id, topology_id, node_type_id, name, status) "
+            "VALUES (?, ?, ?, ?, 'online')",
+            (node_id, topology_id, req.node_type_id, name),
+        )
+        # 位置存 canvas_nodes 表（nodes 表无 x/y 列）
+        conn.execute(
+            "INSERT OR REPLACE INTO canvas_nodes (node_id, topology_id, x, y) "
+            "VALUES (?, ?, ?, ?)",
+            (node_id, topology_id, item.x, item.y),
+        )
+        for field_key, value in item.attrs.items():
+            if value is None or field_key not in field_map:
+                continue  # 未定义的 key 静默忽略
             conn.execute(
-                "INSERT INTO nodes (id, topology_id, node_type_id, name, status, x, y) "
-                "VALUES (?, ?, ?, ?, 'online', ?, ?)",
-                (node_id, topology_id, req.node_type_id, name, item.x, item.y),
+                "INSERT INTO node_attrs (node_id, field_key, value) VALUES (?, ?, ?)",
+                (node_id, field_key, value),
             )
-            for field_key, value in item.attrs.items():
-                if value is None or field_key not in field_map:
-                    continue  # 未定义的 key 静默忽略
-                conn.execute(
-                    "INSERT INTO node_attrs (node_id, field_key, value) VALUES (?, ?, ?)",
-                    (node_id, field_key, value),
-                )
-            created.append({"index": idx, "id": node_id, "name": name})
-            seen_in_batch.add(name)
+        created.append({"index": idx, "id": node_id, "name": name})
+        seen_in_batch.add(name)
 
-    ws_hub.publish("topology.saved", {"topologyId": topology_id})
-
-return {"created": created, "skipped": skipped}
+return {"code": 0, "data": {"created": created, "skipped": skipped}, "message": "ok"}
 ```
 
 ### `_validate_attrs_for_bulk` 语义（复用 `set_node_attrs` 规则）
