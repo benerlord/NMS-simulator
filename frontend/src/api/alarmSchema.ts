@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut, apiDelete } from './http'
+import http, { apiGet, apiPost, apiPut, apiDelete } from './http'
 
 export interface AlarmSchemaFieldItem {
   id: number
@@ -55,6 +55,25 @@ export interface AlarmSchemaUpdate {
   fields?: AlarmSchemaFieldInput[]
 }
 
+export interface AlarmSchemaImportPreviewItem {
+  code: string
+  name: string
+  oldName?: string | null
+}
+
+export interface AlarmSchemaImportPreview {
+  toCreate: AlarmSchemaImportPreviewItem[]
+  toUpdate: AlarmSchemaImportPreviewItem[]
+  errors: string[]
+}
+
+export interface AlarmSchemaImportResult {
+  created: number
+  updated: number
+  totalFields: number
+  errors: string[]
+}
+
 export const alarmSchemaApi = {
   list: (): Promise<AlarmSchemaItem[]> =>
     apiGet('/alarm-schemas'),
@@ -70,4 +89,23 @@ export const alarmSchemaApi = {
 
   delete: (id: string): Promise<null> =>
     apiDelete(`/alarm-schemas/${id}`),
+
+  export: (ids?: string[]): Promise<Blob> =>
+    http.post('/alarm-schemas/export', { ids }, { responseType: 'blob' }).then(r => r.data),
+
+  importPreview: (file: File): Promise<AlarmSchemaImportPreview> => {
+    const form = new FormData()
+    form.append('file', file)
+    return http.post('/alarm-schemas/import/preview', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then(r => r.data.data)
+  },
+
+  import: (file: File): Promise<AlarmSchemaImportResult> => {
+    const form = new FormData()
+    form.append('file', file)
+    return http.post('/alarm-schemas/import', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then(r => r.data.data)
+  },
 }
