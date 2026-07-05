@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { Modal, Input, Select, InputNumber, Button, Alert, Form, message } from 'ant-design-vue'
 import BulkImportPreview from './BulkImportPreview.vue'
 import { parseBulkJson, buildBulkPreview } from '@/utils/jsonBulkNodes'
@@ -92,6 +92,13 @@ watch(jsonText, (v) => {
       parsedItems.value = []
     }
   }, 400)
+})
+
+onBeforeUnmount(() => {
+  if (parseDebounceTimer) {
+    clearTimeout(parseDebounceTimer)
+    parseDebounceTimer = null
+  }
 })
 
 watch(
