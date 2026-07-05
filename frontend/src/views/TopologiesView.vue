@@ -6,10 +6,8 @@ import { message } from 'ant-design-vue'
 import TopologyTable from '@/components/topology/TopologyTable.vue'
 import TopologyModal from '@/components/topology/TopologyModal.vue'
 import { useTopologies } from '@/composables/useTopologies'
-import type {
-  TopologyExportDoc,
-  TopologyListItem,
-} from '@/api/topology'
+import type { TopologyListItem } from '@/api/topology'
+import { downloadBlob, timestampExcelFilename } from '@/utils/download'
 
 const {
   items,
@@ -19,8 +17,8 @@ const {
   pageSize,
   fetchTopologies,
   deleteTopology,
-  exportTopology,
-  importTopology,
+  exportTopologyExcel,
+  importTopologyExcel,
   onPageChange,
   onSearch,
   onSort,
@@ -73,24 +71,11 @@ function sanitizeFileName(name: string): string {
   return name.replace(/[\\/:*?"<>|]+/g, '_').replace(/\s+/g, '_').slice(0, 80) || 'topology'
 }
 
-function downloadJson(filename: string, payload: unknown) {
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  URL.revokeObjectURL(url)
-}
-
 async function handleExport(item: TopologyListItem) {
   try {
-    const doc = await exportTopology(item.id)
-    const date = new Date().toISOString().slice(0, 10)
-    downloadJson(`topology-${sanitizeFileName(item.name)}-${date}.json`, doc)
-    message.success(`已导出 ${doc.nodes.length} 节点 / ${doc.edges.length} 边`)
+    const blob = await exportTopologyExcel(item.id)
+    downloadBlob(blob, timestampExcelFilename(`topology-${sanitizeFileName(item.name)}`))
+    message.success('导出成功')
   } catch {
     // error toast handled by http interceptor
   }
@@ -103,33 +88,31 @@ function handleImportClick() {
 async function handleFileChosen(e: Event) {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0]
-  input.value = '' // allow re-selecting the same file later
+  input.value = ''
   if (!file) return
-  let text: string
+  if (!file.name.toLowerCase().endsWith('.xlsx')) {
+    message.error('仅支持 .xlsx 文件')
+    return
+  }
   try {
-    text = await file.text()
+    const result = await importTopologyExcel(file)
+    const parts = [
+      `已创建拓扑 "${result.topologyName}"`,
+      `${result.counts.nodes} 节点`,
+      `${result.counts.edges} 边`,
+    ]
+    if (result.counts.groups) parts.push(`${result.counts.groups} 组`)
+    message.success(parts.join('，'))
+    if (result.warnings.length) {
+      message.warning(result.warnings.join('；'))
+    }
+    if (result.errors.length) {
+      const preview = result.errors.slice(0, 3).join('；')
+      const more = result.errors.length > 3 ? '…' : ''
+      message.error(`${result.errors.length} 行被跳过：${preview}${more}`)
+    }
   } catch (err) {
-    message.error(`无法读取文件：${(err as Error).message}`)
-    return
-  }
-  let doc: TopologyExportDoc
-  try {
-    doc = JSON.parse(text) as TopologyExportDoc
-  } catch (err) {
-    message.error(`JSON 解析失败：${(err as Error).message}`)
-    return
-  }
-  if (!doc || typeof doc !== 'object' || !doc.schemaVersion || !doc.topology) {
-    message.error('文件不是有效的拓扑导出文档（缺少 schemaVersion / topology 字段）')
-    return
-  }
-  try {
-    const result = await importTopology(doc)
-    message.success(
-      `已导入：${result.name}（${result.nodeCount} 节点 / ${result.edgeCount} 边 / ${result.canvasCount} 坐标）`,
-    )
-  } catch {
-    // error toast handled by http interceptor
+    message.error((err as Error).message || '导入失败')
   }
 }
 </script>
@@ -139,7 +122,7 @@ async function handleFileChosen(e: Event) {
     <input
       ref="fileInputRef"
       type="file"
-      accept="application/json,.json"
+      accept=".xlsx"
       style="display: none"
       @change="handleFileChosen"
     />

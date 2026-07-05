@@ -1,5 +1,5 @@
 import { shallowRef, ref, watch } from 'vue'
-import { apiGet, apiPost, apiPut, apiDelete } from '@/api/http'
+import http, { apiGet, apiPost, apiPut, apiDelete } from '@/api/http'
 import type {
   TopologyListItem,
   TopologyDetail,
@@ -93,6 +93,30 @@ export function useTopologies(options: UseTopologiesOptions = {}) {
     return result
   }
 
+  async function exportTopologyExcel(id: string): Promise<Blob> {
+    const res = await http.get(`/topologies/${id}/export-excel`, { responseType: 'blob' })
+    return res.data
+  }
+
+  async function importTopologyExcel(file: File): Promise<{
+    topologyId: string
+    topologyName: string
+    counts: { nodes: number; edges: number; groups: number; nodeAlarms: number; groupAlarms: number }
+    errors: string[]
+    warnings: string[]
+  }> {
+    if (!file.name.toLowerCase().endsWith('.xlsx')) {
+      throw new Error('仅支持 .xlsx 文件')
+    }
+    const form = new FormData()
+    form.append('file', file)
+    const res = await http.post('/topologies/import-excel', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    await fetchTopologies()
+    return res.data.data
+  }
+
   function onPageChange(p: number, ps: number) {
     page.value = p
     pageSize.value = ps
@@ -129,6 +153,8 @@ export function useTopologies(options: UseTopologiesOptions = {}) {
     fetchDeleteImpact,
     exportTopology,
     importTopology,
+    exportTopologyExcel,
+    importTopologyExcel,
     onPageChange,
     onSearch,
     onSort,
