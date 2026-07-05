@@ -214,7 +214,7 @@ function handleJsonGenerate(newFields: FieldLike[]) {
 .edge-type-field-editor {
   display: flex;
   flex-direction: column;
-  height: 360px;
+  height: 420px;
   overflow: hidden;
 }
 .toolbar {

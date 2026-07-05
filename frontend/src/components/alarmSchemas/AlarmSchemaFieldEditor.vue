@@ -250,7 +250,7 @@ function handleJsonGenerate(newFields: FieldLike[]) {
 .alarm-field-editor {
   display: flex;
   flex-direction: column;
-  height: 360px;
+  height: 420px;
   overflow: hidden;
 }
 .toolbar {
