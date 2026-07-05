@@ -537,6 +537,55 @@ def _build_node_types_excel(items: list[dict]) -> BytesIO:
     return output
 
 
+def _build_edge_types_excel(items: list) -> BytesIO:
+    wb = Workbook()
+
+    ws1 = wb.active
+    ws1.title = "边类型汇总"
+    ws1.append(["Code", "名称", "语义", "有向", "唯一目标",
+                "允许源类型", "允许目标类型", "线条样式", "颜色",
+                "描述", "字段数", "创建时间", "更新时间"])
+    for item in items:
+        ws1.append([
+            item.get("code"),
+            item.get("name"),
+            item.get("semantic"),
+            "是" if item.get("directed") else "否",
+            "是" if item.get("exclusiveTarget") else "否",
+            item.get("allowSourceTypeCodes"),
+            item.get("allowTargetTypeCodes"),
+            item.get("lineStyle"),
+            item.get("color"),
+            item.get("description"),
+            len(item.get("fields") or []),
+            item.get("createdAt"),
+            item.get("updatedAt"),
+        ])
+
+    for item in items:
+        fields = item.get("fields") or []
+        sheet_name = _safe_sheet_name(item.get("code", item.get("id", "unknown")))
+        ws = wb.create_sheet(title=sheet_name)
+        ws.append(["字段标识", "显示名称", "字段类型", "最大长度",
+                    "默认值", "选项", "必填", "排序"])
+        for f in fields:
+            ws.append([
+                f.get("fieldKey"),
+                f.get("fieldLabel"),
+                f.get("fieldType"),
+                f.get("maxLength"),
+                f.get("defaultValue"),
+                f.get("options"),
+                "是" if f.get("required") else "否",
+                f.get("sortOrder"),
+            ])
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output
+
+
 @router.post("/node-types/export")
 def export_node_types(data: TypeExportRequest):
     with connect() as conn:
@@ -998,7 +1047,7 @@ def batch_delete_edge_types(data: EdgeTypeBatchDelete) -> dict:
 
 
 @router.post("/edge-types/export")
-def export_edge_types(data: TypeExportRequest) -> dict:
+def export_edge_types(data: TypeExportRequest):
     with connect() as conn:
         if data.ids:
             placeholders = ",".join("?" for _ in data.ids)
@@ -1029,7 +1078,13 @@ def export_edge_types(data: TypeExportRequest) -> dict:
                 fields=_get_edge_type_fields(conn, r["id"]),
             )
             items.append(item.model_dump(mode="json", by_alias=True))
-        return {"code": 0, "data": {"items": items}, "message": "ok"}
+
+    excel = _build_edge_types_excel(items)
+    return StreamingResponse(
+        excel,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=edge-types-export.xlsx"},
+    )
 
 
 @router.delete("/edge-types/{type_id}")
