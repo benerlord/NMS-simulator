@@ -360,6 +360,157 @@ async def preview_alarm_schemas_import(file: UploadFile = File(...)):
     return {"code": 0, "data": preview.model_dump(mode="json", by_alias=True), "message": "ok"}
 
 
+@router.post("/alarm-schemas/import")
+async def import_alarm_schemas(file: UploadFile = File(...)):
+    if not file.filename or not file.filename.endswith('.xlsx'):
+        raise HTTPException(
+            status_code=400,
+            detail={"code": 40412, "message": "仅支持 .xlsx 文件"},
+        )
+
+    contents = await file.read()
+    wb = _load_import_workbook(contents)
+    ws = wb["模板汇总"]
+    result = AlarmSchemaImportResult()
+
+    with transaction() as conn:
+        headers = _build_header_map(ws)
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            if all(v is None or v == '' for v in row):
+                break
+            code = _col(headers, "Code", row)
+            name = _col(headers, "名称", row)
+            if not code or not name:
+                result.errors.append(f"Code={code or '(空)'} 缺少必填字段（Code/名称），跳过")
+                continue
+
+            description = _col(headers, "描述", row)
+            display_field_key = _col(headers, "展示字段Key", row)
+
+            existing = conn.execute(
+                "SELECT id FROM alarm_schemas WHERE code = ?", (code,)
+            ).fetchone()
+
+            if existing:
+                schema_id = existing["id"]
+                conn.execute(
+                    """UPDATE alarm_schemas SET name=?, description=?,
+                       display_field_key=?, updated_at=datetime('now')
+                       WHERE id=?""",
+                    (name, description, display_field_key, schema_id),
+                )
+                result.updated += 1
+            else:
+                schema_id = _new_id()
+                conn.execute(
+                    """INSERT INTO alarm_schemas
+                       (id, code, name, description, display_field_key)
+                       VALUES (?,?,?,?,?)""",
+                    (schema_id, code, name, description, display_field_key),
+                )
+                result.created += 1
+
+            sheet_name = _safe_sheet_name(code)
+            if sheet_name in wb.sheetnames:
+                conn.execute(
+                    "DELETE FROM alarm_schema_fields WHERE alarm_schema_id = ?",
+                    (schema_id,),
+                )
+                fheaders = _build_header_map(wb[sheet_name])
+                seen_fields: set = set()
+                for frow in wb[sheet_name].iter_rows(min_row=2, values_only=True):
+                    if all(v is None or v == '' for v in frow):
+                        break
+                    fkey = _col(fheaders, "字段标识", frow)
+                    flabel = _col(fheaders, "显示名称", frow)
+                    ftype_raw = _col(fheaders, "字段类型", frow)
+                    if not fkey or not flabel or not ftype_raw:
+                        continue
+                    if not _IDENT_RE.match(fkey):
+                        result.errors.append(
+                            f"[{code}] 字段标识 {fkey} 非法（仅支持字母/数字/下划线），跳过"
+                        )
+                        continue
+                    if fkey in _FIXED_COLS:
+                        result.errors.append(
+                            f"[{code}] 字段标识 {fkey} 与固定列冲突，跳过"
+                        )
+                        continue
+                    if fkey in seen_fields:
+                        result.errors.append(
+                            f"[{code}] 字段标识 {fkey} 重复，跳过"
+                        )
+                        continue
+                    seen_fields.add(fkey)
+
+                    ftype = ftype_raw.strip().lower()
+                    if ftype not in ('text', 'number', 'select', 'boolean', 'array'):
+                        result.errors.append(
+                            f"[{code}] 字段 {fkey} 类型 '{ftype_raw}' 无效（invalid_type 类），跳过"
+                        )
+                        continue
+
+                    maxlen_raw = _col(fheaders, "最大长度", frow)
+                    if ftype == 'text':
+                        try:
+                            maxlen = int(maxlen_raw) if maxlen_raw else 255
+                            if maxlen < 1:
+                                maxlen = 255
+                        except (ValueError, TypeError):
+                            maxlen = 255
+                    else:
+                        try:
+                            maxlen = int(maxlen_raw) if maxlen_raw else None
+                        except (ValueError, TypeError):
+                            maxlen = None
+
+                    defval = _col(fheaders, "默认值", frow)
+                    opts = _col(fheaders, "选项", frow)
+                    req_raw = _col(fheaders, "必填", frow) or ""
+                    req = 1 if req_raw == "是" else 0
+                    sort_raw = _col(fheaders, "排序", frow)
+                    sort = int(sort_raw) if sort_raw and str(sort_raw).isdigit() else 0
+                    mapping = _col(fheaders, "映射节点属性", frow)
+
+                    if ftype == 'array' and defval:
+                        import json as _json
+                        try:
+                            _parsed = _json.loads(defval)
+                            if not isinstance(_parsed, list):
+                                result.errors.append(
+                                    f"[{code}] 字段 {fkey} 的默认值必须是 JSON array，跳过"
+                                )
+                                continue
+                        except _json.JSONDecodeError:
+                            result.errors.append(
+                                f"[{code}] 字段 {fkey} 的默认值不是合法 JSON，跳过"
+                            )
+                            continue
+
+                    if mapping and not _IDENT_RE.match(mapping):
+                        result.errors.append(
+                            f"[{code}] 字段 {fkey} 的映射节点属性 '{mapping}' 非法（仅支持字母/数字/下划线），跳过"
+                        )
+                        continue
+
+                    conn.execute(
+                        """INSERT INTO alarm_schema_fields
+                           (alarm_schema_id, field_key, field_label, field_type,
+                            max_length, default_value, options, required,
+                            sort_order, mapping_target)
+                           VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                        (schema_id, fkey, flabel, ftype, maxlen, defval, opts,
+                         req, sort, mapping),
+                    )
+                    result.total_fields += 1
+
+    return {
+        "code": 0,
+        "data": result.model_dump(mode="json", by_alias=True),
+        "message": "ok",
+    }
+
+
 @router.post("/alarm-schemas/export")
 def export_alarm_schemas(data: AlarmSchemaExportRequest):
     with connect() as conn:

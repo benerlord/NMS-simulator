@@ -217,3 +217,194 @@ def test_import_preview_missing_required_records_error(client):
     assert len(data["errors"]) == 2
     assert data["toCreate"] == []
     assert data["toUpdate"] == []
+
+
+# ============== 正式导入测试 ==============
+
+def test_import_creates_new_schema_with_fields(client):
+    """新模板 + 字段一起导入。"""
+    buf = _build_import_xlsx([
+        {"code": "as_imp_new", "name": "导入新",
+         "fields": [
+             {"fieldKey": "severity", "fieldLabel": "严重度",
+              "fieldType": "text", "maxLength": 30, "sortOrder": 0},
+             {"fieldKey": "count", "fieldLabel": "计数",
+              "fieldType": "number", "sortOrder": 1},
+         ]},
+    ])
+
+    r = client.post(
+        "/admin/api/alarm-schemas/import",
+        files={"file": ("test.xlsx", buf,
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert r.status_code == 200, r.text
+    data = r.json()["data"]
+    assert data["created"] == 1
+    assert data["updated"] == 0
+    assert data["totalFields"] == 2
+
+    r = client.get("/admin/api/alarm-schemas").json()["data"]
+    match = next(it for it in r if it["code"] == "as_imp_new")
+    detail = client.get(f"/admin/api/alarm-schemas/{match['id']}").json()["data"]
+    assert [f["fieldKey"] for f in detail["fields"]] == ["severity", "count"]
+
+
+def test_import_overwrites_existing_schema(client):
+    """已存在 code → name 覆盖，字段全部替换。"""
+    _create_schema(
+        client, "as_imp_ov", "旧名字",
+        fields=[
+            {"fieldKey": "old_field", "fieldLabel": "旧字段",
+             "fieldType": "text", "maxLength": 10, "sortOrder": 0}
+        ],
+    )
+    buf = _build_import_xlsx([
+        {"code": "as_imp_ov", "name": "新名字",
+         "fields": [
+             {"fieldKey": "new_field", "fieldLabel": "新字段",
+              "fieldType": "text", "maxLength": 30, "sortOrder": 0}
+         ]},
+    ])
+
+    r = client.post(
+        "/admin/api/alarm-schemas/import",
+        files={"file": ("test.xlsx", buf,
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert r.status_code == 200
+    data = r.json()["data"]
+    assert data["updated"] == 1
+    assert data["created"] == 0
+
+    lst = client.get("/admin/api/alarm-schemas").json()["data"]
+    match = next(it for it in lst if it["code"] == "as_imp_ov")
+    assert match["name"] == "新名字"
+    detail = client.get(f"/admin/api/alarm-schemas/{match['id']}").json()["data"]
+    field_keys = [f["fieldKey"] for f in detail["fields"]]
+    assert field_keys == ["new_field"]
+    assert "old_field" not in field_keys
+
+
+def test_import_text_field_missing_maxlen_defaults_to_255(client):
+    """text 字段最大长度为空 → 落库 255。"""
+    buf = _build_import_xlsx([
+        {"code": "as_imp_mx", "name": "空长度",
+         "fields": [
+             {"fieldKey": "note", "fieldLabel": "备注",
+              "fieldType": "text", "maxLength": None, "sortOrder": 0}
+         ]},
+    ])
+
+    r = client.post(
+        "/admin/api/alarm-schemas/import",
+        files={"file": ("test.xlsx", buf,
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert r.status_code == 200
+    lst = client.get("/admin/api/alarm-schemas").json()["data"]
+    match = next(it for it in lst if it["code"] == "as_imp_mx")
+    detail = client.get(f"/admin/api/alarm-schemas/{match['id']}").json()["data"]
+    note = next(f for f in detail["fields"] if f["fieldKey"] == "note")
+    assert note["maxLength"] == 255
+
+
+def test_import_invalid_field_type_records_error(client):
+    """field_type 非白名单 → errors 记录跳过。"""
+    buf = _build_import_xlsx([
+        {"code": "as_imp_bad", "name": "有非法类型",
+         "fields": [
+             {"fieldKey": "good_field", "fieldLabel": "合法",
+              "fieldType": "text", "maxLength": 20, "sortOrder": 0},
+             {"fieldKey": "bad_field", "fieldLabel": "非法",
+              "fieldType": "invalid_type", "sortOrder": 1},
+         ]},
+    ])
+
+    r = client.post(
+        "/admin/api/alarm-schemas/import",
+        files={"file": ("test.xlsx", buf,
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert r.status_code == 200
+    data = r.json()["data"]
+    assert data["created"] == 1
+    assert data["totalFields"] == 1  # 只有 good_field 入库
+    assert any("invalid_type" in e for e in data["errors"])
+
+
+def test_import_field_key_conflict_with_fixed_col_records_error(client):
+    """field_key 与固定列（id/node_id/alarm_index/created_at/updated_at）冲突 → errors 记录。"""
+    buf = _build_import_xlsx([
+        {"code": "as_imp_fx", "name": "固定列冲突",
+         "fields": [
+             {"fieldKey": "id", "fieldLabel": "冲突 id",
+              "fieldType": "text", "maxLength": 20, "sortOrder": 0},
+             {"fieldKey": "safe_key", "fieldLabel": "安全",
+              "fieldType": "text", "maxLength": 20, "sortOrder": 1},
+         ]},
+    ])
+
+    r = client.post(
+        "/admin/api/alarm-schemas/import",
+        files={"file": ("test.xlsx", buf,
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert r.status_code == 200
+    data = r.json()["data"]
+    assert data["totalFields"] == 1
+    assert any("id" in e and "固定列" in e for e in data["errors"])
+
+
+def test_import_invalid_mapping_target_records_error(client):
+    """mapping_target 非合法标识符 → errors 记录跳过。"""
+    buf = _build_import_xlsx([
+        {"code": "as_imp_mp", "name": "非法映射",
+         "fields": [
+             {"fieldKey": "level", "fieldLabel": "级别",
+              "fieldType": "text", "maxLength": 20,
+              "mappingTarget": "123abc", "sortOrder": 0},
+         ]},
+    ])
+
+    r = client.post(
+        "/admin/api/alarm-schemas/import",
+        files={"file": ("test.xlsx", buf,
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert r.status_code == 200
+    data = r.json()["data"]
+    assert data["totalFields"] == 0
+    assert any("123abc" in e for e in data["errors"])
+
+
+def test_import_partial_failure_isolated_per_row(client):
+    """某模板字段解析失败不影响其他模板。"""
+    buf = _build_import_xlsx([
+        {"code": "as_imp_ok", "name": "正常",
+         "fields": [
+             {"fieldKey": "level", "fieldLabel": "级别",
+              "fieldType": "text", "maxLength": 20, "sortOrder": 0},
+         ]},
+        {"code": "as_imp_bad2", "name": "含错误字段",
+         "fields": [
+             {"fieldKey": "bad", "fieldLabel": "坏",
+              "fieldType": "not_a_type", "sortOrder": 0},
+         ]},
+        {"code": "as_imp_ok2", "name": "又正常",
+         "fields": [
+             {"fieldKey": "count", "fieldLabel": "计数",
+              "fieldType": "number", "sortOrder": 0},
+         ]},
+    ])
+
+    r = client.post(
+        "/admin/api/alarm-schemas/import",
+        files={"file": ("test.xlsx", buf,
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert r.status_code == 200
+    data = r.json()["data"]
+    assert data["created"] == 3  # 3 个模板都创建
+    assert data["totalFields"] == 2  # 只有 2 个字段成功
+    assert len(data["errors"]) >= 1
