@@ -54,11 +54,6 @@ export interface NodeTypeItem {
   code: string
   name: string
   category: string
-  icon: string | null
-  color: string | null
-  shape: string | null
-  renderMode: string
-  dnTemplate: string | null
   description: string | null
   domainIds: string[]
   domainNames: string[]
@@ -74,23 +69,15 @@ export interface NodeTypeCreate {
   code: string
   name: string
   category: string
-  icon?: string | null
-  color?: string | null
-  shape?: string | null
-  renderMode?: string
-  dnTemplate?: string | null
   description?: string | null
+  domainIds?: string[] | null
   fields?: NodeTypeFieldInput[] | null
 }
 
 export interface NodeTypeUpdate {
   name?: string | null
-  icon?: string | null
-  color?: string | null
-  shape?: string | null
-  renderMode?: string | null
-  dnTemplate?: string | null
   description?: string | null
+  domainIds?: string[] | null
   fields?: NodeTypeFieldInput[] | null
 }
 

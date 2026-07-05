@@ -1,34 +1,21 @@
 <script setup lang="ts">
-import { ref, computed, watch, h } from 'vue'
+import { ref, computed, watch, h, onMounted } from 'vue'
 import { Modal } from 'ant-design-vue'
 import NodeTypeFieldEditor from './NodeTypeFieldEditor.vue'
 import { nodeTypeApi } from '@/api/types'
+import { domainApi, type DomainItem } from '@/api/domain'
 import type {
   NodeTypeCreate, NodeTypeUpdate, NodeTypeDetail, NodeTypeFieldInput,
 } from '@/api/types'
 
 const CATEGORIES = ['physical', 'virtual', 'cloud', 'application']
-const RENDER_MODES = [
-  { value: 'none', label: '无' },
-  { value: 'flat', label: '扁平' },
-]
-const SHAPES = [
-  { value: 'rect', label: '矩形' },
-  { value: 'circle', label: '圆形' },
-  { value: 'ellipse', label: '椭圆' },
-  { value: 'polygon', label: '多边形' },
-]
 
 interface NodeTypeForm {
   code: string
   name: string
   category: string
-  icon: string
-  color: string
-  shape: string
-  renderMode: string
-  dnTemplate: string
   description: string
+  domainIds: string[]
   fields: NodeTypeFieldInput[]
 }
 
@@ -50,17 +37,23 @@ const defaultForm = (): NodeTypeForm => ({
   code: '',
   name: '',
   category: 'physical',
-  icon: '',
-  color: '',
-  shape: '',
-  renderMode: 'none',
-  dnTemplate: '',
   description: '',
+  domainIds: [],
   fields: [],
 })
 
 const form = ref<NodeTypeForm>(defaultForm())
 const originalFieldKeys = ref<Set<string>>(new Set())
+const domains = ref<DomainItem[]>([])
+
+onMounted(async () => {
+  try {
+    const res = await domainApi.list()
+    domains.value = res.items
+  } catch {
+    domains.value = []
+  }
+})
 
 watch(() => props.open, (open) => {
   if (!open) return
@@ -69,12 +62,8 @@ watch(() => props.open, (open) => {
       code: props.editing.code,
       name: props.editing.name,
       category: props.editing.category,
-      icon: props.editing.icon ?? '',
-      color: props.editing.color ?? '',
-      shape: props.editing.shape ?? '',
-      renderMode: props.editing.renderMode,
-      dnTemplate: props.editing.dnTemplate ?? '',
       description: props.editing.description ?? '',
+      domainIds: [...(props.editing.domainIds ?? [])],
       fields: (props.editing.fields ?? []).map(f => ({
         fieldKey: f.fieldKey,
         fieldLabel: f.fieldLabel,
@@ -143,12 +132,8 @@ async function submit() {
   if (isEdit.value && props.editing) {
     emit('update', props.editing.id, {
       name: form.value.name,
-      icon: form.value.icon || null,
-      color: form.value.color || null,
-      shape: form.value.shape || null,
-      renderMode: form.value.renderMode,
-      dnTemplate: form.value.dnTemplate || null,
       description: form.value.description || null,
+      domainIds: form.value.domainIds,
       fields: form.value.fields,
     })
   } else {
@@ -156,12 +141,8 @@ async function submit() {
       code: form.value.code,
       name: form.value.name,
       category: form.value.category,
-      icon: form.value.icon || null,
-      color: form.value.color || null,
-      shape: form.value.shape || null,
-      renderMode: form.value.renderMode,
-      dnTemplate: form.value.dnTemplate || null,
       description: form.value.description || null,
+      domainIds: form.value.domainIds,
       fields: form.value.fields,
     })
   }
@@ -178,7 +159,6 @@ async function submit() {
     ok-text="确定"
     cancel-text="取消"
     width="880px"
-    :styles="{ body: { maxHeight: 'calc(100vh - 200px)', overflowY: 'auto' } }"
   >
     <a-form layout="vertical">
       <a-row :gutter="16">
@@ -209,42 +189,15 @@ async function submit() {
           </a-form-item>
         </a-col>
         <a-col :span="12">
-          <a-form-item label="渲染模式">
-            <a-select v-model:value="form.renderMode">
-              <a-select-option v-for="m in RENDER_MODES" :key="m.value" :value="m.value">
-                {{ m.label }}
-              </a-select-option>
-            </a-select>
-          </a-form-item>
-        </a-col>
-      </a-row>
-
-      <a-row :gutter="16">
-        <a-col :span="12">
-          <a-form-item label="图标">
-            <a-input v-model:value="form.icon" placeholder="可选" />
-          </a-form-item>
-        </a-col>
-        <a-col :span="12">
-          <a-form-item label="颜色">
-            <a-input v-model:value="form.color" placeholder="如: #1890ff" />
-          </a-form-item>
-        </a-col>
-      </a-row>
-
-      <a-row :gutter="16">
-        <a-col :span="12">
-          <a-form-item label="形状">
-            <a-select v-model:value="form.shape" allowClear placeholder="可选">
-              <a-select-option v-for="s in SHAPES" :key="s.value" :value="s.value">
-                {{ s.label }}
-              </a-select-option>
-            </a-select>
-          </a-form-item>
-        </a-col>
-        <a-col :span="12">
-          <a-form-item label="DN 模板">
-            <a-input v-model:value="form.dnTemplate" placeholder="可选" />
+          <a-form-item label="所属网管/设备">
+            <a-select
+              v-model:value="form.domainIds"
+              mode="multiple"
+              placeholder="可选，支持搜索"
+              :options="domains.map(d => ({ value: d.id, label: d.name }))"
+              :filter-option="(input: string, option: any) => option.label.toLowerCase().includes(input.toLowerCase())"
+              allow-clear
+            />
           </a-form-item>
         </a-col>
       </a-row>

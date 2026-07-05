@@ -342,19 +342,6 @@ loadDomains()
           <a-tag>{{ text }}</a-tag>
         </template>
       </a-table-column>
-      <a-table-column title="图标" dataIndex="icon" width="80">
-        <template #default="{ text }">
-          <span v-if="text">{{ text }}</span>
-          <span v-else class="placeholder">-</span>
-        </template>
-      </a-table-column>
-      <a-table-column title="颜色" dataIndex="color" width="80">
-        <template #default="{ text }">
-          <span v-if="text" class="color-swatch" :style="{ backgroundColor: text }"></span>
-          <span v-else class="placeholder">-</span>
-        </template>
-      </a-table-column>
-      <a-table-column title="渲染模式" dataIndex="renderMode" width="100" />
       <a-table-column title="所属网管/设备" key="domains" width="200">
         <template #default="{ record }">
           <template v-if="record.domainNames?.length">
