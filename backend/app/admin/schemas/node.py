@@ -55,3 +55,32 @@ class NodeListResponse(CamelModel):
     code: int = 0
     data: dict[str, Any]
     message: str = "ok"
+
+
+class BulkNodeItem(CamelModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    x: float
+    y: float
+    attrs: dict[str, Optional[str]] = Field(default_factory=dict)
+
+
+class BulkNodesCreateRequest(CamelModel):
+    node_type_id: str
+    items: list[BulkNodeItem]
+
+
+class BulkCreatedItem(CamelModel):
+    index: int
+    id: str
+    name: str
+
+
+class BulkSkippedItem(CamelModel):
+    index: int
+    name: Optional[str] = None
+    reason: str
+
+
+class BulkNodesCreateResponse(CamelModel):
+    created: list[BulkCreatedItem]
+    skipped: list[BulkSkippedItem]
