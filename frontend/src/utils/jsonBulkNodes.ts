@@ -1,4 +1,4 @@
-import { keyMatch } from './jsonFieldMatch'
+import { keyMatch, coerceValue } from './jsonFieldMatch'
 import type { FieldLike } from './jsonFieldMatch'
 
 export interface BulkPreviewValid {
@@ -62,53 +62,6 @@ export function parseBulkJson(text: string): ParseResult {
     return { ok: false, error: `第 ${badIdx.join(', ')} 项不是 object` }
   }
   return { ok: true, items: parsed as Record<string, unknown>[] }
-}
-
-function coerceForBulk(
-  jsonValue: unknown,
-  fieldType: FieldLike['fieldType'],
-  options: string | null | undefined,
-): { ok: true; value: string } | { ok: false; reason: string } {
-  if (fieldType === 'text') {
-    if (jsonValue === null) return { ok: true, value: '' }
-    if (typeof jsonValue === 'string') return { ok: true, value: jsonValue }
-    if (typeof jsonValue === 'number' || typeof jsonValue === 'boolean') {
-      return { ok: true, value: String(jsonValue) }
-    }
-    return { ok: false, reason: 'text 字段不支持 object/array 值' }
-  }
-  if (fieldType === 'number') {
-    if (typeof jsonValue === 'number') return { ok: true, value: String(jsonValue) }
-    if (typeof jsonValue === 'string') {
-      const n = Number(jsonValue)
-      if (Number.isNaN(n)) return { ok: false, reason: '值无法解析为数字' }
-      return { ok: true, value: String(n) }
-    }
-    return { ok: false, reason: 'number 字段值必须是数字或数字字符串' }
-  }
-  if (fieldType === 'select') {
-    if (typeof jsonValue !== 'string') return { ok: false, reason: 'select 字段值必须是字符串' }
-    const opts = (options || '').split(',').map((s) => s.trim()).filter(Boolean)
-    if (!opts.includes(jsonValue)) return { ok: false, reason: `值不在选项 [${opts.join(', ')}] 中` }
-    return { ok: true, value: jsonValue }
-  }
-  if (fieldType === 'boolean') {
-    if (typeof jsonValue === 'boolean') return { ok: true, value: String(jsonValue) }
-    if (jsonValue === 'true' || jsonValue === 'false') return { ok: true, value: jsonValue }
-    return { ok: false, reason: 'boolean 字段值必须是 true/false' }
-  }
-  if (fieldType === 'array') {
-    if (Array.isArray(jsonValue)) return { ok: true, value: JSON.stringify(jsonValue) }
-    if (typeof jsonValue === 'string') {
-      try {
-        const p = JSON.parse(jsonValue)
-        if (Array.isArray(p)) return { ok: true, value: jsonValue }
-      } catch { /* ignore */ }
-      return { ok: false, reason: '值不是合法的 JSON array 字符串' }
-    }
-    return { ok: false, reason: 'array 字段值必须是数组' }
-  }
-  return { ok: false, reason: `未知字段类型 ${fieldType}` }
 }
 
 function extractName(
@@ -177,7 +130,7 @@ export function buildBulkPreview(
         unmatchedSet.add(jsonKey)
         continue
       }
-      const coerced = coerceForBulk(jsonValue, matched.fieldType, matched.options)
+      const coerced = coerceValue(jsonValue, matched.fieldType, matched.options)
       if (!coerced.ok) {
         warnings.push(matched.fieldLabel)
         continue

@@ -34,7 +34,7 @@ export function keyMatch(jsonKey: string, fieldKey: string): boolean {
 
 type MatchableField = Pick<FieldLike, 'fieldKey' | 'fieldLabel' | 'fieldType' | 'options'>
 
-function coerceValue(
+export function coerceValue(
   jsonValue: unknown,
   fieldType: FieldLike['fieldType'],
   options: string | null | undefined,
