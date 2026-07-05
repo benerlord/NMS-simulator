@@ -177,10 +177,14 @@ from app.admin._topology_excel import (
     META_SHEET_NAME,
     NODE_GROUP_SHEET_NAME,
     NODE_GROUP_EDGE_STRATEGY_SHEET_NAME,
+    NODE_GROUP_EDGE_STRATEGY_HEADERS,
     NODE_ALARM_SHEET_NAME,
     NODE_GROUP_ALARM_SHEET_NAME,
     NODE_FIXED_HEADERS,
     NODE_TYPE_MARKER,
+    EDGE_FIXED_HEADERS,
+    EDGE_TYPE_MARKER,
+    NODE_GROUP_EDGE_STRATEGY_MARKER,
 )
 
 
@@ -319,3 +323,169 @@ def test_build_workbook_alarm_sheets_when_schema_bound():
     ws = reloaded[NODE_ALARM_SHEET_NAME]
     assert ws.cell(row=1, column=4).value == "severity"
     assert ws.cell(row=1, column=5).value is None
+
+
+# --- parse_workbook ---
+
+from app.admin._topology_excel import parse_workbook, ParseResult
+
+
+def _build_test_wb_bytes(builder):
+    from openpyxl import Workbook as _Wb
+    wb = _Wb()
+    default = wb.active
+    wb.remove(default)
+    builder(wb)
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def test_parse_workbook_reads_meta_sheet():
+    def build(wb):
+        ws = wb.create_sheet(META_SHEET_NAME)
+        rows = [("字段", "值"), ("拓扑名称", "机房"), ("描述", "d"),
+                ("版本", 2), ("所属网管/设备", "网管A"), ("告警模板", "s1")]
+        for r, (k, v) in enumerate(rows, start=1):
+            ws.cell(row=r, column=1, value=k)
+            ws.cell(row=r, column=2, value=v)
+        ws2 = wb.create_sheet("路由器")
+        for c, h in enumerate(NODE_FIXED_HEADERS, start=1):
+            ws2.cell(row=1, column=c, value=h)
+        from openpyxl.comments import Comment
+        ws2["A1"].comment = Comment(f"{NODE_TYPE_MARKER}=router", "system")
+    data = _build_test_wb_bytes(build)
+
+    result = parse_workbook(io.BytesIO(data))
+    assert isinstance(result, ParseResult)
+    assert result.meta["name"] == "机房"
+    assert result.meta["version"] == 2
+    assert result.meta["domain_name"] == "网管A"
+    assert result.meta["alarm_schema_code"] == "s1"
+
+
+def test_parse_workbook_meta_sheet_missing_fatal():
+    def build(wb):
+        ws = wb.create_sheet("路由器")
+        for c, h in enumerate(NODE_FIXED_HEADERS, start=1):
+            ws.cell(row=1, column=c, value=h)
+    data = _build_test_wb_bytes(build)
+
+    with pytest.raises(ExcelValidationError) as exc:
+        parse_workbook(io.BytesIO(data))
+    assert "拓扑元信息" in str(exc.value)
+
+
+def test_parse_workbook_reads_node_sheet_by_A1_marker():
+    def build(wb):
+        wsm = wb.create_sheet(META_SHEET_NAME)
+        wsm.cell(row=1, column=1, value="字段")
+        wsm.cell(row=1, column=2, value="值")
+        wsm.cell(row=2, column=1, value="拓扑名称")
+        wsm.cell(row=2, column=2, value="T")
+
+        ws = wb.create_sheet("路由器_A")  # 名字被"改过"
+        headers = NODE_FIXED_HEADERS + ["vlan_id"]
+        for c, h in enumerate(headers, start=1):
+            ws.cell(row=1, column=c, value=h)
+        from openpyxl.comments import Comment
+        ws["A1"].comment = Comment(f"{NODE_TYPE_MARKER}=router", "system")
+        ws.cell(row=2, column=1, value="R1")
+        ws.cell(row=2, column=7, value="100")
+    data = _build_test_wb_bytes(build)
+
+    result = parse_workbook(io.BytesIO(data))
+    assert "router" in result.nodes_by_type_code
+    nodes = result.nodes_by_type_code["router"]
+    assert nodes[0]["name"] == "R1"
+    assert nodes[0]["attrs"]["vlan_id"] == "100"
+
+
+def test_parse_workbook_edge_sheet_edges_captured():
+    def build(wb):
+        wsm = wb.create_sheet(META_SHEET_NAME)
+        wsm.cell(row=1, column=1, value="字段")
+        wsm.cell(row=1, column=2, value="值")
+        wsm.cell(row=2, column=1, value="拓扑名称")
+        wsm.cell(row=2, column=2, value="T")
+
+        from openpyxl.comments import Comment
+        ws_r = wb.create_sheet("路由器")
+        for c, h in enumerate(NODE_FIXED_HEADERS, start=1):
+            ws_r.cell(row=1, column=c, value=h)
+        ws_r["A1"].comment = Comment(f"{NODE_TYPE_MARKER}=router", "system")
+        ws_r.cell(row=2, column=1, value="R1")
+        ws_r.cell(row=3, column=1, value="R2")
+
+        ws_e = wb.create_sheet("连接")
+        headers = EDGE_FIXED_HEADERS + ["bandwidth"]
+        for c, h in enumerate(headers, start=1):
+            ws_e.cell(row=1, column=c, value=h)
+        ws_e["A1"].comment = Comment(f"{EDGE_TYPE_MARKER}=link", "system")
+        ws_e.cell(row=2, column=1, value="R1")
+        ws_e.cell(row=2, column=2, value="R2")
+        ws_e.cell(row=2, column=4, value="10G")
+    data = _build_test_wb_bytes(build)
+
+    result = parse_workbook(io.BytesIO(data))
+    assert "link" in result.edges_by_type_code
+    e = result.edges_by_type_code["link"][0]
+    assert e["source_name"] == "R1"
+    assert e["target_name"] == "R2"
+    assert e["attrs"]["bandwidth"] == "10G"
+
+
+def test_parse_workbook_ignores_underscore_sheets():
+    def build(wb):
+        wsm = wb.create_sheet(META_SHEET_NAME)
+        wsm.cell(row=1, column=1, value="字段")
+        wsm.cell(row=1, column=2, value="值")
+        wsm.cell(row=2, column=1, value="拓扑名称")
+        wsm.cell(row=2, column=2, value="T")
+
+        wb.create_sheet("_使用说明")
+        wb.create_sheet("_总表")
+
+        from openpyxl.comments import Comment
+        ws = wb.create_sheet("路由器")
+        for c, h in enumerate(NODE_FIXED_HEADERS, start=1):
+            ws.cell(row=1, column=c, value=h)
+        ws["A1"].comment = Comment(f"{NODE_TYPE_MARKER}=router", "system")
+    data = _build_test_wb_bytes(build)
+
+    result = parse_workbook(io.BytesIO(data))
+    assert "router" in result.nodes_by_type_code
+
+
+def test_parse_workbook_group_edge_strategy_row_read():
+    def build(wb):
+        wsm = wb.create_sheet(META_SHEET_NAME)
+        wsm.cell(row=1, column=1, value="字段")
+        wsm.cell(row=1, column=2, value="值")
+        wsm.cell(row=2, column=1, value="拓扑名称")
+        wsm.cell(row=2, column=2, value="T")
+
+        from openpyxl.comments import Comment
+        ws = wb.create_sheet(NODE_GROUP_EDGE_STRATEGY_SHEET_NAME)
+        for c, h in enumerate(NODE_GROUP_EDGE_STRATEGY_HEADERS, start=1):
+            ws.cell(row=1, column=c, value=h)
+        ws["A1"].comment = Comment(f"{NODE_GROUP_EDGE_STRATEGY_MARKER}=1", "system")
+        ws.cell(row=2, column=1, value="组A")
+        ws.cell(row=2, column=2, value="组B")
+        ws.cell(row=2, column=3, value="组")
+        ws.cell(row=2, column=4, value="link")
+        ws.cell(row=2, column=5, value="modulo")
+        ws.cell(row=2, column=6, value=4)
+
+        ws2 = wb.create_sheet("路由器")
+        for c, h in enumerate(NODE_FIXED_HEADERS, start=1):
+            ws2.cell(row=1, column=c, value=h)
+        ws2["A1"].comment = Comment(f"{NODE_TYPE_MARKER}=router", "system")
+    data = _build_test_wb_bytes(build)
+
+    result = parse_workbook(io.BytesIO(data))
+    assert len(result.node_group_edge_strategies) == 1
+    s = result.node_group_edge_strategies[0]
+    assert s["source_group_name"] == "组A"
+    assert s["mode"] == "modulo"
+    assert s["ratio_k"] == 4

@@ -473,3 +473,255 @@ def build_workbook(
     _write_index_sheet(wb, index_rows)
 
     return wb
+
+
+# --- Workbook parser ---
+
+from dataclasses import dataclass, field
+from openpyxl import load_workbook as _load_workbook
+
+
+@dataclass
+class ParseResult:
+    meta: dict = field(default_factory=dict)
+    nodes_by_type_code: dict = field(default_factory=dict)
+    edges_by_type_code: dict = field(default_factory=dict)
+    node_groups: list = field(default_factory=list)
+    node_group_edge_strategies: list = field(default_factory=list)
+    node_alarms: list = field(default_factory=list)
+    node_group_alarms: list = field(default_factory=list)
+    errors: list = field(default_factory=list)
+    warnings: list = field(default_factory=list)
+
+
+def _extract_marker(a1_cell, marker: str) -> Optional[str]:
+    """从 A1 comment 里读 marker=value 的 value；不存在返回 None。"""
+    if a1_cell.comment is None:
+        return None
+    text = a1_cell.comment.text or ""
+    prefix = f"{marker}="
+    for line in text.split("\n"):
+        if line.startswith(prefix):
+            return line[len(prefix):].strip()
+    return None
+
+
+def _read_meta_sheet(ws) -> dict:
+    """两列 key-value → dict。"""
+    kv = {}
+    for r in range(2, ws.max_row + 1):
+        k = ws.cell(row=r, column=1).value
+        v = ws.cell(row=r, column=2).value
+        if k:
+            kv[str(k).strip()] = v
+    name_raw = kv.get("拓扑名称")
+    name = name_raw.strip() if isinstance(name_raw, str) else name_raw
+    return {
+        "name": name,
+        "description": kv.get("描述"),
+        "version": kv.get("版本") or 1,
+        "domain_name": (kv.get("所属网管/设备") or None),
+        "alarm_schema_code": (kv.get("告警模板") or None),
+    }
+
+
+def _read_node_sheet(ws, code: str) -> list:
+    field_start_col = len(NODE_FIXED_HEADERS) + 1
+    field_keys = []
+    c = field_start_col
+    while ws.cell(row=1, column=c).value:
+        field_keys.append(str(ws.cell(row=1, column=c).value).strip())
+        c += 1
+
+    nodes = []
+    for r in range(2, ws.max_row + 1):
+        name = ws.cell(row=r, column=1).value
+        if not name:
+            continue
+        n = {
+            "name": str(name).strip(),
+            "dn": ws.cell(row=r, column=2).value,
+            "status": ws.cell(row=r, column=3).value or "online",
+            "canvas_x": ws.cell(row=r, column=4).value,
+            "canvas_y": ws.cell(row=r, column=5).value,
+            "group_name": ws.cell(row=r, column=6).value,
+            "attrs": {},
+        }
+        for i, fk in enumerate(field_keys):
+            v = ws.cell(row=r, column=field_start_col + i).value
+            if v is not None and v != "":
+                n["attrs"][fk] = str(v) if not isinstance(v, (int, float, bool)) else v
+        nodes.append(n)
+    return nodes
+
+
+def _read_edge_sheet(ws) -> list:
+    field_start_col = len(EDGE_FIXED_HEADERS) + 1
+    field_keys = []
+    c = field_start_col
+    while ws.cell(row=1, column=c).value:
+        field_keys.append(str(ws.cell(row=1, column=c).value).strip())
+        c += 1
+
+    edges = []
+    for r in range(2, ws.max_row + 1):
+        src = ws.cell(row=r, column=1).value
+        tgt = ws.cell(row=r, column=2).value
+        if not src or not tgt:
+            continue
+        e = {
+            "source_name": str(src).strip(),
+            "target_name": str(tgt).strip(),
+            "status": ws.cell(row=r, column=3).value or "online",
+            "attrs": {},
+        }
+        for i, fk in enumerate(field_keys):
+            v = ws.cell(row=r, column=field_start_col + i).value
+            if v is not None and v != "":
+                e["attrs"][fk] = str(v) if not isinstance(v, (int, float, bool)) else v
+        edges.append(e)
+    return edges
+
+
+def _read_node_group_sheet(ws, errors: list) -> list:
+    groups = []
+    for r in range(2, ws.max_row + 1):
+        gname = ws.cell(row=r, column=1).value
+        if not gname:
+            continue
+        row_hint = f"Sheet '{ws.title}' 第 {r} 行"
+        attrs_cell = ws.cell(row=r, column=8).value or ""
+        attr_strategies = []
+        if attrs_cell:
+            for line in str(attrs_cell).split(RECORD_SEP):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    attr_strategies.append(parse_attr_strategy_row(line, row_hint))
+                except ExcelValidationError as e:
+                    errors.append(str(e))
+        groups.append({
+            "group_name": str(gname).strip(),
+            "node_type_code": ws.cell(row=r, column=2).value,
+            "node_count": ws.cell(row=r, column=3).value,
+            "name_template": ws.cell(row=r, column=4).value,
+            "canvas_x": ws.cell(row=r, column=6).value,
+            "canvas_y": ws.cell(row=r, column=7).value,
+            "attr_strategies": attr_strategies,
+        })
+    return groups
+
+
+def _read_node_group_edge_strategy_sheet(ws, errors: list) -> list:
+    strategies = []
+    for r in range(2, ws.max_row + 1):
+        src = ws.cell(row=r, column=1).value
+        if not src:
+            continue
+        row_hint = f"Sheet '{ws.title}' 第 {r} 行"
+        line = FIELD_SEP.join([
+            str(ws.cell(row=r, column=c).value or "") for c in range(1, 7)
+        ])
+        try:
+            strategies.append(parse_edge_strategy_row(line, row_hint))
+        except ExcelValidationError as e:
+            errors.append(str(e))
+    return strategies
+
+
+def _read_alarm_sheet(ws, fixed_col_count: int, alarm_field_keys_start: int) -> list:
+    field_keys = []
+    c = alarm_field_keys_start
+    while ws.cell(row=1, column=c).value:
+        field_keys.append(str(ws.cell(row=1, column=c).value).strip())
+        c += 1
+
+    rows = []
+    for r in range(2, ws.max_row + 1):
+        first_cell = ws.cell(row=r, column=1).value
+        if not first_cell:
+            continue
+        row_data = {"attrs": {}}
+        for i in range(1, fixed_col_count + 1):
+            row_data[f"_col_{i}"] = ws.cell(row=r, column=i).value
+        for i, fk in enumerate(field_keys):
+            v = ws.cell(row=r, column=alarm_field_keys_start + i).value
+            if v is not None and v != "":
+                row_data["attrs"][fk] = str(v) if not isinstance(v, (int, float, bool)) else v
+        rows.append(row_data)
+    return rows
+
+
+def parse_workbook(file_like) -> ParseResult:
+    """解析上传的 xlsx。抛 ExcelValidationError 表示致命错。行级错误进 result.errors。"""
+    try:
+        wb = _load_workbook(file_like, read_only=False, data_only=True)
+    except Exception as e:
+        raise ExcelValidationError(f"Excel 打开失败：{e}") from e
+
+    result = ParseResult()
+
+    if META_SHEET_NAME not in wb.sheetnames:
+        raise ExcelValidationError(f"缺少 '{META_SHEET_NAME}' Sheet")
+    result.meta = _read_meta_sheet(wb[META_SHEET_NAME])
+
+    data_sheet_count = 0
+
+    for ws in wb.worksheets:
+        title = ws.title
+        if title.startswith("_") or title == META_SHEET_NAME:
+            continue
+
+        node_type_code = _extract_marker(ws["A1"], NODE_TYPE_MARKER)
+        edge_type_code = _extract_marker(ws["A1"], EDGE_TYPE_MARKER)
+
+        if node_type_code:
+            result.nodes_by_type_code[node_type_code] = _read_node_sheet(ws, node_type_code)
+            data_sheet_count += 1
+            continue
+
+        if edge_type_code:
+            result.edges_by_type_code[edge_type_code] = _read_edge_sheet(ws)
+            data_sheet_count += 1
+            continue
+
+        if _extract_marker(ws["A1"], NODE_GROUP_MARKER):
+            result.node_groups = _read_node_group_sheet(ws, result.errors)
+            data_sheet_count += 1
+            continue
+
+        if _extract_marker(ws["A1"], NODE_GROUP_EDGE_STRATEGY_MARKER):
+            result.node_group_edge_strategies = _read_node_group_edge_strategy_sheet(ws, result.errors)
+            data_sheet_count += 1
+            continue
+
+        if _extract_marker(ws["A1"], NODE_ALARM_MARKER):
+            rows = _read_alarm_sheet(ws, len(NODE_ALARM_FIXED_HEADERS), len(NODE_ALARM_FIXED_HEADERS) + 1)
+            for r in rows:
+                result.node_alarms.append({
+                    "node_type_code": r.get("_col_1"),
+                    "node_name": r.get("_col_2"),
+                    "alarm_index": r.get("_col_3"),
+                    "attrs": r["attrs"],
+                })
+            data_sheet_count += 1
+            continue
+
+        if _extract_marker(ws["A1"], NODE_GROUP_ALARM_MARKER):
+            rows = _read_alarm_sheet(ws, len(NODE_GROUP_ALARM_FIXED_HEADERS), len(NODE_GROUP_ALARM_FIXED_HEADERS) + 1)
+            for r in rows:
+                result.node_group_alarms.append({
+                    "group_name": r.get("_col_1"),
+                    "alarm_index": r.get("_col_2"),
+                    "attrs": r["attrs"],
+                })
+            data_sheet_count += 1
+            continue
+
+        # 未识别的 Sheet 静默跳过
+
+    if data_sheet_count == 0:
+        raise ExcelValidationError("Excel 中未找到任何数据 Sheet")
+
+    return result
