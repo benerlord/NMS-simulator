@@ -1059,11 +1059,19 @@ def export_topology_excel(id: str):
     buf = _io.BytesIO()
     wb.save(buf)
     buf.seek(0)
-    filename = f"topology-{topology_meta['name']}.xlsx"
+    # RFC 5987：文件名含非 ASCII（如中文拓扑名）时必须 UTF-8 百分号编码
+    # 塞进 filename*；同时给一份 ASCII fallback filename= 兼容老客户端
+    from urllib.parse import quote
+    raw_name = f"topology-{topology_meta['name']}.xlsx"
+    ascii_fallback = raw_name.encode("ascii", "ignore").decode("ascii") or "topology.xlsx"
+    content_disposition = (
+        f'attachment; filename="{ascii_fallback}"; '
+        f"filename*=UTF-8''{quote(raw_name)}"
+    )
     return Response(
         content=buf.getvalue(),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition},
     )
 
 

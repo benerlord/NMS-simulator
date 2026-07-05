@@ -174,3 +174,16 @@ def test_import_excel_missing_meta_sheet_rejected(client):
     )
     assert r.status_code == 400
     assert r.json()["detail"]["code"] == 40411
+
+
+def test_export_excel_chinese_topology_name_no_500(client):
+    """回归：拓扑名含中文时 Content-Disposition 头必须 RFC 5987 编码，不能因 latin-1 崩 500。"""
+    r = client.post("/admin/api/topologies", json={"name": "华为机房拓扑"})
+    tid = r.json()["data"]["id"]
+    r = client.get(f"/admin/api/topologies/{tid}/export-excel")
+    assert r.status_code == 200
+    cd = r.headers.get("content-disposition", "")
+    # filename* 必须存在（含 UTF-8 编码），保证中文文件名能透传
+    assert "filename*=UTF-8''" in cd
+    # 编码后应能被 latin-1 编码（否则响应根本发不出来）
+    cd.encode("latin-1")
