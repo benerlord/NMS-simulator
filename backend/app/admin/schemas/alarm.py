@@ -139,3 +139,28 @@ class NodeGroupAlarmItem(CamelModel):
     attrs: dict[str, Optional[str]] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
+
+
+# --- alarm_schema Excel I/O ---
+
+class AlarmSchemaExportRequest(CamelModel):
+    ids: Optional[list[str]] = Field(default=None)
+
+
+class AlarmSchemaImportPreviewItem(CamelModel):
+    code: str
+    name: str
+    old_name: Optional[str] = None
+
+
+class AlarmSchemaImportPreview(CamelModel):
+    to_create: list[AlarmSchemaImportPreviewItem] = Field(default_factory=list)
+    to_update: list[AlarmSchemaImportPreviewItem] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+
+
+class AlarmSchemaImportResult(CamelModel):
+    created: int = 0
+    updated: int = 0
+    total_fields: int = 0
+    errors: list[str] = Field(default_factory=list)
