@@ -430,8 +430,12 @@ async function handleNodeDblClick(nodeId: string) {
   if (!cell || !cell.isNode()) return
 
   const nodeData = cell.getData()
-  // Macro node: no operation on double-click
-  if (nodeData?.macroNodeId) return
+  // 宏节点（节点组）双击：打开组定义编辑（跟右键"编辑组定义"走同一入口）
+  if (nodeData?.macroNodeId) {
+    editGroupId.value = nodeData.macroNodeId
+    groupCreateModalVisible.value = true
+    return
+  }
 
   selectedElement.value = { type: 'node', id: nodeId, name: nodeData?.name || '' }
   selectedNodeId.value = nodeId
