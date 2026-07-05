@@ -241,3 +241,24 @@ class FieldDeleteImpactItem(CamelModel):
 
 class FieldDeleteImpactResponse(CamelModel):
     items: list[FieldDeleteImpactItem]
+
+
+# --- edge_type Excel I/O ---
+
+class EdgeTypeImportPreviewItem(CamelModel):
+    code: str
+    name: str
+    old_name: Optional[str] = None
+
+
+class EdgeTypeImportPreview(CamelModel):
+    to_create: list[EdgeTypeImportPreviewItem] = Field(default_factory=list)
+    to_update: list[EdgeTypeImportPreviewItem] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+
+
+class EdgeTypeImportResult(CamelModel):
+    created: int = 0
+    updated: int = 0
+    total_fields: int = 0
+    errors: list[str] = Field(default_factory=list)

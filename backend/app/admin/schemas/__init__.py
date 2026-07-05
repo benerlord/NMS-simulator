@@ -22,6 +22,9 @@ from .node_type import (
     EdgeTypeDetail,
     EdgeTypeItem,
     EdgeTypeFieldItem,
+    EdgeTypeImportPreviewItem,
+    EdgeTypeImportPreview,
+    EdgeTypeImportResult,
 )
 from .node import (
     NodeCreate,
@@ -150,6 +153,9 @@ __all__ = [
     "EdgeTypeDetail",
     "EdgeTypeItem",
     "EdgeTypeFieldItem",
+    "EdgeTypeImportPreviewItem",
+    "EdgeTypeImportPreview",
+    "EdgeTypeImportResult",
     "NodeCreate",
     "NodeUpdate",
     "NodeDetail",

@@ -579,7 +579,7 @@ def export_node_types(data: TypeExportRequest):
     )
 
 
-def _load_import_workbook(contents: bytes) -> Workbook:
+def _load_import_workbook(contents: bytes, expected_sheet: str = "类型汇总") -> Workbook:
     try:
         wb = load_workbook(filename=BytesIO(contents))
     except Exception:
@@ -587,10 +587,10 @@ def _load_import_workbook(contents: bytes) -> Workbook:
             status_code=400,
             detail={"code": 40211, "message": "文件无法解析，请确认是有效的 xlsx 文件"},
         )
-    if "类型汇总" not in wb.sheetnames:
+    if expected_sheet not in wb.sheetnames:
         raise HTTPException(
             status_code=400,
-            detail={"code": 40212, "message": "缺少「类型汇总」Sheet"},
+            detail={"code": 40212, "message": f"缺少「{expected_sheet}」Sheet"},
         )
     return wb
 
