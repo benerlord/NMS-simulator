@@ -13,6 +13,7 @@ from app.admin.schemas.node import (
     NodeListItem,
     NodePositionUpdate,
     NodeAttrSet,
+    BulkNodesCreateRequest,
 )
 
 router = APIRouter(prefix="/admin/api", tags=["节点"])
@@ -412,3 +413,86 @@ def set_node_attrs(node_id: str, attrs: list[NodeAttrSet]) -> dict:
         updated = _get_node_attrs(conn, node_id)
 
     return {"code": 0, "data": {"id": node_id, "attrs": updated}, "message": "更新成功"}
+
+
+# POST /admin/api/topologies/{topology_id}/nodes/bulk
+@router.post("/topologies/{topology_id}/nodes/bulk")
+def bulk_create_nodes(topology_id: str, req: BulkNodesCreateRequest) -> dict:
+    with transaction() as conn:
+        # 1. 前置检查：拓扑存在
+        topo = conn.execute(
+            "SELECT id FROM topologies WHERE id = ?", (topology_id,)
+        ).fetchone()
+        if not topo:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": 40402, "message": "拓扑不存在"},
+            )
+        # 2. 前置检查：节点类型存在
+        ntype = conn.execute(
+            "SELECT id FROM node_types WHERE id = ?", (req.node_type_id,)
+        ).fetchone()
+        if not ntype:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": 40403, "message": "节点类型不存在"},
+            )
+
+        # 3. 加载字段元数据
+        field_rows = conn.execute(
+            "SELECT field_key, field_label, field_type, max_length, required "
+            "FROM node_type_fields WHERE node_type_id = ?",
+            (req.node_type_id,),
+        ).fetchall()
+        field_map = {r["field_key"]: r for r in field_rows}
+
+        # 4. 预取同拓扑内已存在的 name
+        existing_names = {
+            r["name"] for r in conn.execute(
+                "SELECT name FROM nodes WHERE topology_id = ?", (topology_id,)
+            ).fetchall()
+        }
+
+        created: list[dict] = []
+        skipped: list[dict] = []
+        seen_in_batch: set[str] = set()
+
+        for idx, item in enumerate(req.items):
+            name = (item.name or "").strip()
+            if not name:
+                skipped.append({"index": idx, "name": item.name, "reason": "name 为空"})
+                continue
+            if name in existing_names:
+                skipped.append({"index": idx, "name": name, "reason": "画布已有同名节点"})
+                continue
+            if name in seen_in_batch:
+                skipped.append({"index": idx, "name": name, "reason": "批次内名称重复"})
+                continue
+
+            err = _validate_attrs_for_bulk(field_map, item.attrs)
+            if err:
+                skipped.append({"index": idx, "name": name, "reason": err})
+                continue
+
+            node_id = _new_id()
+            conn.execute(
+                "INSERT INTO nodes (id, topology_id, node_type_id, name, status) "
+                "VALUES (?, ?, ?, ?, 'online')",
+                (node_id, topology_id, req.node_type_id, name),
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO canvas_nodes (node_id, topology_id, x, y) "
+                "VALUES (?, ?, ?, ?)",
+                (node_id, topology_id, item.x, item.y),
+            )
+            for field_key, value in item.attrs.items():
+                if value is None or field_key not in field_map:
+                    continue
+                conn.execute(
+                    "INSERT INTO node_attrs (node_id, field_key, value) VALUES (?, ?, ?)",
+                    (node_id, field_key, value),
+                )
+            created.append({"index": idx, "id": node_id, "name": name})
+            seen_in_batch.add(name)
+
+    return {"code": 0, "data": {"created": created, "skipped": skipped}, "message": "ok"}
