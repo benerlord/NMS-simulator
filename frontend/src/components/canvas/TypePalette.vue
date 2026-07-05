@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { AutoComplete } from 'ant-design-vue'
+import { ImportOutlined } from '@ant-design/icons-vue'
 import { apiGet } from '@/api/http'
 import { useNodeTypes } from '@/composables/useTypes'
 import type { TopologyDetail } from '@/api/topology'
@@ -11,6 +12,15 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+
+const emit = defineEmits<{
+  (e: 'bulk-import', nodeType: NodeTypeDetail): void
+}>()
+
+function onBulkImportClick(event: MouseEvent, nodeType: NodeTypeDetail) {
+  event.stopPropagation()
+  emit('bulk-import', nodeType)
+}
 
 const { nodeTypes, nodeTypesLoading, fetchNodeTypes } = useNodeTypes()
 
@@ -157,6 +167,15 @@ function onDragStart(event: DragEvent, nodeType: NodeTypeDetail) {
           >
             <span class="node-type-name">{{ nt.name }}</span>
             <span class="node-type-code">{{ nt.code }}</span>
+            <span
+              class="bulk-import-btn"
+              title="批量 JSON 导入"
+              @click="onBulkImportClick($event, nt)"
+              @mousedown.stop
+              @dragstart.prevent.stop
+            >
+              <ImportOutlined />
+            </span>
           </div>
         </div>
       </div>
@@ -269,5 +288,22 @@ function onDragStart(event: DragEvent, nodeType: NodeTypeDetail) {
 .node-type-code {
   font-size: 11px;
   color: rgba(0, 0, 0, 0.35);
+}
+
+.bulk-import-btn {
+  margin-left: 4px;
+  color: #bfbfbf;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+  padding: 2px 4px;
+}
+
+.node-type-item:hover .bulk-import-btn {
+  opacity: 1;
+}
+
+.bulk-import-btn:hover {
+  color: #1890ff;
 }
 </style>
