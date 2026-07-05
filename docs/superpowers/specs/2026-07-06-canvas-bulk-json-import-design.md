@@ -349,9 +349,12 @@ def _validate_attrs_for_bulk(
     - 失败 → `warnings.push(fieldLabel)`，该字段不填
     - 成功 → `attrs[fieldKey] = coerced.value`
 
-**d. 必填字段兜底**
-- 遍历 `fields`，若 `required && !attrs[fieldKey] && !field.defaultValue` → skipped
-- 若有 `defaultValue`，使用之
+**d. 必填字段兜底（前端做，后端不看 defaultValue）**
+- 遍历 `fields`：
+  - 若 `attrs[fieldKey]` 已有值 → 不动
+  - 若无值但 `field.defaultValue` 存在 → `attrs[fieldKey] = field.defaultValue`
+  - 若 `required && !attrs[fieldKey]`（默认也没值）→ skipped, `reason='必填字段 <fieldLabel> 缺失'`
+- 后端 `_validate_attrs_for_bulk` 仅看提交上来的 `attrs` 字典，不再回退默认值 —— 单一职责边界
 
 **e. 计算 x/y**
 - `validIdx` = 通过校验的行在 valid 数组的序号
@@ -446,7 +449,7 @@ await nodeApi.bulkCreate(topologyId, {
 - `message.success('成功导入 12 个节点')`（若 M > 0 用 warning：`成功 12，跳过 3`）
 - 后端 `skipped` 非空 → `Modal.info` 展示详情
 - Modal 关闭 + `fetchGraph()` → 画布刷新
-- 自动 `graph.centerContent()` 或 `graph.centerCell(newNodes[0])`
+- 自动 `graph.centerCell(newNodes[0])` 把视口对准第一个新节点
 
 ---
 
@@ -457,13 +460,13 @@ await nodeApi.bulkCreate(topologyId, {
 - `dx = 220` = `INFRA_NODE_WIDTH(200) + 20 gap`
 - `dy = 140` = `INFRA_NODE_HEIGHT(120) + 20 gap`
 
-**默认起点计算**（打开 Modal 时）：
+**默认起点计算**（打开 Modal 时，此时 N 未知）：
 ```ts
 const viewCenter = graph.pageToLocal(clientWidth/2, clientHeight/2)
 const startX = Math.round(viewCenter.x - (cols * dx) / 2)
-const startY = Math.round(viewCenter.y - Math.ceil(N/cols) * dy / 2)
+const startY = Math.round(viewCenter.y - dy)   // 固定上移 1 行，避免依赖 N
 ```
-（若 items 数未知，用固定 N=10 估算，用户可调）
+用户可在 Modal 里调整；解析预览后不再自动重算 —— 保持用户输入为准。
 
 **性能守护：**
 - 数组超过 500 项 → Modal 顶部 warning，允许继续但提示"性能考虑，建议分批"
