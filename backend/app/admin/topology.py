@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 
 from app.db.connection import connect, transaction
@@ -831,3 +831,488 @@ def bind_alarm_schema(topology_id: str, data: TopologyAlarmSchemaPatch) -> dict:
         )
 
     return {"code": 0, "data": {"alarmSchemaId": new_sid}, "message": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# 画布 Excel 导出 / 导入
+# ---------------------------------------------------------------------------
+
+@router.get("/topologies/{id}/export-excel")
+def export_topology_excel(id: str):
+    """导出拓扑为 Excel (.xlsx)"""
+    import io as _io
+    from fastapi.responses import Response
+    from app.admin._topology_excel import build_workbook
+
+    with connect() as conn:
+        topo = conn.execute(
+            "SELECT t.name, t.description, t.version, d.name AS domain_name, "
+            "s.code AS alarm_schema_code "
+            "FROM topologies t "
+            "LEFT JOIN domains d ON d.id = t.domain_id "
+            "LEFT JOIN alarm_schemas s ON s.id = t.alarm_schema_id "
+            "WHERE t.id = ?", (id,)
+        ).fetchone()
+        if not topo:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": 40101, "message": "拓扑不存在"},
+            )
+        topology_meta = {
+            "name": topo["name"],
+            "description": topo["description"],
+            "version": topo["version"],
+            "domain_name": topo["domain_name"],
+            "alarm_schema_code": topo["alarm_schema_code"],
+        }
+
+        nt_rows = conn.execute(
+            "SELECT DISTINCT nt.id, nt.code, nt.name FROM nodes n "
+            "JOIN node_types nt ON nt.id = n.node_type_id "
+            "WHERE n.topology_id = ?", (id,)
+        ).fetchall()
+        node_types = []
+        for nt in nt_rows:
+            fields = conn.execute(
+                "SELECT field_key FROM node_type_fields "
+                "WHERE node_type_id = ? ORDER BY sort_order, id", (nt["id"],)
+            ).fetchall()
+            node_types.append({
+                "id": nt["id"], "code": nt["code"], "name": nt["name"],
+                "fields": [{"field_key": f["field_key"]} for f in fields],
+            })
+
+        et_rows = conn.execute(
+            "SELECT DISTINCT et.id, et.code, et.name FROM edges e "
+            "JOIN edge_types et ON et.id = e.edge_type_id "
+            "WHERE e.topology_id = ?", (id,)
+        ).fetchall()
+        edge_types = []
+        for et in et_rows:
+            fields = conn.execute(
+                "SELECT field_key FROM edge_type_fields "
+                "WHERE edge_type_id = ? ORDER BY sort_order, id", (et["id"],)
+            ).fetchall()
+            edge_types.append({
+                "id": et["id"], "code": et["code"], "name": et["name"],
+                "fields": [{"field_key": f["field_key"]} for f in fields],
+            })
+
+        nodes_by_type_code: dict = {nt["code"]: [] for nt in node_types}
+        node_rows = conn.execute(
+            "SELECT n.id, n.name, n.dn, n.status, nt.code AS node_type_code, "
+            "cn.x AS canvas_x, cn.y AS canvas_y, g.group_name "
+            "FROM nodes n "
+            "JOIN node_types nt ON nt.id = n.node_type_id "
+            "LEFT JOIN canvas_nodes cn ON cn.node_id = n.id "
+            "LEFT JOIN node_groups g ON g.id = n.group_id "
+            "WHERE n.topology_id = ?", (id,)
+        ).fetchall()
+        node_attrs = {}
+        for r in conn.execute(
+            "SELECT na.node_id, na.field_key, na.value FROM node_attrs na "
+            "JOIN nodes n ON n.id = na.node_id WHERE n.topology_id = ?", (id,)
+        ).fetchall():
+            node_attrs.setdefault(r["node_id"], {})[r["field_key"]] = r["value"]
+        for r in node_rows:
+            nodes_by_type_code[r["node_type_code"]].append({
+                "id": r["id"], "name": r["name"], "dn": r["dn"], "status": r["status"],
+                "canvas_x": r["canvas_x"], "canvas_y": r["canvas_y"],
+                "group_name": r["group_name"],
+                "attrs": node_attrs.get(r["id"], {}),
+            })
+
+        edges_by_type_code: dict = {et["code"]: [] for et in edge_types}
+        edge_rows = conn.execute(
+            "SELECT e.id, e.source_id, e.target_id, e.status, et.code AS edge_type_code "
+            "FROM edges e JOIN edge_types et ON et.id = e.edge_type_id "
+            "WHERE e.topology_id = ?", (id,)
+        ).fetchall()
+        edge_attrs = {}
+        for r in conn.execute(
+            "SELECT ea.edge_id, ea.field_key, ea.value FROM edge_attrs ea "
+            "JOIN edges e ON e.id = ea.edge_id WHERE e.topology_id = ?", (id,)
+        ).fetchall():
+            edge_attrs.setdefault(r["edge_id"], {})[r["field_key"]] = r["value"]
+        for r in edge_rows:
+            edges_by_type_code[r["edge_type_code"]].append({
+                "id": r["id"], "source_id": r["source_id"], "target_id": r["target_id"],
+                "status": r["status"], "attrs": edge_attrs.get(r["id"], {}),
+            })
+
+        import json
+        group_rows = conn.execute(
+            "SELECT id, group_name, node_type_id, node_count, name_template, "
+            "attr_strategies, edge_strategies, canvas_x, canvas_y "
+            "FROM node_groups WHERE topology_id = ?", (id,)
+        ).fetchall()
+        node_groups = []
+        node_group_edge_strategies = []
+        group_id_to_name = {}
+        for g in group_rows:
+            attrs = json.loads(g["attr_strategies"]) if g["attr_strategies"] else []
+            node_groups.append({
+                "id": g["id"], "group_name": g["group_name"],
+                "node_type_id": g["node_type_id"], "node_count": g["node_count"],
+                "name_template": g["name_template"],
+                "materialized_at": None,
+                "canvas_x": g["canvas_x"], "canvas_y": g["canvas_y"],
+                "attr_strategies": attrs,
+            })
+            group_id_to_name[g["id"]] = g["group_name"]
+
+        node_id_to_name = {r["id"]: r["name"] for r in node_rows}
+        for g in group_rows:
+            if not g["edge_strategies"]:
+                continue
+            for es in json.loads(g["edge_strategies"]):
+                target_id = es.get("target_group_id")
+                if target_id in group_id_to_name:
+                    tname = group_id_to_name[target_id]
+                    tkind = "组"
+                elif target_id in node_id_to_name:
+                    tname = node_id_to_name[target_id]
+                    tkind = "节点"
+                else:
+                    tname = target_id
+                    tkind = "组"
+                node_group_edge_strategies.append({
+                    "source_group_name": g["group_name"],
+                    "target_name": tname,
+                    "target_kind": tkind,
+                    "edge_type_code": es.get("edge_type_code"),
+                    "mode": es.get("mode"),
+                    "ratio_k": es.get("ratio_k"),
+                })
+
+        alarm_schema_fields = []
+        node_alarms = []
+        node_group_alarms = []
+        if topo["alarm_schema_code"]:
+            sid_row = conn.execute(
+                "SELECT id FROM alarm_schemas WHERE code = ?",
+                (topo["alarm_schema_code"],)
+            ).fetchone()
+            if sid_row:
+                sid = sid_row["id"]
+                alarm_schema_fields = [dict(r) for r in conn.execute(
+                    "SELECT field_key, mapping_target FROM alarm_schema_fields "
+                    "WHERE alarm_schema_id = ? ORDER BY sort_order, id", (sid,)
+                ).fetchall()]
+
+                node_alarm_rows = conn.execute(
+                    "SELECT a.id, a.node_id, a.alarm_index, n.node_type_id "
+                    "FROM node_alarms a JOIN nodes n ON n.id = a.node_id "
+                    "WHERE n.topology_id = ?", (id,)
+                ).fetchall()
+                node_alarm_attrs = {}
+                for r in conn.execute(
+                    "SELECT aa.alarm_id, aa.field_key, aa.value "
+                    "FROM node_alarm_attrs aa "
+                    "JOIN node_alarms a ON a.id = aa.alarm_id "
+                    "JOIN nodes n ON n.id = a.node_id "
+                    "WHERE n.topology_id = ?", (id,)
+                ).fetchall():
+                    node_alarm_attrs.setdefault(r["alarm_id"], {})[r["field_key"]] = r["value"]
+                for r in node_alarm_rows:
+                    node_alarms.append({
+                        "node_id": r["node_id"],
+                        "node_type_id": r["node_type_id"],
+                        "alarm_index": r["alarm_index"],
+                        "attrs": node_alarm_attrs.get(r["id"], {}),
+                    })
+
+                group_alarm_rows = conn.execute(
+                    "SELECT ga.id, ga.node_group_id, ga.alarm_index "
+                    "FROM node_group_alarms ga "
+                    "JOIN node_groups g ON g.id = ga.node_group_id "
+                    "WHERE g.topology_id = ?", (id,)
+                ).fetchall()
+                group_alarm_attrs = {}
+                for r in conn.execute(
+                    "SELECT gaa.alarm_id, gaa.field_key, gaa.value "
+                    "FROM node_group_alarm_attrs gaa "
+                    "JOIN node_group_alarms ga ON ga.id = gaa.alarm_id "
+                    "JOIN node_groups g ON g.id = ga.node_group_id "
+                    "WHERE g.topology_id = ?", (id,)
+                ).fetchall():
+                    group_alarm_attrs.setdefault(r["alarm_id"], {})[r["field_key"]] = r["value"]
+                for r in group_alarm_rows:
+                    node_group_alarms.append({
+                        "node_group_id": r["node_group_id"],
+                        "alarm_index": r["alarm_index"],
+                        "attrs": group_alarm_attrs.get(r["id"], {}),
+                    })
+
+    wb = build_workbook(
+        topology=topology_meta,
+        node_types=node_types,
+        edge_types=edge_types,
+        nodes_by_type_code=nodes_by_type_code,
+        edges_by_type_code=edges_by_type_code,
+        node_groups=node_groups,
+        node_group_edge_strategies=node_group_edge_strategies,
+        alarm_schema_fields=alarm_schema_fields,
+        node_alarms=node_alarms,
+        node_group_alarms=node_group_alarms,
+    )
+    buf = _io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    filename = f"topology-{topology_meta['name']}.xlsx"
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/topologies/import-excel")
+async def import_topology_excel(file: UploadFile = File(...)) -> dict:
+    """从 Excel (.xlsx) 导入拓扑。始终新建。"""
+    import io as _io
+    import json
+    from app.admin._topology_excel import parse_workbook, ExcelValidationError
+
+    if not file.filename or not file.filename.lower().endswith(".xlsx"):
+        raise HTTPException(
+            status_code=400,
+            detail={"code": 40410, "message": "仅支持 .xlsx 文件"},
+        )
+    contents = await file.read()
+    try:
+        parse = parse_workbook(_io.BytesIO(contents))
+    except ExcelValidationError as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": 40411, "message": str(e)},
+        )
+
+    with transaction() as conn:
+        new_name = _resolve_unique_name(conn, parse.meta["name"])
+
+        domain_id = None
+        domain_name = parse.meta.get("domain_name")
+        if domain_name:
+            row = conn.execute("SELECT id FROM domains WHERE name = ?", (domain_name,)).fetchone()
+            if row:
+                domain_id = row["id"]
+            else:
+                domain_id = f"dom_{uuid.uuid4().hex[:12]}"
+                conn.execute(
+                    "INSERT INTO domains (id, name, description) VALUES (?, ?, ?)",
+                    (domain_id, domain_name, "导入时自动创建"),
+                )
+                parse.warnings.append(f"自动创建了网管 '{domain_name}'")
+
+        alarm_schema_id = None
+        alarm_schema_code = parse.meta.get("alarm_schema_code")
+        if alarm_schema_code:
+            row = conn.execute(
+                "SELECT id FROM alarm_schemas WHERE code = ?", (alarm_schema_code,)
+            ).fetchone()
+            if not row:
+                raise HTTPException(
+                    status_code=400,
+                    detail={"code": 40430, "message": f"告警模板 '{alarm_schema_code}' 不存在"},
+                )
+            alarm_schema_id = row["id"]
+
+        for code in parse.nodes_by_type_code.keys():
+            r = conn.execute("SELECT id FROM node_types WHERE code = ?", (code,)).fetchone()
+            if not r:
+                raise HTTPException(
+                    status_code=400,
+                    detail={"code": 40431, "message": f"节点类型代码 '{code}' 不存在"},
+                )
+
+        for code in parse.edges_by_type_code.keys():
+            r = conn.execute("SELECT id FROM edge_types WHERE code = ?", (code,)).fetchone()
+            if not r:
+                raise HTTPException(
+                    status_code=400,
+                    detail={"code": 40431, "message": f"边类型代码 '{code}' 不存在"},
+                )
+
+        for code, nodes in parse.nodes_by_type_code.items():
+            names = [n["name"] for n in nodes]
+            if len(names) != len(set(names)):
+                dup_names = [n for n in names if names.count(n) > 1]
+                raise HTTPException(
+                    status_code=400,
+                    detail={"code": 40432,
+                            "message": f"节点类型 '{code}' 下节点名重复：{sorted(set(dup_names))}"},
+                )
+
+        topology_id = f"topo_{uuid.uuid4().hex[:12]}"
+        conn.execute(
+            "INSERT INTO topologies (id, name, description, version, domain_id, alarm_schema_id) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (topology_id, new_name, parse.meta.get("description"),
+             parse.meta.get("version") or 1, domain_id, alarm_schema_id),
+        )
+
+        node_id_by_name_type: dict = {}
+        for code, nodes in parse.nodes_by_type_code.items():
+            nt = conn.execute("SELECT id FROM node_types WHERE code = ?", (code,)).fetchone()
+            for n in nodes:
+                nid = f"node_{uuid.uuid4().hex[:12]}"
+                conn.execute(
+                    "INSERT INTO nodes (id, topology_id, node_type_id, name, dn, status) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (nid, topology_id, nt["id"], n["name"], n.get("dn"),
+                     n.get("status") or "online"),
+                )
+                node_id_by_name_type[(code, n["name"])] = nid
+                for k, v in (n.get("attrs") or {}).items():
+                    conn.execute(
+                        "INSERT INTO node_attrs (node_id, field_key, value) VALUES (?, ?, ?)",
+                        (nid, k, str(v) if v is not None else None),
+                    )
+                if n.get("canvas_x") is not None and n.get("canvas_y") is not None:
+                    conn.execute(
+                        "INSERT INTO canvas_nodes (topology_id, node_id, x, y) "
+                        "VALUES (?, ?, ?, ?)",
+                        (topology_id, nid, float(n["canvas_x"]), float(n["canvas_y"])),
+                    )
+
+        for code, edges in parse.edges_by_type_code.items():
+            et = conn.execute("SELECT id FROM edge_types WHERE code = ?", (code,)).fetchone()
+            for e in edges:
+                src_id = None
+                tgt_id = None
+                for (c, name), nid in node_id_by_name_type.items():
+                    if name == e["source_name"] and src_id is None:
+                        src_id = nid
+                    if name == e["target_name"] and tgt_id is None:
+                        tgt_id = nid
+                if not src_id or not tgt_id:
+                    parse.errors.append(
+                        f"Sheet 边 (类型 {code}): 源节点 '{e['source_name']}' 或 目标节点 "
+                        f"'{e['target_name']}' 未找到"
+                    )
+                    continue
+                eid = f"edge_{uuid.uuid4().hex[:12]}"
+                conn.execute(
+                    "INSERT INTO edges (id, topology_id, edge_type_id, source_id, target_id, status) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (eid, topology_id, et["id"], src_id, tgt_id, e.get("status") or "online"),
+                )
+                for k, v in (e.get("attrs") or {}).items():
+                    conn.execute(
+                        "INSERT INTO edge_attrs (edge_id, field_key, value) VALUES (?, ?, ?)",
+                        (eid, k, str(v) if v is not None else None),
+                    )
+
+        group_id_by_name = {}
+        for g in parse.node_groups:
+            nt = conn.execute(
+                "SELECT id FROM node_types WHERE code = ?", (g.get("node_type_code"),)
+            ).fetchone()
+            if not nt:
+                parse.errors.append(f"节点组 '{g['group_name']}': 节点类型代码 "
+                                    f"'{g.get('node_type_code')}' 不存在")
+                continue
+            gid = f"grp_{uuid.uuid4().hex[:12]}"
+            conn.execute(
+                "INSERT INTO node_groups (id, topology_id, node_type_id, group_name, "
+                "node_count, name_template, attr_strategies, canvas_x, canvas_y) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (gid, topology_id, nt["id"], g["group_name"],
+                 int(g.get("node_count") or 1),
+                 g.get("name_template") or "{group}-{i:05d}",
+                 json.dumps(g.get("attr_strategies") or [], ensure_ascii=False),
+                 g.get("canvas_x"), g.get("canvas_y")),
+            )
+            group_id_by_name[g["group_name"]] = gid
+
+        strategies_by_group: dict = {}
+        for s in parse.node_group_edge_strategies:
+            src_gid = group_id_by_name.get(s["source_group_name"])
+            if not src_gid:
+                parse.errors.append(f"节点组边策略: 源组 '{s['source_group_name']}' 未找到")
+                continue
+            if s["target_kind"] == "组":
+                target_id = group_id_by_name.get(s["target_name"])
+                if not target_id:
+                    parse.errors.append(f"节点组边策略: 目标组 '{s['target_name']}' 未找到")
+                    continue
+            else:
+                target_id = None
+                for (c, name), nid in node_id_by_name_type.items():
+                    if name == s["target_name"]:
+                        target_id = nid
+                        break
+                if not target_id:
+                    parse.errors.append(f"节点组边策略: 目标节点 '{s['target_name']}' 未找到")
+                    continue
+            strategies_by_group.setdefault(src_gid, []).append({
+                "target_group_id": target_id,
+                "edge_type_code": s["edge_type_code"],
+                "mode": s["mode"],
+                "ratio_k": s.get("ratio_k"),
+            })
+        for gid, strategies in strategies_by_group.items():
+            conn.execute(
+                "UPDATE node_groups SET edge_strategies = ? WHERE id = ?",
+                (json.dumps(strategies, ensure_ascii=False), gid),
+            )
+
+        alarm_count_by_node = 0
+        for a in parse.node_alarms:
+            code = a.get("node_type_code")
+            name = a.get("node_name")
+            nid = node_id_by_name_type.get((code, name))
+            if not nid:
+                parse.errors.append(f"节点告警: 节点 ({code}, {name}) 未找到")
+                continue
+            aid = f"alm_{uuid.uuid4().hex[:12]}"
+            conn.execute(
+                "INSERT INTO node_alarms (id, node_id, alarm_index) VALUES (?, ?, ?)",
+                (aid, nid, int(a.get("alarm_index") or 1)),
+            )
+            alarm_count_by_node += 1
+            for k, v in (a.get("attrs") or {}).items():
+                conn.execute(
+                    "INSERT INTO node_alarm_attrs (alarm_id, field_key, value) VALUES (?, ?, ?)",
+                    (aid, k, str(v) if v is not None else None),
+                )
+
+        group_alarm_count = 0
+        for a in parse.node_group_alarms:
+            gid = group_id_by_name.get(a.get("group_name"))
+            if not gid:
+                parse.errors.append(f"节点组告警: 组 '{a.get('group_name')}' 未找到")
+                continue
+            aid = f"grp_alm_{uuid.uuid4().hex[:12]}"
+            conn.execute(
+                "INSERT INTO node_group_alarms (id, node_group_id, alarm_index) VALUES (?, ?, ?)",
+                (aid, gid, int(a.get("alarm_index") or 1)),
+            )
+            group_alarm_count += 1
+            for k, v in (a.get("attrs") or {}).items():
+                conn.execute(
+                    "INSERT INTO node_group_alarm_attrs (alarm_id, field_key, value) VALUES (?, ?, ?)",
+                    (aid, k, str(v) if v is not None else None),
+                )
+
+    total_nodes = sum(len(v) for v in parse.nodes_by_type_code.values())
+    total_edges = sum(len(v) for v in parse.edges_by_type_code.values())
+
+    return {
+        "code": 0,
+        "data": {
+            "topologyId": topology_id,
+            "topologyName": new_name,
+            "counts": {
+                "nodes": total_nodes,
+                "edges": total_edges,
+                "groups": len(parse.node_groups),
+                "nodeAlarms": alarm_count_by_node,
+                "groupAlarms": group_alarm_count,
+            },
+            "errors": parse.errors,
+            "warnings": parse.warnings,
+        },
+        "message": "ok",
+    }
