@@ -217,3 +217,203 @@ def test_import_preview_missing_summary_sheet_returns_400(client):
     )
     assert r.status_code == 400
     assert "边类型汇总" in r.json()["detail"]["message"]
+
+
+# ============== 正式导入测试 ==============
+
+def test_import_creates_new_edge_type_with_fields(client):
+    """新边类型 + 字段一起导入。"""
+    buf = _build_edge_import_xlsx([
+        {"code": "et_imp_new", "name": "导入新", "semantic": "connect",
+         "directed": True, "line_style": "solid", "color": "#1890ff",
+         "fields": [
+             {"fieldKey": "bandwidth", "fieldLabel": "带宽",
+              "fieldType": "text", "maxLength": 30, "sortOrder": 0},
+             {"fieldKey": "priority", "fieldLabel": "优先级",
+              "fieldType": "number", "sortOrder": 1},
+         ]},
+    ])
+
+    r = client.post(
+        "/admin/api/edge-types/import",
+        files={"file": ("test.xlsx", buf,
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert r.status_code == 200, r.text
+    data = r.json()["data"]
+    assert data["created"] == 1
+    assert data["updated"] == 0
+    assert data["totalFields"] == 2
+
+    lst = client.get("/admin/api/edge-types").json()["data"]["items"]
+    match = next(it for it in lst if it["code"] == "et_imp_new")
+    detail = client.get(f"/admin/api/edge-types/{match['id']}").json()["data"]
+    assert [f["fieldKey"] for f in detail["fields"]] == ["bandwidth", "priority"]
+    assert detail["lineStyle"] == "solid"
+    assert detail["color"] == "#1890ff"
+
+
+def test_import_overwrites_existing_edge_type(client):
+    """已存在 code → 主表覆盖，字段全部替换。"""
+    _create_edge_type(
+        client, "et_imp_ov", "旧名字",
+        fields=[
+            {"fieldKey": "old_field", "fieldLabel": "旧字段",
+             "fieldType": "text", "maxLength": 10, "sortOrder": 0}
+        ],
+    )
+    buf = _build_edge_import_xlsx([
+        {"code": "et_imp_ov", "name": "新名字",
+         "fields": [
+             {"fieldKey": "new_field", "fieldLabel": "新字段",
+              "fieldType": "text", "maxLength": 30, "sortOrder": 0}
+         ]},
+    ])
+
+    r = client.post(
+        "/admin/api/edge-types/import",
+        files={"file": ("test.xlsx", buf,
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert r.status_code == 200
+    data = r.json()["data"]
+    assert data["updated"] == 1
+    assert data["created"] == 0
+
+    lst = client.get("/admin/api/edge-types").json()["data"]["items"]
+    match = next(it for it in lst if it["code"] == "et_imp_ov")
+    assert match["name"] == "新名字"
+    detail = client.get(f"/admin/api/edge-types/{match['id']}").json()["data"]
+    field_keys = [f["fieldKey"] for f in detail["fields"]]
+    assert field_keys == ["new_field"]
+    assert "old_field" not in field_keys
+
+
+def test_import_directed_column_yes_maps_to_true(client):
+    """'有向'='是' → True；'否' 或其他 → False。"""
+    buf = _build_edge_import_xlsx([
+        {"code": "et_dir_yes", "name": "有向是", "directed": True},
+        {"code": "et_dir_no", "name": "有向否", "directed": False},
+    ])
+
+    r = client.post(
+        "/admin/api/edge-types/import",
+        files={"file": ("test.xlsx", buf,
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert r.status_code == 200
+    lst = client.get("/admin/api/edge-types").json()["data"]["items"]
+    yes = next(it for it in lst if it["code"] == "et_dir_yes")
+    no = next(it for it in lst if it["code"] == "et_dir_no")
+    assert yes["directed"] is True
+    assert no["directed"] is False
+
+
+def test_import_invalid_semantic_records_error_and_skips_row(client):
+    """'语义' 非 connect/contain → errors 记录，跳过整行。"""
+    buf = _build_edge_import_xlsx([
+        {"code": "et_bad_sem", "name": "非法语义", "semantic": "invalid_sem"},
+        {"code": "et_ok_sem", "name": "合法", "semantic": "connect"},
+    ])
+
+    r = client.post(
+        "/admin/api/edge-types/import",
+        files={"file": ("test.xlsx", buf,
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert r.status_code == 200
+    data = r.json()["data"]
+    assert data["created"] == 1  # 只有 et_ok_sem 被创建
+    assert any("invalid_sem" in e for e in data["errors"])
+
+    lst = client.get("/admin/api/edge-types").json()["data"]["items"]
+    codes = [it["code"] for it in lst]
+    assert "et_ok_sem" in codes
+    assert "et_bad_sem" not in codes
+
+
+def test_import_text_field_missing_maxlen_defaults_to_255(client):
+    """text 字段最大长度为空 → 落库 255。"""
+    buf = _build_edge_import_xlsx([
+        {"code": "et_imp_mx", "name": "空长度",
+         "fields": [
+             {"fieldKey": "note", "fieldLabel": "备注",
+              "fieldType": "text", "maxLength": None, "sortOrder": 0}
+         ]},
+    ])
+
+    r = client.post(
+        "/admin/api/edge-types/import",
+        files={"file": ("test.xlsx", buf,
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert r.status_code == 200
+    lst = client.get("/admin/api/edge-types").json()["data"]["items"]
+    match = next(it for it in lst if it["code"] == "et_imp_mx")
+    detail = client.get(f"/admin/api/edge-types/{match['id']}").json()["data"]
+    note = next(f for f in detail["fields"] if f["fieldKey"] == "note")
+    assert note["maxLength"] == 255
+
+
+def test_import_allow_codes_unknown_node_code_records_warning(client):
+    """allow_source/target 引用不存在的 node_type code → warning，字符串仍保存。"""
+    # 种一个已知的 node_type
+    r = client.post("/admin/api/node-types", json={
+        "code": "known_node", "name": "已知节点", "category": "physical",
+    })
+    assert r.status_code == 200, r.text
+
+    buf = _build_edge_import_xlsx([
+        {"code": "et_allow", "name": "白名单",
+         "allow_source": "known_node,ghost_node",
+         "allow_target": "another_ghost"},
+    ])
+
+    r = client.post(
+        "/admin/api/edge-types/import",
+        files={"file": ("test.xlsx", buf,
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert r.status_code == 200
+    data = r.json()["data"]
+    assert data["created"] == 1
+    assert any("ghost_node" in e for e in data["errors"])
+    assert any("another_ghost" in e for e in data["errors"])
+
+    lst = client.get("/admin/api/edge-types").json()["data"]["items"]
+    match = next(it for it in lst if it["code"] == "et_allow")
+    # 字符串仍保存
+    assert match["allowSourceTypeCodes"] == "known_node,ghost_node"
+    assert match["allowTargetTypeCodes"] == "another_ghost"
+
+
+def test_import_partial_failure_isolated_per_row(client):
+    """某边类型字段解析失败不影响其他边类型。"""
+    buf = _build_edge_import_xlsx([
+        {"code": "et_imp_ok", "name": "正常",
+         "fields": [
+             {"fieldKey": "level", "fieldLabel": "级别",
+              "fieldType": "text", "maxLength": 20, "sortOrder": 0},
+         ]},
+        {"code": "et_imp_bad", "name": "含错误字段",
+         "fields": [
+             {"fieldKey": "bad", "fieldLabel": "坏",
+              "fieldType": "not_a_type", "sortOrder": 0},
+         ]},
+        {"code": "et_imp_ok2", "name": "又正常",
+         "fields": [
+             {"fieldKey": "count", "fieldLabel": "计数",
+              "fieldType": "number", "sortOrder": 0},
+         ]},
+    ])
+
+    r = client.post(
+        "/admin/api/edge-types/import",
+        files={"file": ("test.xlsx", buf,
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert r.status_code == 200
+    data = r.json()["data"]
+    assert data["created"] == 3  # 3 个边类型都创建
+    assert data["totalFields"] == 2  # 只有 2 个字段成功
+    assert len(data["errors"]) >= 1

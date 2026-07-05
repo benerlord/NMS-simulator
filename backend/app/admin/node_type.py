@@ -1139,6 +1139,178 @@ async def preview_edge_types_import(file: UploadFile = File(...)):
     return {"code": 0, "data": preview.model_dump(mode="json", by_alias=True), "message": "ok"}
 
 
+@router.post("/edge-types/import")
+async def import_edge_types(file: UploadFile = File(...)):
+    if not file.filename or not file.filename.endswith('.xlsx'):
+        raise HTTPException(
+            status_code=400,
+            detail={"code": 40310, "message": "仅支持 .xlsx 文件"},
+        )
+
+    contents = await file.read()
+    wb = _load_import_workbook(contents, "边类型汇总")
+    ws = wb["边类型汇总"]
+    result = EdgeTypeImportResult()
+
+    _IDENT_RE_EDGE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+    with transaction() as conn:
+        headers = _build_header_map(ws)
+        # 预取所有 node_type.code 集合用于 allow_codes 引用校验
+        known_node_codes = {
+            r["code"] for r in conn.execute("SELECT code FROM node_types").fetchall()
+        }
+
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            if all(v is None or v == '' for v in row):
+                break
+            code = _col(headers, "Code", row)
+            name = _col(headers, "名称", row)
+            if not code or not name:
+                result.errors.append(f"Code={code or '(空)'} 缺少必填字段（Code/名称），跳过")
+                continue
+
+            semantic_raw = _col(headers, "语义", row) or "connect"
+            semantic = semantic_raw.strip().lower()
+            if semantic not in ("connect", "contain"):
+                result.errors.append(
+                    f"[{code}] 语义 '{semantic_raw}' 非法（仅支持 connect/contain），跳过整行"
+                )
+                continue
+
+            directed = 1 if _col(headers, "有向", row) == "是" else 0
+            exclusive_target = 1 if _col(headers, "唯一目标", row) == "是" else 0
+            allow_source_raw = _col(headers, "允许源类型", row)
+            allow_target_raw = _col(headers, "允许目标类型", row)
+            line_style = _col(headers, "线条样式", row)
+            color = _col(headers, "颜色", row)
+            description = _col(headers, "描述", row)
+
+            # allow_codes 引用校验（warning-only，仍保存字符串）
+            for kind, raw in [("源", allow_source_raw), ("目标", allow_target_raw)]:
+                if raw:
+                    for c in [x.strip() for x in raw.split(",") if x.strip()]:
+                        if c not in known_node_codes:
+                            result.errors.append(
+                                f"[{code}] 允许{kind}类型 '{c}' 不存在的节点类型 code，字符串仍保存"
+                            )
+
+            existing = conn.execute(
+                "SELECT id FROM edge_types WHERE code = ?", (code,)
+            ).fetchone()
+
+            if existing:
+                type_id = existing["id"]
+                conn.execute(
+                    """UPDATE edge_types SET name=?, semantic=?, directed=?, exclusive_target=?,
+                       allow_source_type_codes=?, allow_target_type_codes=?, line_style=?,
+                       color=?, description=?, updated_at=datetime('now')
+                       WHERE id=?""",
+                    (name, semantic, directed, exclusive_target,
+                     allow_source_raw, allow_target_raw, line_style, color,
+                     description, type_id),
+                )
+                result.updated += 1
+            else:
+                type_id = _new_edge_id()
+                conn.execute(
+                    """INSERT INTO edge_types
+                       (id, code, name, semantic, directed, exclusive_target,
+                        allow_source_type_codes, allow_target_type_codes,
+                        line_style, color, description)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                    (type_id, code, name, semantic, directed, exclusive_target,
+                     allow_source_raw, allow_target_raw, line_style, color, description),
+                )
+                result.created += 1
+
+            sheet_name = _safe_sheet_name(code)
+            if sheet_name in wb.sheetnames:
+                conn.execute(
+                    "DELETE FROM edge_type_fields WHERE edge_type_id = ?",
+                    (type_id,),
+                )
+                fheaders = _build_header_map(wb[sheet_name])
+                seen_fields: set = set()
+                for frow in wb[sheet_name].iter_rows(min_row=2, values_only=True):
+                    if all(v is None or v == '' for v in frow):
+                        break
+                    fkey = _col(fheaders, "字段标识", frow)
+                    flabel = _col(fheaders, "显示名称", frow)
+                    ftype_raw = _col(fheaders, "字段类型", frow)
+                    if not fkey or not flabel or not ftype_raw:
+                        continue
+                    if not _IDENT_RE_EDGE.match(fkey):
+                        result.errors.append(
+                            f"[{code}] 字段标识 {fkey} 非法（仅支持字母/数字/下划线），跳过"
+                        )
+                        continue
+                    if fkey in seen_fields:
+                        result.errors.append(
+                            f"[{code}] 字段标识 {fkey} 重复，跳过"
+                        )
+                        continue
+                    seen_fields.add(fkey)
+
+                    ftype = ftype_raw.strip().lower()
+                    if ftype not in ('text', 'number', 'select', 'boolean', 'array'):
+                        result.errors.append(
+                            f"[{code}] 字段 {fkey} 类型 '{ftype_raw}' 无效，跳过"
+                        )
+                        continue
+
+                    maxlen_raw = _col(fheaders, "最大长度", frow)
+                    if ftype == 'text':
+                        try:
+                            maxlen = int(maxlen_raw) if maxlen_raw else 255
+                            if maxlen < 1:
+                                maxlen = 255
+                        except (ValueError, TypeError):
+                            maxlen = 255
+                    else:
+                        try:
+                            maxlen = int(maxlen_raw) if maxlen_raw else None
+                        except (ValueError, TypeError):
+                            maxlen = None
+
+                    defval = _col(fheaders, "默认值", frow)
+                    opts = _col(fheaders, "选项", frow)
+                    req_raw = _col(fheaders, "必填", frow) or ""
+                    req = 1 if req_raw == "是" else 0
+                    sort_raw = _col(fheaders, "排序", frow)
+                    sort = int(sort_raw) if sort_raw and sort_raw.isdigit() else 0
+
+                    if ftype == 'array' and defval:
+                        import json as _json
+                        try:
+                            _parsed = _json.loads(defval)
+                            if not isinstance(_parsed, list):
+                                result.errors.append(
+                                    f"[{code}] 字段 {fkey} 的默认值必须是 JSON array，跳过"
+                                )
+                                continue
+                        except _json.JSONDecodeError:
+                            result.errors.append(
+                                f"[{code}] 字段 {fkey} 的默认值不是合法 JSON，跳过"
+                            )
+                            continue
+
+                    conn.execute(
+                        """INSERT INTO edge_type_fields
+                           (edge_type_id, field_key, field_label, field_type,
+                            max_length, default_value, options, required, sort_order)
+                           VALUES (?,?,?,?,?,?,?,?,?)""",
+                        (type_id, fkey, flabel, ftype, maxlen, defval, opts, req, sort),
+                    )
+                    result.total_fields += 1
+
+    return {
+        "code": 0,
+        "data": result.model_dump(mode="json", by_alias=True),
+        "message": "ok",
+    }
+
+
 @router.delete("/edge-types/{type_id}")
 def delete_edge_type(type_id: str) -> dict:
     with transaction() as conn:
