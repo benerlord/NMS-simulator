@@ -663,6 +663,9 @@ async def import_node_types(file: UploadFile = File(...)):
 
     with transaction() as conn:
         headers = _build_header_map(ws)
+        # type_id -> [domain_id, ...]，key 存在与否决定"是否处理关联"
+        pending_links: dict[str, list] = {}
+
         for row in ws.iter_rows(min_row=2, values_only=True):
             if all(v is None or v == '' for v in row):
                 break
@@ -674,11 +677,6 @@ async def import_node_types(file: UploadFile = File(...)):
                 result.errors.append(f"编码={code or '(空)'} 缺少必填字段（编码/名称/分类），跳过")
                 continue
 
-            icon = _col(headers, "图标", row)
-            color = _col(headers, "颜色", row)
-            shape = _col(headers, "形状", row)
-            render_mode = _col(headers, "渲染模式", row) or "none"
-            dn_template = _col(headers, "DN模板", row)
             description = _col(headers, "描述", row)
 
             existing = conn.execute(
@@ -688,25 +686,41 @@ async def import_node_types(file: UploadFile = File(...)):
             if existing:
                 type_id = existing["id"]
                 conn.execute(
-                    """UPDATE node_types SET name=?, category=?, icon=?, color=?,
-                       shape=?, render_mode=?, dn_template=?, description=?,
+                    """UPDATE node_types SET name=?, category=?, description=?,
                        updated_at=datetime('now')
                        WHERE id=?""",
-                    (name, category, icon, color, shape,
-                     render_mode, dn_template, description, type_id),
+                    (name, category, description, type_id),
                 )
                 result.updated += 1
             else:
                 type_id = _new_id()
                 conn.execute(
                     """INSERT INTO node_types
-                       (id, code, name, category, icon, color, shape,
-                        render_mode, dn_template, description)
-                       VALUES (?,?,?,?,?,?,?,?,?,?)""",
-                    (type_id, code, name, category, icon, color, shape,
-                     render_mode, dn_template, description),
+                       (id, code, name, category, description)
+                       VALUES (?,?,?,?,?)""",
+                    (type_id, code, name, category, description),
                 )
                 result.created += 1
+
+            # 解析"所属网管/设备"列 → 收集待关联 domain_id
+            if "所属网管/设备" in headers:
+                cell = _col(headers, "所属网管/设备", row)
+                if cell:
+                    names = [n.strip() for n in cell.split("|") if n.strip()]
+                    dom_ids: list = []
+                    for dname in names:
+                        drow = conn.execute(
+                            "SELECT id FROM domains WHERE name = ?", (dname,)
+                        ).fetchone()
+                        if drow:
+                            dom_ids.append(drow["id"])
+                        else:
+                            result.errors.append(
+                                f"[{code}] 网管/设备 '{dname}' 不存在，关联跳过"
+                            )
+                    pending_links[type_id] = dom_ids
+                else:
+                    pending_links[type_id] = []
 
             sheet_name = _safe_sheet_name(code)
             if sheet_name in wb.sheetnames:
@@ -736,7 +750,20 @@ async def import_node_types(file: UploadFile = File(...)):
                             f"[{code}] 字段 {fkey} 类型 '{ftype_raw}' 无效，仅支持 text/number/select/boolean/array，跳过"
                         )
                         continue
-                    maxlen = _col(fheaders, "最大长度", frow)
+                    maxlen_raw = _col(fheaders, "最大长度", frow)
+                    if ftype == 'text':
+                        # text 类型 max_length 兜底 255
+                        try:
+                            maxlen = int(maxlen_raw) if maxlen_raw else 255
+                            if maxlen < 1:
+                                maxlen = 255
+                        except (ValueError, TypeError):
+                            maxlen = 255
+                    else:
+                        try:
+                            maxlen = int(maxlen_raw) if maxlen_raw else None
+                        except (ValueError, TypeError):
+                            maxlen = None
                     defval = _col(fheaders, "默认值", frow)
                     opts = _col(fheaders, "选项", frow)
                     req_raw = _col(fheaders, "必填", frow) or ""
@@ -769,6 +796,15 @@ async def import_node_types(file: UploadFile = File(...)):
                          maxlen, defval, opts, req, sort),
                     )
                     result.total_fields += 1
+
+        # 一次性写入 domain_node_types
+        for type_id, dom_ids in pending_links.items():
+            conn.execute("DELETE FROM domain_node_types WHERE node_type_id = ?", (type_id,))
+            for did in dom_ids:
+                conn.execute(
+                    "INSERT OR IGNORE INTO domain_node_types (domain_id, node_type_id) VALUES (?, ?)",
+                    (did, type_id),
+                )
 
     return {
         "code": 0,
