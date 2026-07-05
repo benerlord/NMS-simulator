@@ -104,6 +104,27 @@ def _build_node_detail(conn, row) -> NodeDetail:
     )
 
 
+def _validate_attrs_for_bulk(field_map: dict, attrs: dict) -> Optional[str]:
+    """批量导入时对单行 attrs 做校验。
+    - 必填字段（required=1）若在 attrs 中缺失或为空 → 返回错误理由
+    - text 类型字段若超过 max_length → 返回错误理由
+    - 返回 None 表示通过
+    field_map: {field_key: sqlite3.Row}（含 field_label, field_type, max_length, required 列）
+    """
+    for field_key, field in field_map.items():
+        if field["required"] and not attrs.get(field_key):
+            return f"必填字段「{field['field_label']}」缺失"
+    for field_key, value in attrs.items():
+        field = field_map.get(field_key)
+        if field is None or value is None:
+            continue
+        if field["field_type"] == "text":
+            max_length = field["max_length"] or 255
+            if len(value) > max_length:
+                return f"字段「{field['field_label']}」内容长度不能超过 {max_length}"
+    return None
+
+
 # GET /admin/api/topologies/{topology_id}/nodes
 @router.get("/topologies/{topology_id}/nodes")
 def list_nodes(
