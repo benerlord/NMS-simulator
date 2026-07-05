@@ -507,13 +507,13 @@ def _build_node_types_excel(items: list[dict]) -> BytesIO:
 
     ws1 = wb.active
     ws1.title = "类型汇总"
-    ws1.append(["编码", "名称", "分类", "图标", "颜色", "形状",
-                 "渲染模式", "DN模板", "描述", "创建时间", "更新时间"])
+    ws1.append(["编码", "名称", "分类", "所属网管/设备",
+                "描述", "创建时间", "更新时间"])
     for item in items:
+        dom_names = item.get("domainNames") or []
         ws1.append([
-            item.get("code"), item.get("name"),
-            item.get("category"), item.get("icon"), item.get("color"),
-            item.get("shape"), item.get("renderMode"), item.get("dnTemplate"),
+            item.get("code"), item.get("name"), item.get("category"),
+            "|".join(dom_names) if dom_names else None,
             item.get("description"), item.get("createdAt"), item.get("updatedAt"),
         ])
 
@@ -552,17 +552,19 @@ def export_node_types(data: TypeExportRequest):
             ).fetchall()
         items = []
         for r in rows:
+            dom_rows = conn.execute("""
+                SELECT d.id, d.name FROM domains d
+                INNER JOIN domain_node_types dnt ON dnt.domain_id = d.id
+                WHERE dnt.node_type_id = ?
+            """, (r["id"],)).fetchall()
             item = NodeTypeDetail(
                 id=r["id"],
                 code=r["code"],
                 name=r["name"],
                 category=r["category"],
-                icon=r["icon"],
-                color=r["color"],
-                shape=r["shape"],
-                render_mode=r["render_mode"],
-                dn_template=r["dn_template"],
                 description=r["description"],
+                domain_ids=[dr["id"] for dr in dom_rows],
+                domain_names=[dr["name"] for dr in dom_rows],
                 created_at=r["created_at"],
                 updated_at=r["updated_at"],
                 fields=_get_node_type_fields(conn, r["id"]),
