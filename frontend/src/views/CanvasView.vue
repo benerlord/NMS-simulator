@@ -11,6 +11,7 @@ import GroupPalette from '@/components/canvas/GroupPalette.vue'
 import GroupCreateModal from '@/components/canvas/GroupCreateModal.vue'
 import NodeAttrsPanel from '@/components/canvas/NodeAttrsPanel.vue'
 import NodeAttrsModal from '@/components/canvas/NodeAttrsModal.vue'
+import BulkImportNodesModal from '@/components/canvas/BulkImportNodesModal.vue'
 import EdgeAttrsPanel from '@/components/canvas/EdgeAttrsPanel.vue'
 import { useCanvas } from '@/composables/useCanvas'
 import { useNodeGroups } from '@/composables/useNodeGroups'
@@ -1002,6 +1003,48 @@ function handleCreateModalClose() {
   pendingDropNodeType.value = null
 }
 
+// Bulk import modal state
+const bulkImportModalOpen = ref(false)
+const bulkImportNodeType = ref<NodeTypeDetail | null>(null)
+const bulkImportDefaultStartX = ref(0)
+const bulkImportDefaultStartY = ref(0)
+
+const existingNames = computed(() => {
+  if (!graphData.value) return []
+  return graphData.value.nodes.map((n) => n.name).filter((n): n is string => !!n)
+})
+
+function handleBulkImportOpen(nodeType: NodeTypeDetail) {
+  const g = graph.value as Graph | null
+  const cols = 6
+  const dx = 220
+  const dy = 140
+  if (g) {
+    const rect = g.container.getBoundingClientRect()
+    const center = g.pageToLocal(rect.left + rect.width / 2, rect.top + rect.height / 2)
+    bulkImportDefaultStartX.value = Math.round(center.x - (cols * dx) / 2)
+    bulkImportDefaultStartY.value = Math.round(center.y - dy)
+  } else {
+    bulkImportDefaultStartX.value = 0
+    bulkImportDefaultStartY.value = 0
+  }
+  bulkImportNodeType.value = nodeType
+  bulkImportModalOpen.value = true
+}
+
+async function handleBulkImported(createdIds: string[]) {
+  await fetchGraph()
+  await fetchGroupGraph()
+  const g = graph.value as Graph | null
+  if (g && createdIds.length > 0) {
+    const firstCell = g.getCellById(createdIds[0])
+    if (firstCell && firstCell.isNode()) {
+      const pos = firstCell.getPosition()
+      g.centerPoint(pos.x, pos.y)
+    }
+  }
+}
+
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeydown)
   if (positionSaveTimer) {
@@ -1034,7 +1077,7 @@ onBeforeUnmount(() => {
 
     <div class="canvas-content">
       <div class="left-panels">
-        <TypePalette :topology-id="topologyId" />
+        <TypePalette :topology-id="topologyId" @bulk-import="handleBulkImportOpen" />
         <GroupPalette
           :topology-id="topologyId"
           @create="handleGroupCreate"
@@ -1101,6 +1144,16 @@ onBeforeUnmount(() => {
         :node-type-name="pendingNodeTypeForModal.name"
         @close="handleCreateModalClose"
         @created="handleNodeCreated"
+      />
+
+      <BulkImportNodesModal
+        v-model:open="bulkImportModalOpen"
+        :topology-id="topologyId"
+        :node-type="bulkImportNodeType"
+        :default-start-x="bulkImportDefaultStartX"
+        :default-start-y="bulkImportDefaultStartY"
+        :existing-names="existingNames"
+        @imported="handleBulkImported"
       />
 
       <GroupCreateModal
