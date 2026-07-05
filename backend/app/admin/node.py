@@ -419,9 +419,9 @@ def set_node_attrs(node_id: str, attrs: list[NodeAttrSet]) -> dict:
 @router.post("/topologies/{topology_id}/nodes/bulk")
 def bulk_create_nodes(topology_id: str, req: BulkNodesCreateRequest) -> dict:
     with transaction() as conn:
-        # 1. 前置检查：拓扑存在
+        # 1. 前置检查：拓扑存在，同时取 alarm_schema_id 供后续自动告警使用
         topo = conn.execute(
-            "SELECT id FROM topologies WHERE id = ?", (topology_id,)
+            "SELECT id, alarm_schema_id FROM topologies WHERE id = ?", (topology_id,)
         ).fetchone()
         if not topo:
             raise HTTPException(
@@ -494,5 +494,26 @@ def bulk_create_nodes(topology_id: str, req: BulkNodesCreateRequest) -> dict:
                 )
             created.append({"index": idx, "id": node_id, "name": name})
             seen_in_batch.add(name)
+
+        # Auto-insert 1 default alarm per created node if topology has alarm_schema bound
+        if topo["alarm_schema_id"] and created:
+            sid = topo["alarm_schema_id"]
+            alarm_fields = conn.execute(
+                "SELECT field_key, mapping_target, default_value FROM alarm_schema_fields "
+                "WHERE alarm_schema_id = ? ORDER BY sort_order, id",
+                (sid,),
+            ).fetchall()
+            for c in created:
+                aid = f"alm_{uuid.uuid4().hex[:12]}"
+                conn.execute(
+                    "INSERT INTO node_alarms (id, node_id, alarm_index) VALUES (?, ?, 1)",
+                    (aid, c["id"]),
+                )
+                attrs = build_alarm_attrs(conn, c["id"], alarm_fields)
+                for k, v in attrs.items():
+                    conn.execute(
+                        "INSERT INTO node_alarm_attrs (alarm_id, field_key, value) VALUES (?, ?, ?)",
+                        (aid, k, v),
+                    )
 
     return {"code": 0, "data": {"created": created, "skipped": skipped}, "message": "ok"}
