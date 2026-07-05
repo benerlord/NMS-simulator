@@ -7,11 +7,12 @@ from app.admin.schemas import (
 )
 
 
-def test_field_text_requires_max_length():
-    with pytest.raises(ValidationError):
-        AlarmSchemaFieldCreate(
-            field_key="x", field_label="X", field_type="text"
-        )
+def test_field_text_maxlen_none_defaults_to_255():
+    """text 类型 max_length=None → 兜底 255（旧行为 raise 已在 2026-07-05 移除）。"""
+    f = AlarmSchemaFieldCreate(
+        field_key="x", field_label="X", field_type="text"
+    )
+    assert f.max_length == 255
 
 
 def test_field_non_text_no_max_length_needed():
