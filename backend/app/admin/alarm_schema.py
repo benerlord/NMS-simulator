@@ -3,9 +3,9 @@ import uuid
 from io import BytesIO
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 
 from app.db.connection import connect, transaction
 from app.admin.schemas import (
@@ -274,6 +274,90 @@ def _build_alarm_schemas_excel(items: list) -> BytesIO:
     wb.save(output)
     output.seek(0)
     return output
+
+
+def _build_header_map(ws) -> dict:
+    """读取第 1 行构建 {表头名: 列索引}，空返回 {}."""
+    row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), None)
+    if not row:
+        return {}
+    return {str(v).strip(): i for i, v in enumerate(row) if v is not None and str(v).strip()}
+
+
+def _col(headers: dict, name: str, row: tuple):
+    """按表头名取值，找不到列或空值返回 None。"""
+    idx = headers.get(name)
+    if idx is None or idx >= len(row):
+        return None
+    val = row[idx]
+    if val is None:
+        return None
+    return str(val).strip() or None
+
+
+def _load_import_workbook(contents: bytes):
+    try:
+        wb = load_workbook(filename=BytesIO(contents))
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": 40410, "message": "文件无法解析，请确认是有效的 xlsx 文件"},
+        )
+    if "模板汇总" not in wb.sheetnames:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": 40411, "message": "缺少「模板汇总」Sheet"},
+        )
+    return wb
+
+
+@router.post("/alarm-schemas/import/preview")
+async def preview_alarm_schemas_import(file: UploadFile = File(...)):
+    if not file.filename or not file.filename.endswith('.xlsx'):
+        raise HTTPException(
+            status_code=400,
+            detail={"code": 40412, "message": "仅支持 .xlsx 文件"},
+        )
+
+    contents = await file.read()
+    wb = _load_import_workbook(contents)
+    ws = wb["模板汇总"]
+
+    to_create: list = []
+    to_update: list = []
+    errors: list = []
+
+    with connect() as conn:
+        headers = _build_header_map(ws)
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            if all(v is None or v == '' for v in row):
+                break
+            code = _col(headers, "Code", row)
+            name = _col(headers, "名称", row)
+
+            if not code or not name:
+                errors.append(f"Code={code or '(空)'} 缺少必填字段（Code/名称），跳过")
+                continue
+
+            existing = conn.execute(
+                "SELECT id, name FROM alarm_schemas WHERE code = ?", (code,)
+            ).fetchone()
+
+            if existing:
+                to_update.append({
+                    "code": code,
+                    "name": name,
+                    "old_name": existing["name"],
+                })
+            else:
+                to_create.append({"code": code, "name": name})
+
+    preview = AlarmSchemaImportPreview(
+        to_create=[AlarmSchemaImportPreviewItem(**c) for c in to_create],
+        to_update=[AlarmSchemaImportPreviewItem(**u) for u in to_update],
+        errors=errors,
+    )
+    return {"code": 0, "data": preview.model_dump(mode="json", by_alias=True), "message": "ok"}
 
 
 @router.post("/alarm-schemas/export")
