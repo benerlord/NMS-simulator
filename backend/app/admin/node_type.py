@@ -51,11 +51,6 @@ def _row_to_node_type_item(row) -> NodeTypeItem:
         code=row["code"],
         name=row["name"],
         category=row["category"],
-        icon=row["icon"],
-        color=row["color"],
-        shape=row["shape"],
-        render_mode=row["render_mode"],
-        dn_template=row["dn_template"],
         description=row["description"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
@@ -299,11 +294,6 @@ def list_node_types(domain_id: str = Query(None, description="按域过滤，NUL
                 code=r["code"],
                 name=r["name"],
                 category=r["category"],
-                icon=r["icon"],
-                color=r["color"],
-                shape=r["shape"],
-                render_mode=r["render_mode"],
-                dn_template=r["dn_template"],
                 description=r["description"],
                 domain_ids=[dr["id"] for dr in dom_rows],
                 domain_names=[dr["name"] for dr in dom_rows],
@@ -323,17 +313,19 @@ def get_node_type(type_id: str) -> dict:
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail={"code": 40201, "message": "类型不存在"})
+        dom_rows = conn.execute("""
+            SELECT d.id, d.name FROM domains d
+            INNER JOIN domain_node_types dnt ON dnt.domain_id = d.id
+            WHERE dnt.node_type_id = ?
+        """, (type_id,)).fetchall()
         item = NodeTypeDetail(
             id=row["id"],
             code=row["code"],
             name=row["name"],
             category=row["category"],
-            icon=row["icon"],
-            color=row["color"],
-            shape=row["shape"],
-            render_mode=row["render_mode"],
-            dn_template=row["dn_template"],
             description=row["description"],
+            domain_ids=[dr["id"] for dr in dom_rows],
+            domain_names=[dr["name"] for dr in dom_rows],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
             fields=_get_node_type_fields(conn, row["id"]),
@@ -351,13 +343,19 @@ def create_node_type(data: NodeTypeCreate) -> dict:
         if existing:
             raise HTTPException(status_code=409, detail={"code": 40202, "message": "类型代码已存在"})
         conn.execute(
-            """INSERT INTO node_types (id, code, name, category, icon, color, shape, render_mode, dn_template, description)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (type_id, data.code, data.name, data.category, data.icon, data.color,
-             data.shape, data.render_mode, data.dn_template, data.description),
+            """INSERT INTO node_types (id, code, name, category, description)
+               VALUES (?, ?, ?, ?, ?)""",
+            (type_id, data.code, data.name, data.category, data.description),
         )
         if data.fields is not None:
             _sync_node_type_fields(conn, type_id, data.fields)
+        if data.domain_ids is not None:
+            conn.execute("DELETE FROM domain_node_types WHERE node_type_id = ?", (type_id,))
+            for dom_id in data.domain_ids:
+                conn.execute(
+                    "INSERT OR IGNORE INTO domain_node_types (domain_id, node_type_id) VALUES (?, ?)",
+                    (dom_id, type_id),
+                )
     return {"code": 0, "data": {"id": type_id}, "message": "ok"}
 
 
@@ -408,11 +406,13 @@ def update_node_type_domains(type_id: str, data: NodeTypeDomainsUpdate) -> dict:
 @router.put("/node-types/{type_id}")
 def update_node_type(type_id: str, data: NodeTypeUpdate) -> dict:
     raw = data.model_dump(exclude_unset=True)
-    fields_payload = data.fields if "fields" in raw else None  # 用户是否传入了 fields
-    raw.pop("fields", None)  # 不放进 UPDATE SQL
+    fields_payload = data.fields if "fields" in raw else None
+    domain_ids_payload = data.domain_ids if "domain_ids" in raw else None
+    raw.pop("fields", None)
+    raw.pop("domain_ids", None)
 
     # 防御：空 body {} 拒绝
-    if not raw and fields_payload is None:
+    if not raw and fields_payload is None and domain_ids_payload is None:
         raise HTTPException(status_code=400, detail={"code": 40203, "message": "无更新字段"})
 
     with transaction() as conn:
@@ -431,6 +431,14 @@ def update_node_type(type_id: str, data: NodeTypeUpdate) -> dict:
 
         if fields_payload is not None:
             _sync_node_type_fields(conn, type_id, fields_payload)
+
+        if domain_ids_payload is not None:
+            conn.execute("DELETE FROM domain_node_types WHERE node_type_id = ?", (type_id,))
+            for dom_id in domain_ids_payload:
+                conn.execute(
+                    "INSERT OR IGNORE INTO domain_node_types (domain_id, node_type_id) VALUES (?, ?)",
+                    (dom_id, type_id),
+                )
 
     return {"code": 0, "data": {"id": type_id}, "message": "ok"}
 

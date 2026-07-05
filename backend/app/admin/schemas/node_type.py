@@ -50,23 +50,15 @@ class NodeTypeCreate(CamelModel):
     code: str = Field(..., min_length=1, max_length=50)
     name: str = Field(..., min_length=1, max_length=100)
     category: str = Field(..., min_length=1, max_length=50)
-    icon: Optional[str] = Field(default=None, max_length=50)
-    color: Optional[str] = Field(default=None, max_length=20)
-    shape: Optional[str] = Field(default=None, max_length=20)
-    render_mode: str = Field(default="none", pattern="^(none|flat)$")
-    dn_template: Optional[str] = Field(default=None, max_length=200)
     description: Optional[str] = Field(default=None, max_length=500)
+    domain_ids: Optional[list[str]] = Field(default=None)
     fields: Optional[list[NodeTypeFieldInput]] = Field(default=None)
 
 
 class NodeTypeUpdate(CamelModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=100)
-    icon: Optional[str] = Field(default=None, max_length=50)
-    color: Optional[str] = Field(default=None, max_length=20)
-    shape: Optional[str] = Field(default=None, max_length=20)
-    render_mode: Optional[str] = Field(default=None, pattern="^(none|flat)$")
-    dn_template: Optional[str] = Field(default=None, max_length=200)
     description: Optional[str] = Field(default=None, max_length=500)
+    domain_ids: Optional[list[str]] = Field(default=None)
     fields: Optional[list[NodeTypeFieldInput]] = Field(default=None)
 
 
@@ -88,11 +80,6 @@ class NodeTypeItem(CamelModel):
     code: str
     name: str
     category: str
-    icon: Optional[str]
-    color: Optional[str]
-    shape: Optional[str]
-    render_mode: str
-    dn_template: Optional[str]
     description: Optional[str]
     domain_ids: list[str] = []
     domain_names: list[str] = []
