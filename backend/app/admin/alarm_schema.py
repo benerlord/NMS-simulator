@@ -1,8 +1,11 @@
 import re
 import uuid
+from io import BytesIO
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
+from openpyxl import Workbook
 
 from app.db.connection import connect, transaction
 from app.admin.schemas import (
@@ -12,6 +15,10 @@ from app.admin.schemas import (
     AlarmSchemaItem,
     AlarmSchemaFieldItem,
     AlarmSchemaFieldCreate,
+    AlarmSchemaExportRequest,
+    AlarmSchemaImportPreviewItem,
+    AlarmSchemaImportPreview,
+    AlarmSchemaImportResult,
 )
 
 router = APIRouter(prefix="/admin/api", tags=["告警模板"])
@@ -212,3 +219,84 @@ def delete_alarm_schema(schema_id: str) -> dict:
             )
         conn.execute("DELETE FROM alarm_schemas WHERE id = ?", (schema_id,))
     return {"code": 0, "data": None, "message": "ok"}
+
+
+# ============== Excel 导入导出 ==============
+
+_SHEET_INVALID_CHARS = re.compile(r'[\\\*/\[\]\?:]')
+
+
+def _safe_sheet_name(code: str) -> str:
+    name = _SHEET_INVALID_CHARS.sub('_', code)
+    if len(name) > 31:
+        name = name[:28] + "..."
+    return name
+
+
+def _build_alarm_schemas_excel(items: list) -> BytesIO:
+    wb = Workbook()
+
+    ws1 = wb.active
+    ws1.title = "模板汇总"
+    ws1.append(["Code", "名称", "描述", "展示字段Key",
+                "字段数", "创建时间", "更新时间"])
+    for item in items:
+        ws1.append([
+            item.get("code"),
+            item.get("name"),
+            item.get("description"),
+            item.get("displayFieldKey"),
+            len(item.get("fields") or []),
+            item.get("createdAt"),
+            item.get("updatedAt"),
+        ])
+
+    for item in items:
+        fields = item.get("fields") or []
+        sheet_name = _safe_sheet_name(item.get("code", item.get("id", "unknown")))
+        ws = wb.create_sheet(title=sheet_name)
+        ws.append(["字段标识", "显示名称", "字段类型", "最大长度",
+                    "默认值", "选项", "必填", "排序", "映射节点属性"])
+        for f in fields:
+            ws.append([
+                f.get("fieldKey"),
+                f.get("fieldLabel"),
+                f.get("fieldType"),
+                f.get("maxLength"),
+                f.get("defaultValue"),
+                f.get("options"),
+                "是" if f.get("required") else "否",
+                f.get("sortOrder"),
+                f.get("mappingTarget"),
+            ])
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output
+
+
+@router.post("/alarm-schemas/export")
+def export_alarm_schemas(data: AlarmSchemaExportRequest):
+    with connect() as conn:
+        if data.ids:
+            placeholders = ",".join("?" for _ in data.ids)
+            rows = conn.execute(
+                f"SELECT * FROM alarm_schemas WHERE id IN ({placeholders}) ORDER BY created_at DESC",
+                tuple(data.ids),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM alarm_schemas ORDER BY created_at DESC"
+            ).fetchall()
+        items = []
+        for r in rows:
+            detail = _row_to_detail(conn, r)
+            items.append(detail.model_dump(mode="json", by_alias=True))
+
+    excel = _build_alarm_schemas_excel(items)
+    return StreamingResponse(
+        excel,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=alarm-schemas-export.xlsx"},
+    )
