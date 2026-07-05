@@ -143,6 +143,25 @@ export interface EdgeTypeUpdate {
   fields?: EdgeTypeFieldInput[] | null
 }
 
+export interface EdgeTypeImportPreviewItem {
+  code: string
+  name: string
+  oldName?: string | null
+}
+
+export interface EdgeTypeImportPreview {
+  toCreate: EdgeTypeImportPreviewItem[]
+  toUpdate: EdgeTypeImportPreviewItem[]
+  errors: string[]
+}
+
+export interface EdgeTypeImportResult {
+  created: number
+  updated: number
+  totalFields: number
+  errors: string[]
+}
+
 export interface TypeImportPreviewItem {
   code: string
   name: string
@@ -239,6 +258,22 @@ export const edgeTypeApi = {
   batchDelete: (ids: string[]): Promise<BatchDeleteResult> =>
     apiPost('/edge-types/batch-delete', { ids }),
 
-  export: (ids?: string[]): Promise<{ items: EdgeTypeDetail[] }> =>
-    apiPost('/edge-types/export', { ids }),
+  export: (ids?: string[]): Promise<Blob> =>
+    http.post('/edge-types/export', { ids }, { responseType: 'blob' }).then(r => r.data),
+
+  importPreview: (file: File): Promise<EdgeTypeImportPreview> => {
+    const form = new FormData()
+    form.append('file', file)
+    return http.post('/edge-types/import/preview', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then(r => r.data.data)
+  },
+
+  import: (file: File): Promise<EdgeTypeImportResult> => {
+    const form = new FormData()
+    form.append('file', file)
+    return http.post('/edge-types/import', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then(r => r.data.data)
+  },
 }

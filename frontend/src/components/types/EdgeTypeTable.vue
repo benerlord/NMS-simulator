@@ -1,12 +1,18 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, ExportOutlined } from '@ant-design/icons-vue'
-import { message } from 'ant-design-vue'
+import { ref, computed, h } from 'vue'
+import {
+  PlusOutlined, EditOutlined, DeleteOutlined,
+  ExportOutlined, ImportOutlined, DownOutlined,
+} from '@ant-design/icons-vue'
+import { message, Modal, Menu, MenuItem } from 'ant-design-vue'
 import EdgeTypeModal from './EdgeTypeModal.vue'
 import { useEdgeTypes, useNodeTypes } from '@/composables/useTypes'
 import { edgeTypeApi } from '@/api/types'
-import { downloadJson, timestampFilename } from '@/utils/download'
-import type { EdgeTypeDetail, EdgeTypeCreate, EdgeTypeUpdate } from '@/api/types'
+import { downloadBlob, timestampExcelFilename } from '@/utils/download'
+import type {
+  EdgeTypeDetail, EdgeTypeCreate, EdgeTypeUpdate,
+  EdgeTypeImportPreview,
+} from '@/api/types'
 
 const {
   edgeTypes,
@@ -25,6 +31,7 @@ defineExpose({ refresh: fetchEdgeTypes })
 const modalOpen = ref(false)
 const modalEditing = ref<EdgeTypeDetail | null>(null)
 const modalLoading = ref(false)
+const fileInputRef = ref<HTMLInputElement | null>(null)
 
 function openCreate() {
   modalEditing.value = null
@@ -78,12 +85,105 @@ const filteredEdgeTypes = computed(() => {
   )
 })
 
-async function handleExport() {
+async function handleExport(ids?: string[]) {
   try {
-    const ids = selectedRowKeys.value.length > 0 ? selectedRowKeys.value : undefined
-    const result = await edgeTypeApi.export(ids)
-    downloadJson(result.items, timestampFilename('edge-types-export'))
-    message.success(`已导出 ${result.items.length} 个边类型`)
+    const blob = await edgeTypeApi.export(ids)
+    downloadBlob(blob, timestampExcelFilename('edge-types-export'))
+    message.success('导出成功')
+  } catch {}
+}
+
+function handleExportMenuClick({ key }: { key: string }) {
+  if (key === 'all') {
+    handleExport()
+  } else if (key === 'selected') {
+    if (selectedRowKeys.value.length === 0) {
+      message.warning('请先勾选要导出的边类型')
+      return
+    }
+    handleExport(selectedRowKeys.value)
+  }
+}
+
+function handleImportClick() {
+  fileInputRef.value?.click()
+}
+
+async function handleFileChosen(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+
+  let preview: EdgeTypeImportPreview
+  try {
+    preview = await edgeTypeApi.importPreview(file)
+  } catch {
+    return
+  }
+
+  const children: ReturnType<typeof h>[] = []
+
+  if (preview.toCreate.length) {
+    children.push(
+      h('div', { style: { fontWeight: 'bold', marginBottom: '4px' } },
+        `将新建（${preview.toCreate.length} 个）：`),
+      ...preview.toCreate.map(item =>
+        h('div', { style: { paddingLeft: '8px' } },
+          `• ${item.code}（${item.name || item.code}）`),
+      ),
+    )
+  }
+
+  if (preview.toUpdate.length) {
+    if (children.length) children.push(h('br'))
+    children.push(
+      h('div', { style: { fontWeight: 'bold', marginBottom: '4px' } },
+        `将覆盖（字段将被替换）（${preview.toUpdate.length} 个）：`),
+      ...preview.toUpdate.map(item => {
+        const nameChanged = item.oldName && item.oldName !== item.name
+        const text = nameChanged
+          ? `• ${item.code}（${item.oldName} → ${item.name}）`
+          : `• ${item.code}（${item.name || item.code}）`
+        return h('div', { style: { paddingLeft: '8px' } }, text)
+      }),
+    )
+  }
+
+  if (preview.errors.length) {
+    if (children.length) children.push(h('br'))
+    children.push(
+      h('div', { style: { color: '#faad14' } },
+        `⚠ 有 ${preview.errors.length} 行因缺少必填字段将被跳过。`),
+    )
+  }
+
+  if (preview.toUpdate.length > 0) {
+    Modal.confirm({
+      title: '确认导入',
+      content: h('div', { style: { lineHeight: '1.8' } }, children),
+      okText: '确认导入',
+      cancelText: '取消',
+      width: 480,
+      onOk: () => doImport(file),
+    })
+  } else {
+    await doImport(file)
+  }
+}
+
+async function doImport(file: File) {
+  try {
+    const result = await edgeTypeApi.import(file)
+    const parts: string[] = []
+    if (result.created) parts.push(`新建 ${result.created} 个`)
+    if (result.updated) parts.push(`更新 ${result.updated} 个`)
+    parts.push(`导入 ${result.totalFields} 个字段`)
+    message.success(parts.join('，'))
+    if (result.errors.length) {
+      message.warning(result.errors.slice(0, 3).join('；') + (result.errors.length > 3 ? '…' : ''))
+    }
+    fetchEdgeTypes()
   } catch {}
 }
 
@@ -107,6 +207,14 @@ fetchNodeTypes()
 
 <template>
   <div class="edge-type-table">
+    <input
+      ref="fileInputRef"
+      type="file"
+      accept=".xlsx"
+      style="display: none"
+      @change="handleFileChosen"
+    />
+
     <div class="table-toolbar">
       <span class="toolbar-title">边类型</span>
       <a-space>
@@ -128,9 +236,24 @@ fetchNodeTypes()
             批量删除
           </a-button>
         </a-popconfirm>
-        <a-button @click="handleExport">
-          <template #icon><ExportOutlined /></template>
-          批量导出
+        <a-dropdown>
+          <a-button>
+            <template #icon><ExportOutlined /></template>
+            批量导出
+            <DownOutlined />
+          </a-button>
+          <template #overlay>
+            <Menu @click="handleExportMenuClick">
+              <MenuItem key="all">全部导出</MenuItem>
+              <MenuItem key="selected" :disabled="selectedRowKeys.length === 0">
+                导出选中（{{ selectedRowKeys.length }} 项）
+              </MenuItem>
+            </Menu>
+          </template>
+        </a-dropdown>
+        <a-button @click="handleImportClick">
+          <template #icon><ImportOutlined /></template>
+          导入
         </a-button>
         <a-button type="primary" @click="openCreate">
           <template #icon><PlusOutlined /></template>
