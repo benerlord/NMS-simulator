@@ -51,7 +51,7 @@ InterfaceTest/
 │       ├── db/
 │       │   ├── connection.py              # connect() / transaction()（WAL + FK）
 │       │   ├── migrations.py              # 15 表 DDL + 幂等 ALTER TABLE
-│       │   └── seed.py                    # 11 节点类型 + 5 边类型 + 3 设置
+│       │   └── seed.py                    # 3 设置（节点/边类型改为用户手动创建，不再种子内置）
 │       ├── admin/                         # 管理 API（/admin/api）
 │       │   ├── routes.py                  # GET /health
 │       │   ├── topology.py                # 拓扑 CRUD + canvas + graph + import/export
