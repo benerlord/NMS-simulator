@@ -281,6 +281,12 @@ InterfaceTest/
   - 值转换：15 组「字段类型 × JSON 值类型」枚举兼容，如 text 接受 null 视为清空、number string 输入规范化为 `String(Number(v))` 去空格
   - 设计方案：`docs/superpowers/specs/2026-07-03-json-to-node-fields-design.md`；实施计划：`docs/superpowers/plans/2026-07-03-json-to-node-fields.md`
 
+- ✅ 实例管理 HTTPS 启动修复（commit 待提交）：
+  - `cert_utils.py`：`x509.IPAddress.from_text("127.0.0.1")` 是无效 API（cryptography 从未提供），改用 `x509.IPAddress(ipaddress.ip_address("127.0.0.1"))`。此前父进程 `ensure_cert` 因 AttributeError 静默失败 → `instance_runner.start_instance` 走 `except BaseException` 把实例标 error 并 return，子进程从未启动，netstat 查不到端口
+  - `cert_utils.py`：`except ImportError` 放宽为 `except Exception`，未来任何 cryptography 后端异常（AttributeError / 版本差异等）都能兜底 fallback 到 openssl CLI
+  - `instance_runner.py`：Popen 后 `time.sleep(0.5)` + `proc.poll()` 验证子进程真的存活；立即退出（证书损坏 / 端口冲突 / 导入错误）直接标 error，不再误报 running
+  - `instance_runner.py`：子进程 stdout/stderr 从 `DEVNULL` 改写到 `backend/data/logs/instance_{id}.log`（父进程 `open` + Popen 传 fd + 父端关闭句柄，子进程持有 fd 副本继续写），便于排查未来启动失败
+
 ### 待开发
 - 编辑组定义打开 GroupCreateModal（目前右键"编辑组定义"已 emit 事件但 CanvasView 尚未接入 editGroupId）
 - 大规模节点组性能测试（10 万+ 虚拟节点 CTE 查询耗时）

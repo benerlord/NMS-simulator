@@ -11,6 +11,7 @@ Two backends are supported (tried in order):
 from __future__ import annotations
 
 import datetime
+import ipaddress
 import logging
 import os
 import subprocess
@@ -39,8 +40,8 @@ def ensure_cert(certfile: str, keyfile: str) -> tuple[str, str]:
 
     try:
         _generate_with_cryptography(cert_path, key_path)
-    except ImportError:
-        logger.info("cryptography not available – falling back to openssl")
+    except Exception as exc:
+        logger.info("cryptography backend failed (%s) – falling back to openssl", exc)
         _generate_with_openssl(cert_path, key_path)
 
     logger.info("SSL cert written: %s", cert_path)
@@ -74,7 +75,7 @@ def _generate_with_cryptography(cert_path: Path, key_path: Path) -> None:
             x509.SubjectAlternativeName(
                 [
                     x509.DNSName("localhost"),
-                    x509.IPAddress.from_text("127.0.0.1"),
+                    x509.IPAddress(ipaddress.ip_address("127.0.0.1")),
                 ]
             ),
             critical=False,

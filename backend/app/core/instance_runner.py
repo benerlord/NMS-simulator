@@ -50,18 +50,32 @@ class InstanceRunner:
                 kwargs = {}
                 if sys.platform == 'win32':
                     kwargs['creationflags'] = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
-                proc = subprocess.Popen(
-                    [
-                        sys.executable, "-m", "app.mock.instance_app",
-                        "--topology-id", topology_id,
-                        "--port", str(port),
-                        "--instance-id", inst_id,
-                        *ssl_args,
-                    ],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    **kwargs,
-                )
+                log_dir = settings.db_path.parent / "logs"
+                log_dir.mkdir(parents=True, exist_ok=True)
+                log_path = log_dir / f"instance_{inst_id}.log"
+                log_fp = open(log_path, "w", encoding="utf-8", buffering=1)
+                try:
+                    proc = subprocess.Popen(
+                        [
+                            sys.executable, "-m", "app.mock.instance_app",
+                            "--topology-id", topology_id,
+                            "--port", str(port),
+                            "--instance-id", inst_id,
+                            *ssl_args,
+                        ],
+                        stdout=log_fp,
+                        stderr=subprocess.STDOUT,
+                        **kwargs,
+                    )
+                finally:
+                    # 父进程侧关闭句柄；子进程仍持有 fd 副本，会继续写入日志文件
+                    log_fp.close()
+                # 短暂等待，确认子进程真的活着（uvicorn 已开始绑定端口）；
+                # 若立即退出说明启动失败（证书错误 / 端口冲突 / 导入错误等），标 error
+                time.sleep(0.5)
+                if proc.poll() is not None:
+                    _update_status(inst_id, "error")
+                    return
                 self._processes[inst_id] = proc
                 _update_status(inst_id, "running")
             except Exception:
